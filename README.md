@@ -1,8 +1,10 @@
 # AI Prompts for Game Development
 
-AI can generate a game from one prompt, but that usually creates a project that is difficult to maintain, test, optimize, and finish. A better approach is to make the important decisions in order, save them in the game's documentation, and then ask AI to build from those approved plans.
+The right AI prompts save both tokens and development time. They give the AI enough context to work with the systems that already exist instead of repeatedly rediscovering the project, duplicating code, replacing deliberate decisions, or rebuilding the same feature later.
 
-Use the steps below in order. Run one prompt at a time, review the result, and commit working changes before moving forward. Every prompt tells the AI to create or update the relevant game documentation.
+This README is both a start-to-finish workflow and a reference guide. If you are starting a new game, follow the steps in order. If your game is already underway, jump to the section that matches the problem you need to solve.
+
+Run one prompt at a time, review the result, and commit working changes before moving forward. Every prompt tells the AI to read, create, or update the relevant game documentation so later prompts can reuse decisions without spending tokens rediscovering them.
 
 ## 1. Define the game
 
@@ -47,17 +49,17 @@ Do not load or compress every media file the same way. Audit the game first, the
 - [Implement an optimized media pipeline](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=implement-game-media-pipeline#prompt-picker)
 - Engine-specific: [Three.js](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=threejs-media-optimization#prompt-picker), [Unity](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=unity-media-optimization#prompt-picker), [Godot](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=godot-media-optimization#prompt-picker), or [Unreal](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=unreal-media-optimization#prompt-picker)
 
-## 7. Add analytics before testing
+## 7. Now Implement Your Game
+
+Combine the approved mechanics, core loop, architecture, representative assets, audio, video, controls, UI, and feedback into the first playable build. Keep it small: one complete path with meaningful success and failure states is more useful than many unfinished systems.
+
+[Implement the first playable build](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=build-playable-vertical-slice#prompt-picker)
+
+## 8. Add analytics before testing
 
 Define stable events before the first serious playtest so you can see where players stop, fail, repeat actions, or misunderstand the game.
 
 [Set up production game analytics](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=production-game-analytics#prompt-picker)
-
-## 8. Build the smallest playable vertical slice
-
-Prove the complete core loop with one representative path, meaningful success and failure states, final-quality feedback for the defining mechanic, and enough instrumentation to answer the core playtest question.
-
-[Build a playable vertical slice](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=build-playable-vertical-slice#prompt-picker)
 
 ## 9. Playtest and improve the evidence-backed problems
 
