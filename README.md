@@ -25,6 +25,10 @@ Choose the engine you are actually using. This creates the project structure, de
 - [Godot architecture](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=godot-game-architecture#prompt-picker)
 - [Unreal Engine architecture](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=unreal-game-architecture#prompt-picker)
 
+Set up remote automation while the architecture is still flexible. This gives AI agents and conventional test runners a secure game DOM, semantic actions, real input, screenshots, events, assertions, and CI access instead of making every future test depend on pixel guessing.
+
+[Build a remote game automation tool](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=remote-game-automation#prompt-picker)
+
 ## 3. Plan the backend only if the game needs one
 
 Accounts, multiplayer, purchases, cloud saves, leaderboards, and persistent economies need trusted server-side rules. Offline games may skip this step.
@@ -83,13 +87,19 @@ Test the slice with real players. Give the AI telemetry, surveys, reviews, recor
 
 Repeat the vertical-slice and playtest steps until the core loop is clearly working.
 
-## 10. Prepare a safe release process
+## 10. Optimize and verify mobile builds
+
+If the game targets phones or tablets, test the actual playable build on physical iOS and Android devices. Measure startup, frame pacing, memory, thermals, asset residency, touch controls, orientation, safe areas, lifecycle recovery, and real network conditions before reducing quality or changing systems.
+
+[Optimize and test the game for mobile](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=mobile-game-optimization#prompt-picker)
+
+## 11. Prepare a safe release process
 
 Create reproducible builds, required test gates, environment separation, monitoring, backups, migrations, smoke tests, and rollback instructions before treating the game as production-ready.
 
 [Create a safe deployment pipeline](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=game-deployment-pipeline#prompt-picker)
 
-## 11. Complete the approved game
+## 12. Complete the approved game
 
 This is the final production prompt. It reads the design, architecture, assets, media plan, analytics, playtest findings, tests, and deployment documentation created above, then completes the approved scoped game without inventing a different one.
 
