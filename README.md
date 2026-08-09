@@ -6,6 +6,10 @@ This README is both a start-to-finish workflow and a reference guide. If you are
 
 Run one prompt at a time, review the result, and commit working changes before moving forward. Every prompt tells the AI to read, create, or update the relevant game documentation so later prompts can reuse decisions without spending tokens rediscovering them.
 
+## Phase 1: Build the game
+
+Use this phase to define the game, create its technical and creative foundations, and produce the first complete playable build.
+
 ## 1. Define the game
 
 Write down the player fantasy, goal, pressure, defining twist, and core gameplay loop. If you do not know the mechanics yet, use the optional generator.
@@ -49,11 +53,21 @@ Do not load or compress every media file the same way. Audit the game first, the
 - [Implement an optimized media pipeline](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=implement-game-media-pipeline#prompt-picker)
 - Engine-specific: [Three.js](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=threejs-media-optimization#prompt-picker), [Unity](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=unity-media-optimization#prompt-picker), [Godot](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=godot-media-optimization#prompt-picker), or [Unreal](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=unreal-media-optimization#prompt-picker)
 
-## 7. Now Implement Your Game
+---
+
+# Step 7: Now Implement Your Game
 
 Combine the approved mechanics, core loop, architecture, representative assets, audio, video, controls, UI, and feedback into the first playable build. Keep it small: one complete path with meaningful success and failure states is more useful than many unfinished systems.
 
-[Implement the first playable build](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=build-playable-vertical-slice#prompt-picker)
+> **This is where planning becomes a playable game.** Do not move into release work until the core mechanics and complete gameplay loop work together in a build someone else can play.
+
+## [▶ Implement the first playable build](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=build-playable-vertical-slice#prompt-picker)
+
+---
+
+## Phase 2: Iterate and release the game
+
+Once the first playable build exists, use evidence from real play to improve it, complete the approved scope, and prepare a safe production release.
 
 ## 8. Add analytics before testing
 
@@ -75,8 +89,8 @@ Create reproducible builds, required test gates, environment separation, monitor
 
 [Create a safe deployment pipeline](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=game-deployment-pipeline#prompt-picker)
 
-## 11. Build the complete approved game
+## 11. Complete the approved game
 
-This is the final prompt. It reads the design, architecture, assets, media plan, analytics, playtest findings, tests, and deployment documentation created above, then implements the complete scoped game without inventing a different one.
+This is the final production prompt. It reads the design, architecture, assets, media plan, analytics, playtest findings, tests, and deployment documentation created above, then completes the approved scoped game without inventing a different one.
 
 [Build the game from all approved plans](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=build-game-from-approved-plans#prompt-picker)
