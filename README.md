@@ -29,7 +29,7 @@ Set up remote automation while the architecture is still flexible. This gives AI
 
 [Build a remote game automation tool](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=remote-game-automation#prompt-picker)
 
-## 3. Plan the backend only if the game needs one
+## 3. Plan an optional backend (web games REQUIRED)
 
 Accounts, multiplayer, purchases, cloud saves, leaderboards, and persistent economies need trusted server-side rules. Offline games may skip this step.
 
@@ -103,4 +103,5 @@ Create reproducible builds, required test gates, environment separation, monitor
 
 This is the final production prompt. It reads the design, architecture, assets, media plan, analytics, playtest findings, tests, and deployment documentation created above, then completes the approved scoped game without inventing a different one.
 
+[Free Web Hosting](https://www.glitch.fun/publishers/hosting)
 [Build the game from all approved plans](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=build-game-from-approved-plans#prompt-picker)
