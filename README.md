@@ -103,5 +103,5 @@ Create reproducible builds, required test gates, environment separation, monitor
 
 This is the final production prompt. It reads the design, architecture, assets, media plan, analytics, playtest findings, tests, and deployment documentation created above, then completes the approved scoped game without inventing a different one.
 
-[Free Web Hosting](https://www.glitch.fun/publishers/hosting)
-[Build the game from all approved plans](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=build-game-from-approved-plans#prompt-picker)
+- [Free Web Hosting](https://www.glitch.fun/publishers/hosting)
+- [Build the game from all approved plans](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=build-game-from-approved-plans#prompt-picker)
