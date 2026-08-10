@@ -47,7 +47,7 @@ Accounts, multiplayer, purchases, cloud saves, leaderboards, and persistent econ
 
 ## 4. Establish the visual standard
 
-Create a visual rubric before generating large amounts of art. Use approved AAA games with a comparable genre, camera, platform, and style as the quality benchmark, then score the visible gap in characters, environments, materials, lighting, effects, locomotion, animation, HUD, menus, icons, and buttons. The interface should look like part of the game—not a website or default engine screen.
+Create a visual rubric before generating large amounts of art. Use approved AAA games with a comparable genre, camera, platform, and style as the quality benchmark, then score the visible gap in characters, environments, materials, lighting, effects, locomotion, animation, HUD, menus, icons, and buttons. Audit representative gameplay states—not only a beauty shot—including complete-frame composition, camera and character staging, state and resource clarity, selection and targeting, tactile cards or game pieces, action and VFX readability, world scale, environmental storytelling, and technical image quality. The interface should look like part of the game—not a website or default engine screen.
 
 [Create a visual quality rubric](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=visual-quality-rubric#prompt-picker)
 
