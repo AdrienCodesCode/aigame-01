@@ -25,7 +25,7 @@ Write down the player fantasy, goal, pressure, defining twist, and core gameplay
 
 ## 2. Create the project architecture
 
-Choose the engine you are actually using. This creates the project structure, dependency rules, tests, and AI instructions before the codebase becomes difficult to change.
+Choose the engine you are actually using. This creates the project structure, dependency rules, tests, and AI instructions before the codebase becomes difficult to change. It also audits the locomotion, animation, procedural motion, VFX movement, and physics reactions the approved game will need.
 
 - [Three.js architecture](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=threejs-game-architecture#prompt-picker)
 - [Unity architecture](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=unity-game-architecture#prompt-picker)
@@ -45,7 +45,7 @@ Accounts, multiplayer, purchases, cloud saves, leaderboards, and persistent econ
 
 ## 4. Establish the visual standard
 
-Create a visual rubric before generating large amounts of art. Use it to keep characters, environments, materials, lighting, effects, and animation consistent.
+Create a visual rubric before generating large amounts of art. Use approved AAA games with a comparable genre, camera, platform, and style as the quality benchmark, then score the visible gap in characters, environments, materials, lighting, effects, locomotion, and animation.
 
 [Create a visual quality rubric](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=visual-quality-rubric#prompt-picker)
 
@@ -58,7 +58,7 @@ Refine a small number of important assets first, then document an export and opt
 
 ## 6. Plan audio and video delivery
 
-Do not load or compress every media file the same way. Audit the game first, then use the implementation prompt and the prompt for your engine.
+Do not load or compress every media file the same way. Audit the game first. The audit also proposes the sound-effect families and music loops the approved mechanics, movement, environments, UI, onboarding, progression, and session structure need. Then use the implementation prompt and the prompt for your engine.
 
 - [Analyze the game media pipeline](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=audit-game-media-pipeline#prompt-picker)
 - [Implement an optimized media pipeline](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=implement-game-media-pipeline#prompt-picker)
