@@ -25,7 +25,7 @@ Write down the player fantasy, goal, pressure, defining twist, and core gameplay
 
 ## 2. Create the project architecture
 
-Choose the engine you are actually using. This creates the project structure, dependency rules, tests, and AI instructions before the codebase becomes difficult to change. It also audits the locomotion, animation, procedural motion, VFX movement, and physics reactions the approved game will need.
+Choose the engine you are actually using. This creates the project structure, dependency rules, tests, and AI instructions before the codebase becomes difficult to change. It also audits the locomotion, animation, collision bodies, hitboxes, hurtboxes, traces, procedural motion, VFX movement, and physics reactions the approved game will need.
 
 - [Three.js architecture](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=threejs-game-architecture#prompt-picker)
 - [Unity architecture](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=unity-game-architecture#prompt-picker)
@@ -51,7 +51,7 @@ Create a visual rubric before generating large amounts of art. Use approved AAA 
 
 ## 5. Create and integrate representative assets
 
-Refine a small number of important assets first, then document an export and optimization pipeline that future assets can repeat.
+Refine a small number of important assets first, then document an export and optimization pipeline that future assets can repeat. Keep simple gameplay collision separate from detailed visual meshes and animation.
 
 - [Refine artwork in Blender](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=refine-blender-art#prompt-picker)
 - [Build an optimized asset pipeline](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=optimized-asset-pipeline#prompt-picker)
@@ -68,7 +68,7 @@ Do not load or compress every media file the same way. Audit the game first. The
 
 # Step 7: Now Implement Your Game
 
-Combine the approved mechanics, core loop, architecture, representative assets, audio, video, controls, UI, and feedback into the first playable build. Keep it small: one complete path with meaningful success and failure states is more useful than many unfinished systems.
+Combine the approved mechanics, core loop, architecture, representative assets, collision and hit detection, audio, video, controls, UI, and feedback into the first playable build. Keep it small: one complete path with meaningful success and failure states is more useful than many unfinished systems.
 
 > **This is where planning becomes a playable game.** Do not move into release work until the core mechanics and complete gameplay loop work together in a build someone else can play.
 
@@ -116,7 +116,7 @@ Create reproducible builds, required test gates, environment separation, monitor
 
 ## 13. Complete the approved game
 
-This is the final production prompt. It reads the design, architecture, assets, media plan, analytics, playtest findings, tests, and deployment documentation created above, then completes the approved scoped game without inventing a different one.
+This is the final production prompt. It reads the design, architecture, collision plan, assets, media plan, analytics, playtest findings, tests, and deployment documentation created above, then completes the approved scoped game without inventing a different one.
 
 - [Free Web Hosting](https://www.glitch.fun/publishers/hosting)
 - [Build the game from all approved plans](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=build-game-from-approved-plans#prompt-picker)
