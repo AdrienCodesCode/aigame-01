@@ -67,19 +67,27 @@ Combine the approved mechanics, core loop, architecture, representative assets, 
 
 ## [▶ Implement the first playable build](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=build-playable-vertical-slice#prompt-picker)
 
+## Step 8: Design and Implement Player Onboarding
+
+Teach the real mechanics through play once the first playable build exists. Get players to a satisfying action quickly, introduce one concept at a time, provide an early win, support skipping or adaptive guidance for experienced players, protect early progress, and instrument the first-session funnel.
+
+> **Onboarding is part of the playable game, not a separate explanation screen.** Verify it with newcomers and every supported input method before moving into release work.
+
+## [▶ Design and implement game onboarding](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=game-onboarding-flow#prompt-picker)
+
 ---
 
 ## Phase 2: Iterate and release the game
 
 Once the first playable build exists, use evidence from real play to improve it, complete the approved scope, and prepare a safe production release.
 
-## 8. Add analytics before testing
+## 9. Add analytics before testing
 
 Define stable events before the first serious playtest so you can see where players stop, fail, repeat actions, or misunderstand the game.
 
 [Set up production game analytics](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=production-game-analytics#prompt-picker)
 
-## 9. Playtest and improve the evidence-backed problems
+## 10. Playtest and improve the evidence-backed problems
 
 Test the slice with real players. Give the AI telemetry, surveys, reviews, recordings, and bug reports so it can rank improvements by evidence instead of opinion.
 
@@ -87,19 +95,19 @@ Test the slice with real players. Give the AI telemetry, surveys, reviews, recor
 
 Repeat the vertical-slice and playtest steps until the core loop is clearly working.
 
-## 10. Optimize and verify mobile builds
+## 11. Optimize and verify mobile builds
 
 If the game targets phones or tablets, test the actual playable build on physical iOS and Android devices. Measure startup, frame pacing, memory, thermals, asset residency, touch controls, orientation, safe areas, lifecycle recovery, and real network conditions before reducing quality or changing systems.
 
 [Optimize and test the game for mobile](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=mobile-game-optimization#prompt-picker)
 
-## 11. Prepare a safe release process
+## 12. Prepare a safe release process
 
 Create reproducible builds, required test gates, environment separation, monitoring, backups, migrations, smoke tests, and rollback instructions before treating the game as production-ready.
 
 [Create a safe deployment pipeline](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=game-deployment-pipeline#prompt-picker)
 
-## 12. Complete the approved game
+## 13. Complete the approved game
 
 This is the final production prompt. It reads the design, architecture, assets, media plan, analytics, playtest findings, tests, and deployment documentation created above, then completes the approved scoped game without inventing a different one.
 
