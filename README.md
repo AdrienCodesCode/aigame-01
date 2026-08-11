@@ -6,6 +6,10 @@ This README is both a start-to-finish workflow and a reference guide. If you are
 
 Run one prompt at a time, review the result, and commit working changes before moving forward. Every prompt tells the AI to read, create, or update the relevant game documentation so later prompts can reuse decisions without spending tokens rediscovering them.
 
+- [Example Working Game](https://www.glitch.fun/games/9a698a9d-1b27-4c78-9256-0f458368737d/play)
+- [Open Source Code](https://github.com/Glitch-Gaming-Platform/Glitch-Games-FarmRise-Tycoon)
+- [Explainer Video](https://youtu.be/rW4IriCvpyQ)
+
 ## Phase 1: Build the game
 
 Use this phase to define the game, create its technical and creative foundations, and produce the first complete playable build.
