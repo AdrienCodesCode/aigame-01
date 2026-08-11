@@ -10,6 +10,9 @@ Run one prompt at a time, review the result, and commit working changes before m
 - [Open Source Code](https://github.com/Glitch-Gaming-Platform/Glitch-Games-FarmRise-Tycoon)
 - [Explainer Video](https://youtu.be/rW4IriCvpyQ)
 
+#### Refinement and Bugs Disclaimer
+To be clear on expectations, with this process your game will still have bugs. It will need refinement. But the speed and the amount of takes required to make that refinment will be a lot less than without properly structurally your game.
+
 ## Phase 1: Build the game
 
 Use this phase to define the game, create its technical and creative foundations, and produce the first complete playable build.
