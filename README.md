@@ -27,7 +27,7 @@ Write down the player fantasy, goal, pressure, defining twist, and core gameplay
 
 ## 2. Create the project architecture
 
-Choose the engine you are actually using. This creates the project structure, dependency rules, tests, and AI instructions before the codebase becomes difficult to change. It also audits the locomotion, animation, collision bodies, hitboxes, hurtboxes, traces, game menus, HUD, button states, input navigation, procedural motion, VFX movement, and physics reactions the approved game will need.
+Choose the engine you are actually using. This creates the project structure, dependency rules, tests, and AI instructions before the codebase becomes difficult to change. It also audits the locomotion, animation, collision bodies, hitboxes, hurtboxes, traces, game menus, HUD, button states, input navigation, procedural motion, VFX movement, physics reactions, and internationalization/localization architecture the approved game will need. Player-facing text should use stable translation keys from the start so additional languages do not require rebuilding finished gameplay and menus.
 
 - [Three.js architecture](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=threejs-game-architecture#prompt-picker)
 - [Unity architecture](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=unity-game-architecture#prompt-picker)
@@ -68,15 +68,23 @@ Do not load or compress every media file the same way. Audit the game first. The
 
 ---
 
-# Step 7: Now Implement Your Game
+## 7. Add analytics before implementation
 
-Combine the approved mechanics, core loop, architecture, representative assets, collision and hit detection, audio, video, controls, game-native HUD and menus, complete button states, and feedback into the first playable build. Keep it small: one complete path with meaningful success and failure states is more useful than many unfinished systems.
+Define the stable event taxonomy before building the first playable version. Every important player journey, mechanic, menu, onboarding step, success, failure, performance problem, and exit should be trackable from the moment it is implemented. Keep event names language-independent, include the active locale only as privacy-safe context, and make analytics failure-safe so blocked providers never break the game.
+
+[Set up production game analytics](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=production-game-analytics#prompt-picker)
+
+---
+
+# Step 8: Now Implement Your Game
+
+Combine the approved mechanics, core loop, architecture, representative assets, collision and hit detection, audio, video, controls, game-native HUD and menus, complete button states, analytics, internationalization/localization, and feedback into the first playable build. Route player-facing text through the approved locale system, preserve stable language-independent IDs, and test pseudolocalization, text expansion, fonts, right-to-left layout, and representative real languages. Keep it small: one complete path with meaningful success and failure states is more useful than many unfinished systems.
 
 > **This is where planning becomes a playable game.** Do not move into release work until the core mechanics and complete gameplay loop work together in a build someone else can play.
 
 ## [▶ Implement the first playable build](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=build-playable-vertical-slice#prompt-picker)
 
-## Step 8: Design and Implement Player Onboarding
+## Step 9: Design and Implement Player Onboarding
 
 Teach the real mechanics through play once the first playable build exists. Get players to a satisfying action quickly, introduce one concept at a time, provide an early win, use clear game-styled prompts and buttons, support skipping or adaptive guidance for experienced players, protect early progress, and instrument the first-session funnel.
 
@@ -89,12 +97,6 @@ Teach the real mechanics through play once the first playable build exists. Get 
 ## Phase 2: Iterate and release the game
 
 Once the first playable build exists, use evidence from real play to improve it, complete the approved scope, and prepare a safe production release.
-
-## 9. Add analytics before testing
-
-Define stable events before the first serious playtest so you can see where players stop, fail, repeat actions, or misunderstand the game.
-
-[Set up production game analytics](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=production-game-analytics#prompt-picker)
 
 ## 10. Playtest and improve the evidence-backed problems
 
@@ -110,13 +112,21 @@ If the game targets phones or tablets, test the actual playable build on physica
 
 [Optimize and test the game for mobile](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=mobile-game-optimization#prompt-picker)
 
-## 12. Prepare a safe release process
+## 12. Run the final AAA visual optimization pass
+
+Once the mobile and desktop behavior is stable, run the intensive final presentation pass across graphics, animation, locomotion, materials, lighting, VFX, physics presentation, game UI, technical image quality, and performance. The prompt creates Low and Ultra graphics profiles, uses separate implementation and harsh-review roles, and requires blind same-state before/after comparisons instead of accepting unsupported claims of AAA quality.
+
+> **Intensive-token warning:** This prompt can run for a long time, fan work out across many sub-agents, repeat visual reviews, and consume a large number of AI tokens. Set token, time, compute, and human-review checkpoints before starting.
+
+[Run the final AAA visual optimization pass](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=final-aaa-visual-optimization#prompt-picker)
+
+## 13. Prepare a safe release process
 
 Create reproducible builds, required test gates, environment separation, monitoring, backups, migrations, smoke tests, and rollback instructions before treating the game as production-ready.
 
 [Create a safe deployment pipeline](https://www.glitch.fun/publishers/tools/ai-game-development-prompts?prompt=game-deployment-pipeline#prompt-picker)
 
-## 13. Complete the approved game
+## 14. Complete the approved game
 
 This is the final production prompt. It reads the design, architecture, collision plan, game UI style guide, assets, media plan, analytics, playtest findings, tests, and deployment documentation created above, then completes the approved scoped game without inventing a different one.
 
