@@ -10,6 +10,13 @@ Run one prompt at a time, review the result, and commit working changes before m
 - [Open Source Code](https://github.com/Glitch-Gaming-Platform/Glitch-Games-FarmRise-Tycoon)
 - [Explainer Video](https://youtu.be/rW4IriCvpyQ)
 
+## Example Game Took 2 Days To Make
+
+<p align="center">
+  <img src="assets/readme/example-game-after-1.png" alt="Polished example farm game showing improved terrain, crops, buildings, lighting, shadows, and game UI" width="49%">
+  <img src="assets/readme/example-game-after-2.png" alt="Polished example farm game showing improved building presentation, terrain materials, lighting, shadows, and game UI" width="49%">
+</p>
+
 ### Refinement and Bugs Disclaimer
 To be clear on expectations, with this process your game will still have bugs. It will need refinement. But the speed and the amount of tokes required to make those refinements and bug fixes will be a lot less than without properly structurally your game.
 
@@ -115,6 +122,21 @@ If the game targets phones or tablets, test the actual playable build on physica
 ## 12. Run the final AAA visual optimization pass
 
 Once the mobile and desktop behavior is stable, run the intensive final presentation pass across graphics, animation, locomotion, materials, lighting, VFX, physics presentation, game UI, technical image quality, and performance. The prompt creates Low and Ultra graphics profiles, uses separate implementation and harsh-review roles, and requires blind same-state before/after comparisons instead of accepting unsupported claims of AAA quality.
+
+### Example before and after
+
+The final visual optimization pass can systematically improve terrain and material detail, lighting, shadows, environmental density, building presentation, visual hierarchy, and the overall readability of the same game.
+
+<table>
+  <tr>
+    <th width="50%">Before</th>
+    <th width="50%">After the final visual optimization pass</th>
+  </tr>
+  <tr>
+    <td><img src="assets/readme/example-game-before.jpg" alt="Example farm game before the final visual optimization pass"></td>
+    <td><img src="assets/readme/example-game-after-2.png" alt="Example farm game after the final visual optimization pass"></td>
+  </tr>
+</table>
 
 > **Intensive-token warning:** This prompt can run for a long time, fan work out across many sub-agents, repeat visual reviews, and consume a large number of AI tokens. Set token, time, compute, and human-review checkpoints before starting.
 
