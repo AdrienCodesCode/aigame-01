@@ -12,7 +12,7 @@ Run one prompt at a time, review the result, and commit working changes before m
 
 ## Example Game Took 2 Days To Make
 
-The example took 2 days to make, and it comes with a playable core loop, desktop and mobile optimization, collision detection, sound affects, music loops, visual affects, onboarding, user progression, saving and loading, menu system, ability to distribute on other platforms, built-in analytics, a full testing suite and extensive documentation. This allows a full prototype of a game and to start getting feedback.
+The example took 2 days to make, and it comes with a playable core loop, desktop and mobile optimization, asset pipelines, performance optimization, collision detection, sound affects, music loops, visual affects, onboarding, user progression, saving and loading, menu system, ability to distribute on other platforms, built-in analytics, a full testing suite and extensive documentation. This allows a full prototype of a game and to start getting feedback.
 
 <p align="center">
   <img src="assets/readme/example-game-after-1.png" alt="Polished example farm game showing improved terrain, crops, buildings, lighting, shadows, and game UI" width="49%">
