@@ -12,6 +12,8 @@ Run one prompt at a time, review the result, and commit working changes before m
 
 ## Example Game Took 2 Days To Make
 
+The example took days to make, and it only playable with a core loop but the prompts enable desktop and mobile optimization, collision detection, sound affects, music loops, visual affects, onboarding, user progression, saving and loading, menu system, full testing test and extensive documentation. This allows a full prototype of the a game to start getting feedback.
+
 <p align="center">
   <img src="assets/readme/example-game-after-1.png" alt="Polished example farm game showing improved terrain, crops, buildings, lighting, shadows, and game UI" width="49%">
   <img src="assets/readme/example-game-after-2.png" alt="Polished example farm game showing improved building presentation, terrain materials, lighting, shadows, and game UI" width="49%">
