@@ -20,9 +20,7 @@ The example took 2 days to make, and it comes with a playable core loop, desktop
 </p>
 
 ### Refinement and Bugs Disclaimer
-To be clear on expectations, with this process your game will still have bugs. It will need refinement. But the speed and the amount of tokes required to make those refinements and bug fixes will be a lot less than without properly structurally your game.
-
-Anything the game shows to a player should be human-readable and player-focused. Menus, objectives, errors, loading states, notifications, and recovery messages should use clear game language and explain the next action. Keep stack traces, JSON, internal IDs, event names, debug values, and other technical diagnostics in developer-only logs and tools.
+To be clear on expectations, with this process your game will still have bugs. It will need refinement. But the speed and the amount of tokes required to make those refinements and bug fixes will be a lot less than without properly structurally your game. The goal and outcome of this process is to reduce the amount of time and tokens you will use in developing your game and to develop higher quality games.
 
 ## Phase 1: Build the game
 
