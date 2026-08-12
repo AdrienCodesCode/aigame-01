@@ -134,7 +134,7 @@ The final visual optimization pass can systematically improve terrain and materi
   </tr>
   <tr>
     <td><img src="assets/readme/example-game-before.jpg" alt="Example farm game before the final visual optimization pass"></td>
-    <td><img src="assets/readme/example-game-after-2.png" alt="Example farm game after the final visual optimization pass"></td>
+    <td><img src="assets/readme/example-game-after-1.png" alt="Example farm game after the final visual optimization pass"></td>
   </tr>
 </table>
 
