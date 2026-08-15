@@ -67,7 +67,10 @@ the dummy-driver window lifecycle and other `headless` checks; it does not claim
 the hosted runner provides the approved OpenGL 4.6 graphics baseline. Failed
 jobs select their dependency, configure, build, CTest, and bounded environment
 diagnostics for 14-day artifact retention. The workflow source and failure paths
-have been validated locally; its first hosted run is not yet an observed result.
+have been validated locally and on GitHub: the first known-good Ubuntu 24.04 run
+passed all 8 tests, and a controlled expected-hash failure uploaded the selected
+diagnostic bundle. This headless presubmit does not establish native Linux
+OpenGL 4.6 support.
 
 Replace `dev` with `dev-sanitized` for supported sanitizer coverage or
 `release` for an optimized build. On a graphics target that provides the

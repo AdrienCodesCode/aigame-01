@@ -50,22 +50,32 @@
   accepted-packet integrity guard. A
   controlled copied-baseline failure then exited nonzero and populated each
   CTest diagnostic selected for CI upload; checksum-verified `actionlint`
-  1.7.12 also accepted the workflow. The workflow has not been committed,
-  pushed, or executed by GitHub, so hosted dependency installation, the
-  known-good job, and artifact upload remain unverified.
+  1.7.12 also accepted the workflow. Commit
+  `fcb7d70f64ca3b1c37ffc1caf64670072a5070ca` was then pushed to `main`; its
+  [hosted Linux fast gate](https://github.com/AdrienCodesCode/aigame-01/actions/runs/31894480357)
+  completed in 1 minute 10 seconds on GitHub's Ubuntu 24.04 image and passed all
+  8 tests, including 4 labeled `headless`. A separate, temporary revision
+  changed only the expected accepted-manifest hash. Its
+  [controlled hosted run](https://github.com/AdrienCodesCode/aigame-01/actions/runs/31894689894)
+  failed the named baseline-integrity test, passed the other 7 tests, and
+  uploaded the expected dependency, environment, configure, build, and CTest
+  diagnostics. GitHub reported the artifact archive as 35,894 bytes; inspection
+  of its downloaded contents confirmed the actual-versus-expected hash error and
+  found no credential-pattern matches in a targeted scan. The remote probe
+  branch was deleted after verification.
 - **Current milestone:** Phase 1 — Tracer 0 native foundation; the repository
   build scaffold, SDL window lifecycle, context/debug gate, triangle and
   depth-tested cube, core timing/logging/assertion primitives, deterministic PNG
   capture, versioned artifact/failure packet, and a documented hidden-window
   reproduction, normal/debug review packet, explicit owner acceptance, and
-  protected first visual baseline are complete. The minimal Linux CI definition
-  and its local success/failure-path validation are also complete; the hosted
-  presubmit result is not.
-- **Next action:** Commit and push the current coherent Phase 1 changes, observe
-  the first `Linux fast gate` run on GitHub's Ubuntu 24.04 runner, and verify its
-  uploaded diagnostics through one controlled failing revision before closing
-  the presubmit gate. Do not expand into Phase 2 while the remaining Phase 1
-  exit gates are unresolved.
+  protected first visual baseline are complete. The minimal Linux CI definition,
+  local validation, hosted known-good run, and controlled failure-artifact
+  verification are complete.
+- **Next action:** From a clean committed source export, configure, build, and
+  test the `dev-sanitized` preset to finish the clean-tree preset gate; the `dev`
+  path is already proven by the hosted presubmit. Then reconcile the remaining
+  Tracer 0 executable/reproduction exit evidence. Do not expand into Phase 2
+  while the remaining Phase 1 exit gates are unresolved.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [workflow implementation plan](docs/plans/agentic-development-workflow.md),
@@ -366,8 +376,15 @@ Supporting references:
   copied accepted-review file made the same CTest command exit 8 and populated
   the selected test log, `LastTest.log`, and `LastTestsFailed.log` with the
   named failure. Checksum-verified `actionlint` 1.7.12 passed. This validates
-  the source, staged checkout bytes, and local artifact paths, not a hosted
-  GitHub run or native Linux graphics.
+  the source, staged checkout bytes, and local artifact paths. Commit
+  `fcb7d70f64ca3b1c37ffc1caf64670072a5070ca` then passed the
+  [hosted gate](https://github.com/AdrienCodesCode/aigame-01/actions/runs/31894480357)
+  in 1 minute 10 seconds with 8/8 tests and 4 `headless` tests. A temporary
+  one-character expected-hash probe produced a
+  [controlled hosted failure](https://github.com/AdrienCodesCode/aigame-01/actions/runs/31894689894):
+  7/8 tests passed, the named accepted-baseline guard failed with the intended
+  actual-versus-expected hash diagnostic, and the workflow uploaded all selected
+  failure files. This does not verify native Linux graphics.
 
 ### Phase 1 exit gate
 
@@ -381,8 +398,11 @@ Supporting references:
   explicitly accepted after checking the interactive resizable window and both
   captures; the [accepted packet](tests/goldens/tracer0/voxel_cube_smoke-v1/windows-intel-uhd-630-development/review.md)
   is protected by a passing manifest/hash/verdict CTest.
-- [ ] The minimal Linux presubmit reproduces the already-working local fast gate,
-  or its remaining runner/context limitation is explicitly recorded.
+- [x] The minimal Linux presubmit reproduces the already-working local fast gate,
+  or its remaining runner/context limitation is explicitly recorded. Observed
+  result: the hosted known-good run passed 8/8 tests on Ubuntu 24.04, and a
+  controlled failing revision uploaded the expected useful diagnostics. The
+  headless gate does not claim native Linux OpenGL 4.6 graphics coverage.
 
 ## Phase 2 — Tracer 1: bounded voxel paddock
 
@@ -832,7 +852,7 @@ implementation begins.
   the accepted normal/debug hashes with zero high-severity GL messages. This is
   a reference-machine engineering-tracer baseline, not a cross-GPU identity,
   gameplay, motion, performance, or production-art claim.
-- **2026-08-15 — Minimal Linux CI source:** The new
+- **2026-08-15 — Minimal Linux CI:** The new
   [Linux fast gate](.github/workflows/linux.yml) targets GitHub's Ubuntu 24.04
   image, selects Clang 18, installs only the current X11/OpenGL build
   dependencies, and runs the documented `cmake --preset dev`,
@@ -843,6 +863,15 @@ implementation begins.
   selected CTest diagnostics. The workflow passed checksum-verified
   `actionlint` 1.7.12. A clean staged-index export preserved every accepted
   packet byte and passed all 8 tests after [`.gitattributes`](.gitattributes)
-  disabled text conversion under `tests/goldens/`. Because the source remains
-  uncommitted, no hosted run or artifact upload is yet an observed result, and
-  native Linux OpenGL 4.6 remains unverified.
+  disabled text conversion under `tests/goldens/`. The resulting commit
+  `fcb7d70f64ca3b1c37ffc1caf64670072a5070ca` passed its
+  [GitHub-hosted run](https://github.com/AdrienCodesCode/aigame-01/actions/runs/31894480357)
+  on Ubuntu 24.04 with Clang 18: configure, build, and all 8 tests succeeded in
+  1 minute 10 seconds, including 4 `headless` tests. A temporary revision then
+  changed only the expected accepted-manifest hash; its
+  [hosted run](https://github.com/AdrienCodesCode/aigame-01/actions/runs/31894689894)
+  failed only `wide_eye.accepted_tracer0_baseline` and successfully uploaded the
+  selected failure bundle. Downloaded inspection found all five workflow logs,
+  `CMakeConfigureLog.yaml`, `LastTest.log`, and `LastTestsFailed.log`; the named
+  hash mismatch was actionable, and a targeted credential-pattern scan returned
+  no matches. Native Linux OpenGL 4.6 remains unverified.

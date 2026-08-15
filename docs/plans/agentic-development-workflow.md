@@ -1,13 +1,13 @@
 # Plan: Agentic development workflow and verification harness
 
-**Status:** Accepted foundation; Tracer 0 local loop complete, first hosted
-Linux CI run pending
+**Status:** Accepted foundation; Tracer 0 local and hosted Linux automation gate
+verified
 **Date:** 2026-08-15
 **Source research:**
 [`../research/agentic-development-workflow.md`](../research/agentic-development-workflow.md)
-**Architecture readiness:** Ready to finish the Tracer 0 automation gate — the
-local command, capture, failure, and owner-review loop is implemented; hosted
-Linux CI execution remains unverified.
+**Architecture readiness:** Ready to finish the remaining Tracer 0 exit gates —
+the local command, capture, failure, owner-review, and hosted Linux CI loops are
+implemented and verified.
 
 ## Objective and success criteria
 
@@ -60,9 +60,11 @@ Out of scope:
   the ignored local fallback, and both configurations passed against the real
   scaffold source on WSL on 2026-08-15.
 - [x] Engine source, CMake presets, CTest labels, executable scenarios, artifact
-  manifests, captures, and CI source exist. Observed result: the locally
-  validated [Linux workflow](../../.github/workflows/linux.yml) now reproduces
-  the `dev` preset sequence; its first hosted execution remains pending.
+  manifests, captures, and CI source exist. Observed result: the
+  [Linux workflow](../../.github/workflows/linux.yml) reproduces the `dev`
+  preset sequence locally and in a passing
+  [GitHub-hosted run](https://github.com/AdrienCodesCode/aigame-01/actions/runs/31894480357);
+  its controlled hosted failure also retained the selected diagnostic bundle.
 
 ## Decisions and assumptions
 
@@ -153,16 +155,26 @@ to enrich the smoke tracer.
   commands. Observed result: on 2026-08-15 the
   [Linux fast gate](../../.github/workflows/linux.yml) passed checksum-verified
   `actionlint` 1.7.12, and its exact preset sequence passed 8/8 tests in a fresh
-  WSL source copy, including 4 labeled `headless` tests. The GitHub-hosted job
-  remains unrun because the changes are uncommitted.
-- [ ] Retain failure logs/manifests/captures as CI artifacts without secrets.
-  Progress: the workflow selects bounded environment, dependency, configure,
-  build, and CTest diagnostics for upload only on failure. A controlled
-  copied-baseline failure exited 8 and populated every selected CTest log
-  locally, but the upload action itself remains unverified until a hosted
-  failing run exists.
+  WSL source copy, including 4 labeled `headless` tests. Commit
+  `fcb7d70f64ca3b1c37ffc1caf64670072a5070ca` then passed the same sequence in a
+  [GitHub-hosted Ubuntu 24.04 run](https://github.com/AdrienCodesCode/aigame-01/actions/runs/31894480357):
+  8/8 tests passed in 1 minute 10 seconds, including the 4 `headless` tests.
+- [x] Retain failure logs/manifests/captures as CI artifacts without secrets.
+  Observed result: a temporary revision changed only the expected accepted-
+  manifest hash, and its
+  [controlled hosted run](https://github.com/AdrienCodesCode/aigame-01/actions/runs/31894689894)
+  failed only `wide_eye.accepted_tracer0_baseline` while the other 7 tests
+  passed. The failure upload contained the five bounded workflow logs,
+  `CMakeConfigureLog.yaml`, `LastTest.log`, and `LastTestsFailed.log`; downloaded
+  inspection confirmed the actionable actual-versus-expected hash diagnostic.
+  A targeted scan of the bundle found no credential-pattern matches. The
+  workflow exposes only bounded run/platform/toolchain fields in its environment
+  record and retains failure artifacts for 14 days.
 - [ ] Keep the default job fast and deterministic; quarantine or redesign flaky
-  checks rather than normalizing retries.
+  checks rather than normalizing retries. Progress: both the known-good and
+  controlled-failure hosted jobs completed in 1 minute 10 seconds without
+  retries; repeat evidence across future changes is still required before this
+  operational property is closed.
 - [ ] Add native Windows build/context/smoke validation when the target path
   exists; WSL does not count as native release evidence.
 
