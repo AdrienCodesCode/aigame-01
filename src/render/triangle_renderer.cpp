@@ -140,6 +140,7 @@ using GlDisable = void(APIENTRY*)(GLenum);
 using GlDepthFunction = void(APIENTRY*)(GLenum);
 using GlDepthMask = void(APIENTRY*)(GLboolean);
 using GlClearDepth = void(APIENTRY*)(GLdouble);
+using GlPolygonMode = void(APIENTRY*)(GLenum, GLenum);
 using GlGetBoolean = void(APIENTRY*)(GLenum, GLboolean*);
 using GlGetInteger = void(APIENTRY*)(GLenum, GLint*);
 using GlIsEnabled = GLboolean(APIENTRY*)(GLenum);
@@ -218,6 +219,7 @@ struct TriangleRenderer::Impl {
     GlDepthFunction depth_function = nullptr;
     GlDepthMask depth_mask = nullptr;
     GlClearDepth clear_depth = nullptr;
+    GlPolygonMode polygon_mode = nullptr;
     GlGetBoolean get_boolean = nullptr;
     GlGetInteger get_integer = nullptr;
     GlIsEnabled is_enabled = nullptr;
@@ -287,6 +289,7 @@ struct TriangleRenderer::Impl {
                load_gl_function(depth_function, "glDepthFunc", diagnostics) &&
                load_gl_function(depth_mask, "glDepthMask", diagnostics) &&
                load_gl_function(clear_depth, "glClearDepth", diagnostics) &&
+               load_gl_function(polygon_mode, "glPolygonMode", diagnostics) &&
                load_gl_function(get_boolean, "glGetBooleanv", diagnostics) &&
                load_gl_function(get_integer, "glGetIntegerv", diagnostics) &&
                load_gl_function(is_enabled, "glIsEnabled", diagnostics) &&
@@ -457,6 +460,25 @@ void TriangleRenderer::render_voxel_cube(int pixel_width, int pixel_height) cons
     impl_->use_program(0);
 }
 
+void TriangleRenderer::render_voxel_cube_wireframe(int pixel_width, int pixel_height) const {
+    impl_->viewport(0, 0, pixel_width, pixel_height);
+    impl_->enable(GL_DEPTH_TEST);
+    impl_->depth_function(GL_LESS);
+    impl_->depth_mask(GL_TRUE);
+    impl_->clear_depth(1.0);
+    impl_->clear_color(0.035F, 0.055F, 0.09F, 1.0F);
+    impl_->clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    impl_->use_program(impl_->cube_program);
+    impl_->uniform_1f(impl_->cube_aspect_ratio,
+                      static_cast<float>(pixel_width) / static_cast<float>(pixel_height));
+    impl_->bind_vertex_array(impl_->cube_vertex_array);
+    impl_->polygon_mode(GL_FRONT_AND_BACK, GL_LINE);
+    impl_->draw_arrays(GL_TRIANGLES, 0, static_cast<GLsizei>(kVoxelCubeVertices.size()));
+    impl_->polygon_mode(GL_FRONT_AND_BACK, GL_FILL);
+    impl_->bind_vertex_array(0);
+    impl_->use_program(0);
+}
+
 TriangleSample TriangleRenderer::sample_center(int pixel_width, int pixel_height) const {
     std::array<GLubyte, 4> rgba{};
     impl_->read_pixels(pixel_width / 2, pixel_height / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE,
@@ -541,6 +563,34 @@ bool is_expected_voxel_cube_sample(const VoxelCubeSample& sample) {
     const bool fragment_depth_written = sample.depth > 0.0F && sample.depth < 1.0F;
     return front_face_visible && fragment_depth_written && sample.depth_test_enabled &&
            sample.depth_function_less && sample.depth_write_enabled;
+}
+
+std::size_t count_voxel_cube_wireframe_pixels(const Rgba8Frame& frame) {
+    constexpr std::uint8_t kMinimumVisibleChannel = 40;
+    constexpr std::size_t kBytesPerPixel = 4;
+    std::size_t visible_pixels = 0;
+    for (std::size_t index = 0; index + 3U < frame.pixels.size(); index += kBytesPerPixel) {
+        if (frame.pixels[index] > kMinimumVisibleChannel ||
+            frame.pixels[index + 1U] > kMinimumVisibleChannel ||
+            frame.pixels[index + 2U] > kMinimumVisibleChannel) {
+            ++visible_pixels;
+        }
+    }
+    return visible_pixels;
+}
+
+bool is_expected_voxel_cube_wireframe(const Rgba8Frame& frame) {
+    constexpr std::size_t kMinimumVisiblePixels = 16;
+    constexpr std::size_t kBytesPerPixel = 4;
+    const std::uint64_t expected_bytes =
+        static_cast<std::uint64_t>(frame.width) * frame.height * kBytesPerPixel;
+    if (frame.width == 0U || frame.height == 0U || expected_bytes != frame.pixels.size()) {
+        return false;
+    }
+
+    const std::size_t visible_pixels = count_voxel_cube_wireframe_pixels(frame);
+    const std::size_t total_pixels = static_cast<std::size_t>(frame.width) * frame.height;
+    return visible_pixels >= kMinimumVisiblePixels && visible_pixels < total_pixels / 2U;
 }
 
 } // namespace wide_eye::render

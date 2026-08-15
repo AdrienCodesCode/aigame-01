@@ -248,20 +248,27 @@ scenario execution, and artifact capture.
 three commands below plus bounded tracer-specific window, context, triangle,
 cube, and capture commands. WSL Ubuntu Clang 18.1.3 passed development and
 ASan/UBSan presets, WSL Ubuntu GCC 13.3.0 passed release, and native Windows MSVC
-19.44.35228.0 passed the development tracer suite. Build directories are
+19.44.35228.0 passed the 15-test development tracer suite. Build directories are
 separated by host system, and clangd reads the WSL/Linux development compilation
 database. The native Windows suite validates OpenGL 4.6 Core/GLSL 4.60 on Intel
-UHD Graphics 630, rejects high-severity debug messages, checks triangle and cube
-framebuffer oracles, and requires repeated cube captures to be byte-identical.
-Its runner emits a versioned, hashed artifact/failure manifest with exact
-commands, platform/configuration, parsed state, logs, source hashes, and captures.
+UHD Graphics 630, rejects high-severity debug messages, checks triangle, cube,
+and wireframe framebuffer oracles, and requires repeated normal and wireframe
+captures to be byte-identical. Its runner emits a versioned, hashed
+artifact/failure manifest with exact commands, platform/configuration, parsed
+state, logs, source hashes, and captures; passing runs also emit the candidate
+owner-review record with no preselected verdict. The owner accepted the first
+packet on 2026-08-15 after checking the interactive window and both captures.
+The resulting checked-in
+[reference-machine baseline](../tests/goldens/tracer0/voxel_cube_smoke-v1/windows-intel-uhd-630-development/review.md)
+has a platform-independent CTest guard for its manifest-linked hashes and single
+recorded Accept verdict.
 Every registered CTest also rejects project failure markers and ASan, LSan, or
 UBSan diagnostics; a nested fixture verifies that common guard independently of
 the engine executable.
 The same 4.6 request fails with `GLXBadFBConfig` on the 4.5-limited WSL host; no
 fallback is implemented. Native Linux graphics, generic gameplay
-scenario/replay/state formats, debug views, metrics, and performance budgets
-remain unverified or unimplemented.
+scenario/replay/state formats, voxel/chunk/gameplay debug views, metrics, and
+performance budgets remain unverified or unimplemented.
 
 ```bash
 cmake --preset dev
@@ -310,6 +317,9 @@ adequate verification interface.
 Generated captures are candidates, not accepted goldens. Material visual gates
 must use the [human visual-review packet](review/HUMAN_VISUAL_REVIEW.md), and
 only an explicit owner `accept` verdict can promote or replace a baseline.
+The accepted Tracer 0 packet under [`tests/goldens/`](../tests/goldens/README.md)
+is the first application of this rule; it remains a reference-machine
+engineering baseline rather than a cross-GPU image-identity claim.
 
 ## MCP use gates
 

@@ -30,6 +30,7 @@ enum class RunMode {
     context_smoke,
     triangle_smoke,
     voxel_cube_smoke,
+    voxel_cube_debug_smoke,
     context_smoke_inject_high_severity,
 };
 
@@ -327,14 +328,18 @@ int run_window(RunMode mode, const std::optional<std::filesystem::path>& capture
     const bool use_opengl = mode != RunMode::window_smoke;
     const bool smoke_mode = mode != RunMode::interactive;
     const bool render_triangle = mode == RunMode::triangle_smoke;
-    const bool render_voxel_cube =
-        mode == RunMode::interactive || mode == RunMode::voxel_cube_smoke;
+    const bool render_voxel_cube = mode == RunMode::interactive ||
+                                   mode == RunMode::voxel_cube_smoke ||
+                                   mode == RunMode::voxel_cube_debug_smoke;
+    const bool render_voxel_cube_debug = mode == RunMode::voxel_cube_debug_smoke;
     const bool render_scene = render_triangle || render_voxel_cube;
     const bool inject_high_severity = mode == RunMode::context_smoke_inject_high_severity;
     const std::string_view result_name = mode == RunMode::window_smoke       ? "window_result"
                                          : mode == RunMode::triangle_smoke   ? "triangle_result"
                                          : mode == RunMode::voxel_cube_smoke ? "voxel_cube_result"
-                                                                             : "context_result";
+                                         : mode == RunMode::voxel_cube_debug_smoke
+                                             ? "voxel_cube_debug_result"
+                                             : "context_result";
 
     wide_eye::core::log(wide_eye::core::LogLevel::info, "runtime_start",
                         smoke_mode ? "starting bounded smoke" : "starting interactive runtime");
@@ -531,12 +536,25 @@ int run_window(RunMode mode, const std::optional<std::filesystem::path>& capture
                 return status;
             }
         } else {
-            renderer->render_voxel_cube(window_state.pixel_width(), window_state.pixel_height());
+            if (render_voxel_cube_debug) {
+                renderer->render_voxel_cube_wireframe(window_state.pixel_width(),
+                                                      window_state.pixel_height());
+            } else {
+                renderer->render_voxel_cube(window_state.pixel_width(),
+                                            window_state.pixel_height());
+            }
             std::cout << "scenario=voxel_cube_smoke\n"
+                      << "voxel_cube_view="
+                      << (render_voxel_cube_debug ? "wireframe_debug" : "normal") << '\n'
                       << "voxel_cube_draw=issued\n";
             const wide_eye::render::VoxelCubeSample sample = renderer->sample_voxel_cube_center(
                 window_state.pixel_width(), window_state.pixel_height());
-            const bool sample_matches = wide_eye::render::is_expected_voxel_cube_sample(sample);
+            const bool depth_state_matches = sample.depth_test_enabled &&
+                                             sample.depth_function_less &&
+                                             sample.depth_write_enabled;
+            const bool sample_matches =
+                render_voxel_cube_debug ? depth_state_matches
+                                        : wide_eye::render::is_expected_voxel_cube_sample(sample);
             std::cout << "voxel_cube_center_rgba=" << static_cast<unsigned int>(sample.color.red)
                       << ',' << static_cast<unsigned int>(sample.color.green) << ','
                       << static_cast<unsigned int>(sample.color.blue) << ','
@@ -546,15 +564,24 @@ int run_window(RunMode mode, const std::optional<std::filesystem::path>& capture
                       << "depth_function_less=" << (sample.depth_function_less ? "yes" : "no")
                       << '\n'
                       << "depth_write_enabled=" << (sample.depth_write_enabled ? "yes" : "no")
-                      << '\n'
-                      << "voxel_cube_center_matches=" << (sample_matches ? "yes" : "no") << '\n';
+                      << '\n';
+            if (render_voxel_cube_debug) {
+                std::cout << "voxel_cube_depth_state_matches="
+                          << (depth_state_matches ? "yes" : "no") << '\n';
+            } else {
+                std::cout << "voxel_cube_center_matches=" << (sample_matches ? "yes" : "no")
+                          << '\n';
+            }
             if (!sample_matches) {
-                const int status = fail(result_name, "voxel_cube_depth_oracle", false);
+                const int status = fail(result_name,
+                                        render_voxel_cube_debug ? "voxel_cube_debug_depth_state"
+                                                                : "voxel_cube_depth_oracle",
+                                        false);
                 clean_up();
                 return status;
             }
 
-            if (capture_path.has_value()) {
+            if (capture_path.has_value() || render_voxel_cube_debug) {
                 const std::optional<wide_eye::render::Rgba8Frame> frame = renderer->capture_rgba8(
                     window_state.pixel_width(), window_state.pixel_height(), std::cerr);
                 if (!frame.has_value()) {
@@ -562,17 +589,33 @@ int run_window(RunMode mode, const std::optional<std::filesystem::path>& capture
                     clean_up();
                     return status;
                 }
-                if (!wide_eye::render::write_png_rgba8(*capture_path, frame->width, frame->height,
-                                                       frame->pixels, std::cerr)) {
-                    const int status = fail(result_name, "capture_write", false);
-                    clean_up();
-                    return status;
+                if (render_voxel_cube_debug) {
+                    const std::size_t visible_pixels =
+                        wide_eye::render::count_voxel_cube_wireframe_pixels(*frame);
+                    const bool debug_frame_matches =
+                        wide_eye::render::is_expected_voxel_cube_wireframe(*frame);
+                    std::cout << "wireframe_visible_pixels=" << visible_pixels << '\n'
+                              << "wireframe_frame_matches=" << (debug_frame_matches ? "yes" : "no")
+                              << '\n';
+                    if (!debug_frame_matches) {
+                        const int status = fail(result_name, "voxel_cube_wireframe_oracle", false);
+                        clean_up();
+                        return status;
+                    }
                 }
-                std::cout << "capture_path=" << capture_path->string() << '\n'
-                          << "capture_width=" << frame->width << '\n'
-                          << "capture_height=" << frame->height << '\n'
-                          << "capture_format=png_rgba8\n"
-                          << "capture_result=pass\n";
+                if (capture_path.has_value()) {
+                    if (!wide_eye::render::write_png_rgba8(
+                            *capture_path, frame->width, frame->height, frame->pixels, std::cerr)) {
+                        const int status = fail(result_name, "capture_write", false);
+                        clean_up();
+                        return status;
+                    }
+                    std::cout << "capture_path=" << capture_path->string() << '\n'
+                              << "capture_width=" << frame->width << '\n'
+                              << "capture_height=" << frame->height << '\n'
+                              << "capture_format=png_rgba8\n"
+                              << "capture_result=pass\n";
+                }
             }
         }
 
@@ -652,6 +695,7 @@ void print_usage(std::string_view executable) {
         << "usage: " << executable
         << " [--version | --window-smoke | --context-smoke | --triangle-smoke | "
            "--voxel-cube-smoke [--capture <png-path>] | --window-state-smoke | --runtime-smoke | "
+           "--voxel-cube-debug-smoke [--capture <png-path>] | "
            "--assertion-smoke | "
            "--context-smoke-inject-high-severity]\n";
 }
@@ -691,6 +735,13 @@ int main(int argc, char* argv[]) {
     if (argc == 4 && std::string_view{argv[1]} == "--voxel-cube-smoke" &&
         std::string_view{argv[2]} == "--capture" && std::string_view{argv[3]}.size() > 0U) {
         return run_window(RunMode::voxel_cube_smoke, std::filesystem::path{argv[3]});
+    }
+    if (argc == 2 && std::string_view{argv[1]} == "--voxel-cube-debug-smoke") {
+        return run_window(RunMode::voxel_cube_debug_smoke, std::nullopt);
+    }
+    if (argc == 4 && std::string_view{argv[1]} == "--voxel-cube-debug-smoke" &&
+        std::string_view{argv[2]} == "--capture" && std::string_view{argv[3]}.size() > 0U) {
+        return run_window(RunMode::voxel_cube_debug_smoke, std::filesystem::path{argv[3]});
     }
     if (argc == 2 && std::string_view{argv[1]} == "--context-smoke-inject-high-severity") {
         return run_window(RunMode::context_smoke_inject_high_severity, std::nullopt);

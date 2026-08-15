@@ -1,0 +1,97 @@
+name: Linux fast gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-fast:
+    name: Clang 18 configure, build, and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CC: clang-18
+      CXX: clang++-18
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize failure evidence
+        run: |
+          mkdir -p artifacts/ci/linux-fast
+          {
+            echo "workflow=${GITHUB_WORKFLOW}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "sha=${GITHUB_SHA}"
+            echo "ref=${GITHUB_REF}"
+            uname -a
+            cat /etc/os-release
+          } > artifacts/ci/linux-fast/environment.txt
+
+      - name: Install build dependencies
+        run: |
+          set -o pipefail
+          sudo apt-get update 2>&1 | tee artifacts/ci/linux-fast/dependencies.log
+          sudo apt-get install --yes --no-install-recommends \
+            cmake \
+            ninja-build \
+            clang-18 \
+            pkg-config \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxext-dev \
+            libxrandr-dev \
+            libxcursor-dev \
+            libxfixes-dev \
+            libxi-dev \
+            libxss-dev \
+            libxtst-dev \
+            libxkbcommon-dev \
+            2>&1 | tee -a artifacts/ci/linux-fast/dependencies.log
+
+      - name: Record toolchain
+        run: |
+          {
+            cmake --version
+            "$CC" --version
+            "$CXX" --version
+            ninja --version
+          } >> artifacts/ci/linux-fast/environment.txt
+
+      - name: Configure development preset
+        run: |
+          set -o pipefail
+          cmake --preset dev 2>&1 | tee artifacts/ci/linux-fast/configure.log
+
+      - name: Build development preset
+        run: |
+          set -o pipefail
+          cmake --build --preset dev 2>&1 | tee artifacts/ci/linux-fast/build.log
+
+      - name: Test development preset
+        run: |
+          set -o pipefail
+          ctest --preset dev 2>&1 | tee artifacts/ci/linux-fast/test.log
+
+      - name: Retain failure evidence
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-fast-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            artifacts/ci/linux-fast/
+            build/Linux/dev/CMakeFiles/CMakeConfigureLog.yaml
+            build/Linux/dev/Testing/Temporary/LastTest.log
+            build/Linux/dev/Testing/Temporary/LastTestsFailed.log

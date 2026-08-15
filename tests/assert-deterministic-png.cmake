@@ -1,12 +1,18 @@
 if(NOT DEFINED WIDE_EYE_EXECUTABLE OR NOT DEFINED CAPTURE_ONE OR NOT DEFINED CAPTURE_TWO)
     message(FATAL_ERROR "Deterministic PNG smoke requires executable and two capture paths")
 endif()
+if(NOT DEFINED WIDE_EYE_SMOKE_ARGUMENT)
+    set(WIDE_EYE_SMOKE_ARGUMENT --voxel-cube-smoke)
+endif()
+if(NOT DEFINED WIDE_EYE_RESULT_MARKER)
+    set(WIDE_EYE_RESULT_MARKER "voxel_cube_result=pass")
+endif()
 
 file(REMOVE "${CAPTURE_ONE}" "${CAPTURE_TWO}")
 
 function(run_capture output_path output_variable)
     execute_process(
-        COMMAND "${WIDE_EYE_EXECUTABLE}" --voxel-cube-smoke --capture "${output_path}"
+        COMMAND "${WIDE_EYE_EXECUTABLE}" "${WIDE_EYE_SMOKE_ARGUMENT}" --capture "${output_path}"
         RESULT_VARIABLE capture_result
         OUTPUT_VARIABLE capture_stdout
         ERROR_VARIABLE capture_stderr
@@ -16,7 +22,7 @@ function(run_capture output_path output_variable)
         message(FATAL_ERROR "Capture failed (${capture_result}):\n${capture_output}")
     endif()
     if(NOT capture_output MATCHES "capture_result=pass" OR
-       NOT capture_output MATCHES "voxel_cube_result=pass")
+       NOT capture_output MATCHES "${WIDE_EYE_RESULT_MARKER}")
         message(FATAL_ERROR "Capture omitted a required pass result:\n${capture_output}")
     endif()
     if(NOT EXISTS "${output_path}")

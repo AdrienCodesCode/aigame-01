@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <iosfwd>
 #include <memory>
@@ -42,6 +43,7 @@ class TriangleRenderer {
     [[nodiscard]] bool initialize(std::ostream& diagnostics);
     void render(int pixel_width, int pixel_height) const;
     void render_voxel_cube(int pixel_width, int pixel_height) const;
+    void render_voxel_cube_wireframe(int pixel_width, int pixel_height) const;
     [[nodiscard]] TriangleSample sample_center(int pixel_width, int pixel_height) const;
     [[nodiscard]] VoxelCubeSample sample_voxel_cube_center(int pixel_width, int pixel_height) const;
     [[nodiscard]] std::optional<Rgba8Frame> capture_rgba8(int pixel_width, int pixel_height,
@@ -54,5 +56,7 @@ class TriangleRenderer {
 
 [[nodiscard]] bool is_expected_triangle_sample(const TriangleSample& sample);
 [[nodiscard]] bool is_expected_voxel_cube_sample(const VoxelCubeSample& sample);
+[[nodiscard]] std::size_t count_voxel_cube_wireframe_pixels(const Rgba8Frame& frame);
+[[nodiscard]] bool is_expected_voxel_cube_wireframe(const Rgba8Frame& frame);
 
 } // namespace wide_eye::render

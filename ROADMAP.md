@@ -8,49 +8,70 @@
   resizable window, resize/minimize/focus/close state, clean shutdown, an
   explicit OpenGL 4.6 Core debug-context request, context/driver reporting, and
   high-severity rejection. The `render` boundary owns GLSL 4.60 triangle and
-  perspective voxel-cube pipelines, color/depth framebuffer oracles, top-left
-  RGBA8 readback, and a dependency-free deterministic PNG writer. The
-  `core` boundary owns a steady-clock frame timer, render-cadence-independent
-  60 Hz fixed-step accumulator with a 250 ms clamp, structured logging, and
-  automation-safe fatal assertions. On 2026-08-15, a source-hashed native
-  Windows copy-build with MSVC 19.44.35228.0 passed all 12 development CTests
-  on Intel UHD Graphics 630. Its hidden capture CTest required two independent
-  cube-smoke runs to produce byte-identical PNGs. The direct capture saved a
-  validated 64x64 RGBA8 PNG with SHA-256
-  `701595f448a9bb0a82e644e42873a6d1a5e119fd0402f0a6cb4e6f308236ac15`,
-  while preserving the cube color/depth oracle and zero high-severity messages.
-  Agent inspection confirmed that the decoded frame contains the colored cube
-  on the dark clear color; it is a candidate artifact, not an accepted golden.
-  The Windows runner now emits a `wide-eye.artifact-manifest` schema-version 1
-  packet containing the Git/worktree state, source hashes, platform and GPU
-  inventory, exact commands/results, configuration, parsed scenario state, log,
-  and hashed capture. A normal run passed independent manifest/hash validation.
-  A controlled repeat-capture mismatch exited nonzero at
-  `capture-repeat-compare`, retained both divergent PNGs plus the other evidence,
-  and also passed independent failure-manifest validation.
-  A common CTest failure regex now rejects project failure markers and
-  ASan/LSan/UBSan diagnostics even if a test also prints its pass marker; a
-  nested regression proved all four rejection paths. The WSL development,
-  ASan/UBSan, and release builds and their seven default fast tests pass; direct
-  4.6 context requests still fail as expected with
-  `GLXBadFBConfig` because this WSL host exposes only 4.5. System
-  `clang-format` and `clang-tidy` 18.1.3 pass the project-only checks. Native
-  Linux graphics and owner visual acceptance remain unverified.
+  perspective voxel-cube pipelines, a same-camera triangle-wireframe diagnostic,
+  color/depth/framebuffer oracles, top-left RGBA8 readback, and a
+  dependency-free deterministic PNG writer. The `core` boundary owns a
+  steady-clock frame timer, render-cadence-independent 60 Hz fixed-step
+  accumulator with a 250 ms clamp, structured logging, and automation-safe
+  fatal assertions. On 2026-08-15, the initial source-hashed native Windows
+  candidate build with MSVC 19.44.35228.0 passed all 14 then-current development
+  CTests on Intel UHD Graphics 630. Separate hidden capture CTests required two
+  independent normal runs and two independent wireframe-debug runs to produce
+  byte-identical PNGs. The normal capture is a validated 64x64 RGBA8 PNG with
+  SHA-256
+  `701595f448a9bb0a82e644e42873a6d1a5e119fd0402f0a6cb4e6f308236ac15`;
+  the matching wireframe capture has SHA-256
+  `a9bbf89ed449b5d3ffc803239486fd1bb7571a15ab263f1b4bd60cead41107e6`
+  and passed a sparse-frame oracle with 253 visible pixels. Both paths preserved
+  the intended depth state and zero high-severity messages. The owner then
+  launched the interactive native Windows cube, confirmed that its resizable
+  window worked, reviewed both captures, reported that they looked correct, and
+  explicitly accepted the packet. The complete source packet is now the first
+  checked-in [Tracer 0 visual baseline](tests/goldens/tracer0/voxel_cube_smoke-v1/windows-intel-uhd-630-development/review.md).
+  Its manifest retains the source/worktree state, source hashes, platform/GPU
+  data, commands, configuration, state, log, and exact normal/debug hashes. A
+  registered platform-independent CTest requires every retained hash plus
+  exactly one recorded Accept verdict. The root [`.gitattributes`](.gitattributes)
+  prevents cross-platform text conversion from changing any hash-addressed
+  packet byte. After promotion, a fresh source-hashed native Windows copy-build
+  passed all 15 development CTests and reproduced both accepted hashes with zero
+  high-severity messages; its ignored verification packet is
+  [`windows-cube-smoke-223401700`](artifacts/phase1/2026-08-15/windows-cube-smoke-223401700/manifest.json).
+  The WSL development, ASan/UBSan, and release builds and their eight default
+  fast tests pass. Direct 4.6 context requests still fail as expected with
+  `GLXBadFBConfig` because this WSL host exposes only 4.5. System `clang-format`
+  and `clang-tidy` 18.1.3 pass the project-only checks. Native Linux graphics
+  remains unverified. A controlled repeat-capture mismatch still supplies the
+  retained failure-path evidence; it is not a baseline. A minimal
+  [GitHub Actions Linux fast gate](.github/workflows/linux.yml) now targets
+  Ubuntu 24.04 with Clang 18 and runs the exact checked-in `dev`
+  configure/build/test sequence. In a clean export of the staged index on WSL,
+  that sequence passed all 8 tests, including 4 `headless` tests and the
+  accepted-packet integrity guard. A
+  controlled copied-baseline failure then exited nonzero and populated each
+  CTest diagnostic selected for CI upload; checksum-verified `actionlint`
+  1.7.12 also accepted the workflow. The workflow has not been committed,
+  pushed, or executed by GitHub, so hosted dependency installation, the
+  known-good job, and artifact upload remain unverified.
 - **Current milestone:** Phase 1 — Tracer 0 native foundation; the repository
   build scaffold, SDL window lifecycle, context/debug gate, triangle and
   depth-tested cube, core timing/logging/assertion primitives, deterministic PNG
   capture, versioned artifact/failure packet, and a documented hidden-window
-  reproduction are complete.
-- **Next action:** Produce the candidate cube visual-review packet with matching
-  normal/debug evidence; do not promote a golden without the owner's explicit
-  verdict.
+  reproduction, normal/debug review packet, explicit owner acceptance, and
+  protected first visual baseline are complete. The minimal Linux CI definition
+  and its local success/failure-path validation are also complete; the hosted
+  presubmit result is not.
+- **Next action:** Commit and push the current coherent Phase 1 changes, observe
+  the first `Linux fast gate` run on GitHub's Ubuntu 24.04 runner, and verify its
+  uploaded diagnostics through one controlled failing revision before closing
+  the presubmit gate. Do not expand into Phase 2 while the remaining Phase 1
+  exit gates are unresolved.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
-  [human visual-review template](docs/review/HUMAN_VISUAL_REVIEW.md),
-  [`main.cpp`](src/platform/main.cpp), the
-  [`tracer renderer`](src/render/triangle_renderer.cpp), the
-  [artifact-manifest validator](tests/assert-artifact-manifest.cmake), and the
-  [Windows evidence runner](tools/phase1/run-window-smoke.ps1).
+  [workflow implementation plan](docs/plans/agentic-development-workflow.md),
+  the [Linux workflow](.github/workflows/linux.yml),
+  [`CMakePresets.json`](CMakePresets.json), and
+  [`CMakeLists.txt`](CMakeLists.txt).
 - **Last reviewed:** 2026-08-15.
 - **Primary playtest question:** Can a first-time player intentionally steer five
   mixed-temperament sheep through one gate using only the dog's movement,
@@ -313,10 +334,40 @@ Supporting references:
   [`run-window-smoke.ps1`](tools/phase1/run-window-smoke.ps1),
   [`assert-artifact-manifest.cmake`](tests/assert-artifact-manifest.cmake), and
   [`WINDOWS.md`](docs/setup/WINDOWS.md).
-- [ ] Produce a candidate cube visual-review packet with matching normal/debug
+- [x] Produce a candidate cube visual-review packet with matching normal/debug
   evidence; do not promote a golden without the owner's explicit verdict.
-- [ ] After the local loop is reliable, add minimal Linux CI using the same
+  Observed result: the source-hashed native Windows runner passed 14 development
+  CTests, including independent two-run deterministic checks for the normal and
+  wireframe-debug PNGs, then emitted a same-camera packet whose normal/debug
+  hashes are
+  `701595f448a9bb0a82e644e42873a6d1a5e119fd0402f0a6cb4e6f308236ac15`
+  and `a9bbf89ed449b5d3ffc803239486fd1bb7571a15ab263f1b4bd60cead41107e6`.
+  The candidate review record and its manifest passed independent validation.
+  The owner subsequently launched the interactive cube, confirmed that its
+  resizable window worked, reviewed both captures, reported that they looked
+  correct, and explicitly accepted them. The resulting checked-in
+  [baseline record](tests/goldens/tracer0/voxel_cube_smoke-v1/windows-intel-uhd-630-development/review.md)
+  retains the full evidence packet, and `wide_eye.accepted_tracer0_baseline`
+  verifies its manifest, files, hashes, and single Accept verdict. A fresh
+  native Windows run passed all 15 CTests and reproduced both accepted hashes.
+  Evidence: [`main.cpp`](src/platform/main.cpp),
+  [`triangle_renderer.cpp`](src/render/triangle_renderer.cpp),
+  [`assert-deterministic-png.cmake`](tests/assert-deterministic-png.cmake),
+  [`assert-artifact-manifest.cmake`](tests/assert-artifact-manifest.cmake), and
+  [`run-window-smoke.ps1`](tools/phase1/run-window-smoke.ps1).
+- [x] After the local loop is reliable, add minimal Linux CI using the same
   configure/build/test/headless commands and retain useful failure artifacts.
+  Observed result: [`.github/workflows/linux.yml`](.github/workflows/linux.yml)
+  configures, builds, and tests the `dev` preset with Clang 18 on Ubuntu 24.04,
+  uses read-only repository permission and immutable action commits, and selects
+  bounded environment, dependency, configure, build, and CTest diagnostics for
+  14-day upload on failure. On 2026-08-15, the exact three commands passed 8/8
+  tests, including 4 labeled `headless`, in a fresh WSL copy. Removing the
+  copied accepted-review file made the same CTest command exit 8 and populated
+  the selected test log, `LastTest.log`, and `LastTestsFailed.log` with the
+  named failure. Checksum-verified `actionlint` 1.7.12 passed. This validates
+  the source, staged checkout bytes, and local artifact paths, not a hosted
+  GitHub run or native Linux graphics.
 
 ### Phase 1 exit gate
 
@@ -325,8 +376,11 @@ Supporting references:
   failures or high-severity GL debug messages.
 - [ ] A future agent can reproduce the smoke capture using only repository
   documentation.
-- [ ] The owner accepts, revises, or rejects the Tracer 0 visual packet; only an
-  accepted packet becomes the first visual baseline.
+- [x] The owner accepts, revises, or rejects the Tracer 0 visual packet; only an
+  accepted packet becomes the first visual baseline. Observed result: the owner
+  explicitly accepted after checking the interactive resizable window and both
+  captures; the [accepted packet](tests/goldens/tracer0/voxel_cube_smoke-v1/windows-intel-uhd-630-development/review.md)
+  is protected by a passing manifest/hash/verdict CTest.
 - [ ] The minimal Linux presubmit reproduces the already-working local fast gate,
   or its remaining runner/context limitation is explicitly recorded.
 
@@ -743,9 +797,52 @@ implementation begins.
   a valid 64x64 capture with SHA-256
   `701595f448a9bb0a82e644e42873a6d1a5e119fd0402f0a6cb4e6f308236ac15`.
   Agent inspection found the expected colored cube against the dark clear
-  color, but no golden or owner visual verdict exists. The artifact manifest,
+  color, but at that checkpoint no golden or owner visual verdict existed. The
+  artifact manifest,
   failure packet, visual-review packet, and native Linux graphics proof remain
   open. Evidence: [`png_writer.cpp`](src/render/png_writer.cpp),
   [`assert-deterministic-png.cmake`](tests/assert-deterministic-png.cmake),
   [`WINDOWS.md`](docs/setup/WINDOWS.md), and the
   [Windows project runner](tools/phase1/run-window-smoke.ps1).
+- **2026-08-15 — Candidate cube visual packet:** The renderer gained a bounded
+  `--voxel-cube-debug-smoke` wireframe view that reuses the normal cube geometry,
+  camera, viewport, shader, and depth state. A source-hashed native Windows MSVC
+  19.44.35228.0 copy-build passed 14 development CTests on Intel UHD Graphics
+  630, including two-run deterministic PNG checks for both normal and debug
+  views. The runner emitted the ignored
+  [`windows-cube-smoke-220642406`](artifacts/phase1/2026-08-15/windows-cube-smoke-220642406/review.md)
+  candidate packet; its normal PNG retained SHA-256
+  `701595f448a9bb0a82e644e42873a6d1a5e119fd0402f0a6cb4e6f308236ac15`,
+  its debug PNG has SHA-256
+  `a9bbf89ed449b5d3ffc803239486fd1bb7571a15ab263f1b4bd60cead41107e6`,
+  and all direct render runs reported zero high-severity GL messages. Agent
+  inspection found a matching normal cube and explanatory wireframe; this is
+  not an owner verdict. The manifest and controlled mismatch packet passed
+  independent file/hash validation. No golden was created or promoted.
+- **2026-08-15 — Accepted Tracer 0 visual baseline:** The owner launched the
+  native Windows interactive cube, verified the resizable window, reviewed the
+  normal and wireframe captures together, reported that both looked correct,
+  and explicitly selected Accept. The complete packet was promoted to the
+  checked-in
+  [`voxel_cube_smoke-v1` baseline](tests/goldens/tracer0/voxel_cube_smoke-v1/windows-intel-uhd-630-development/review.md).
+  Its CTest guard validates all manifest-linked file hashes and requires exactly
+  one Accept verdict with an owner observation/date. WSL development,
+  ASan/UBSan, and release presets each passed 8/8 tests after promotion. A fresh
+  native Windows MSVC 19.44.35228.0 copy-build passed 15/15 tests and reproduced
+  the accepted normal/debug hashes with zero high-severity GL messages. This is
+  a reference-machine engineering-tracer baseline, not a cross-GPU identity,
+  gameplay, motion, performance, or production-art claim.
+- **2026-08-15 — Minimal Linux CI source:** The new
+  [Linux fast gate](.github/workflows/linux.yml) targets GitHub's Ubuntu 24.04
+  image, selects Clang 18, installs only the current X11/OpenGL build
+  dependencies, and runs the documented `cmake --preset dev`,
+  `cmake --build --preset dev`, and `ctest --preset dev` sequence. Checkout and
+  failure-upload actions are pinned to their v7.0.1 commit SHAs; repository
+  permission is read-only and checkout credentials are not persisted. A fresh
+  WSL source copy passed 8/8 tests, and a copied-baseline failure confirmed the
+  selected CTest diagnostics. The workflow passed checksum-verified
+  `actionlint` 1.7.12. A clean staged-index export preserved every accepted
+  packet byte and passed all 8 tests after [`.gitattributes`](.gitattributes)
+  disabled text conversion under `tests/goldens/`. Because the source remains
+  uncommitted, no hosted run or artifact upload is yet an observed result, and
+  native Linux OpenGL 4.6 remains unverified.

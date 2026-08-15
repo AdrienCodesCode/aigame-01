@@ -430,6 +430,9 @@ function Write-ArtifactPacket {
         [string]$RepeatCapturePath,
 
         [Parameter(Mandatory = $true)]
+        [string]$DebugCapturePath,
+
+        [Parameter(Mandatory = $true)]
         [datetime]$StartedAt
     )
 
@@ -465,6 +468,7 @@ function Write-ArtifactPacket {
         required_glsl = "4.60"
         viewport = [ordered]@{ width = 64; height = 64 }
         capture_format = "png_rgba8_top_left"
+        debug_view = "same-camera triangle wireframe"
         injected_capture_mismatch = $InjectCaptureMismatch.IsPresent
     }
     Write-JsonFile -Path $ConfigurationPath -Value $configuration -Depth 6
@@ -481,6 +485,7 @@ function Write-ArtifactPacket {
     Add-ArtifactRecord -Records $artifactRecords -Role "source_hashes" -Path $SourceHashesPath -MediaType "application/json"
     Add-ArtifactRecord -Records $artifactRecords -Role "normal_capture" -Path $NormalCapturePath -MediaType "image/png"
     Add-ArtifactRecord -Records $artifactRecords -Role "repeat_capture" -Path $RepeatCapturePath -MediaType "image/png"
+    Add-ArtifactRecord -Records $artifactRecords -Role "debug_capture" -Path $DebugCapturePath -MediaType "image/png"
     foreach ($captureName in $ctestCaptureNames) {
         Add-ArtifactRecord `
             -Records $artifactRecords `
@@ -496,6 +501,7 @@ function Write-ArtifactPacket {
             stage = $FailureStage
             message = $FailureMessage
             capture_available = (Test-Path -LiteralPath $NormalCapturePath -PathType Leaf)
+            debug_capture_available = (Test-Path -LiteralPath $DebugCapturePath -PathType Leaf)
         }
     }
     $reproductionCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
@@ -505,7 +511,7 @@ function Write-ArtifactPacket {
     $manifest = [ordered]@{
         schema = "wide-eye.artifact-manifest"
         schema_version = 1
-        packet_version = "tracer0-cube-smoke-v1"
+        packet_version = "tracer0-cube-review-v1"
         result = $Result
         started_at_utc = $StartedAt.ToUniversalTime().ToString("o")
         finished_at_utc = $finishedAt.ToString("o")
@@ -525,15 +531,130 @@ function Write-ArtifactPacket {
             camera = "tracer0_fixed_perspective"
             viewport = [ordered]@{ width = 64; height = 64 }
             graphics_profile = "development"
-            flags = @("--voxel-cube-smoke", "--capture")
+            flags = @("--voxel-cube-smoke --capture", "--voxel-cube-debug-smoke --capture")
         }
         reproduction_command = $reproductionCommand
+        review_document = "review.md"
         commands = @($script:CommandRecords | ForEach-Object { $_ })
         failure = $failure
         artifacts = @($artifactRecords | ForEach-Object { $_ })
     }
     Write-JsonFile -Path $ManifestPath -Value $manifest
     [Console]::Out.WriteLine("artifact_manifest={0}" -f $ManifestPath)
+}
+
+function Write-VisualReviewPacket {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ReviewPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ManifestPath,
+
+        [Parameter(Mandatory = $true)]
+        [object]$SourceState,
+
+        [Parameter(Mandatory = $true)]
+        [object]$PlatformState,
+
+        [Parameter(Mandatory = $true)]
+        [datetime]$StartedAt
+    )
+
+    $manifestHash = (Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $gpuSummary = ($PlatformState.gpus | ForEach-Object { "{0} driver {1}" -f $_.name, $_.driver_version }) -join "; "
+    if ([string]::IsNullOrWhiteSpace($gpuSummary)) {
+        $gpuSummary = "unavailable"
+    }
+    $sourceSummary = "{0}; worktree {1}" -f $SourceState.commit, $SourceState.worktree_state
+    $glSummary = "{0}; GLSL {1}" -f $script:ObservedState["gl_version"], $script:ObservedState["glsl_version"]
+    $reproductionCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    $review = @"
+# Tracer 0 candidate cube visual review
+
+This is a candidate review packet, not an accepted golden. The owner verdict is intentionally blank.
+
+## Review question
+
+- **Coherent outcome:** Reproducibly render and explain the Tracer 0 perspective voxel cube on the approved native Windows OpenGL 4.6 path.
+- **Question for the owner:** Is the colored perspective cube, together with its matching wireframe diagnostic, acceptable as the first visual baseline for Tracer 0?
+- **What intentionally changed:** The normal cube presentation is unchanged. A same-camera wireframe diagnostic and this review record were added.
+- **What must remain invariant:** The 64x64 viewport, fixed camera, cube geometry, normal face colors, depth test/write state, deterministic PNG capture, and zero high-severity GL result.
+- **Known limitations or unverified claims:** This is a static engineering tracer at 64x64, not representative game art. The wireframe exposes submitted triangle edges, including face diagonals; it is not a voxel/chunk or collision view. Motion and performance are outside this review question. There is no prior accepted baseline, and native Linux remains unverified.
+
+## Reproduction metadata
+
+| Field | Value |
+| --- | --- |
+| Date/time and timezone | $($StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz")) |
+| Commit and dirty-worktree state | $sourceSummary |
+| Configure/build preset | dev / dev |
+| Executable version | Wide Eye 0.1.0 |
+| OS and architecture | $($PlatformState.os); $($PlatformState.architecture) |
+| CPU | $($PlatformState.cpu) |
+| GPU and driver | $gpuSummary; active renderer $($script:ObservedState["gl_renderer"]) |
+| OpenGL and GLSL versions | $glSummary |
+| Scenario and version | voxel_cube_smoke, version 1 |
+| Replay and version | Not applicable; static smoke scenario |
+| Seed | Not applicable |
+| Simulation tick/rate | No simulation tick; fixed-step configuration 60 Hz |
+| Camera and viewport | tracer0_fixed_perspective; 64x64 |
+| Graphics profile and relevant flags | development; normal and wireframe_debug captures |
+| Exact reproduction command | $reproductionCommand |
+| Artifact-manifest path/hash | manifest.json / $manifestHash |
+
+## Automated evidence
+
+| Check or budget | Command/configuration | Result | Evidence path |
+| --- | --- | --- | --- |
+| Focused tests | ctest --preset dev | Pass | run.log |
+| Scenario/replay | Normal and wireframe debug capture commands | Pass; matching scenario/camera/viewport | normal-frame.png, debug-frame.png, state.json |
+| GL diagnostics | OpenGL 4.6 Core debug callback | Pass; zero high-severity messages | run.log, state.json |
+| Sanitizers, if required | Not run by this native Windows packet | Intentionally separate; WSL sanitizer coverage cannot execute this host's GL 4.6 path | Not included |
+| Frame-time/memory, if required | Not required for this static Tracer 0 visual question | Not run | Not included |
+
+## Artifacts
+
+| Artifact | Required when | Path | What to inspect |
+| --- | --- | --- | --- |
+| Normal frame | Static presentation matters | normal-frame.png | Perspective, silhouette, three readable colored faces, dark clear color |
+| Matching debug frame | Geometry diagnosis matters | debug-frame.png | Same silhouette/camera and visible triangle edges, including face diagonals |
+| Short clip or contact sheet | Motion/temporal behavior matters | Not applicable | Static tracer; no motion claim |
+| Accepted before frame/clip | A prior approved baseline exists | None | This candidate may become the first baseline only after Accept |
+| Candidate after frame/clip | The visible result changed | normal-frame.png, debug-frame.png | Normal output plus explanatory diagnostic |
+| State and metrics dump | Behavior/performance matters | state.json, configuration.json | Scenario, viewport, depth state, hashes, GL/GLSL configuration |
+| Relevant logs | Warnings/errors matter | run.log | Commands, CTest results, capture hashes, GL diagnostics |
+
+## Owner review
+
+Review the normal and diagnostic evidence together.
+
+- [ ] The packet answers the stated question rather than showcasing unrelated polish.
+- [ ] Scenario, seed, tick, camera, viewport, and profile are comparable.
+- [ ] The perspective, geometry, face separation, and silhouette are readable at the captured size or a nearest-neighbor zoom.
+- [ ] The wireframe explains the submitted cube triangles without being mistaken for player-facing presentation.
+- [ ] The zero-high-severity GL result and deterministic capture evidence are sufficient for this tracer.
+- [ ] Known limitations are acceptable for Tracer 0.
+
+### Verdict
+
+Select exactly one:
+
+- [ ] **Accept** - promote the named candidate artifacts to the accepted baseline for this scenario/profile.
+- [ ] **Revise** - keep no baseline; the candidate needs the changes described below.
+- [ ] **Reject** - keep no baseline and abandon or redesign this candidate direction.
+
+**Owner observation and required follow-up:**
+
+**Owner/date:**
+
+## Baseline rule
+
+Only an explicit **Accept** verdict can promote this candidate. Agent inspection and automated checks do not constitute owner acceptance, cross-GPU pixel identity, player understanding, or production-art approval.
+"@
+    $utf8WithoutBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($ReviewPath, $review + [Environment]::NewLine, $utf8WithoutBom)
+    [Console]::Out.WriteLine("visual_review_packet={0}" -f $ReviewPath)
 }
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -544,7 +665,9 @@ $localRoot = Join-Path $env:LOCALAPPDATA ("WideEye\phase1-context-{0}" -f $times
 $localSource = Join-Path $localRoot "source"
 $normalCapturePath = Join-Path $packetDirectory "normal-frame.png"
 $repeatCapturePath = Join-Path $packetDirectory "repeat-frame.png"
+$debugCapturePath = Join-Path $packetDirectory "debug-frame.png"
 $manifestPath = Join-Path $packetDirectory "manifest.json"
+$reviewPath = Join-Path $packetDirectory "review.md"
 $configurationPath = Join-Path $packetDirectory "configuration.json"
 $statePath = Join-Path $packetDirectory "state.json"
 $sourceHashesPath = Join-Path $packetDirectory "source-hashes.json"
@@ -633,6 +756,12 @@ try {
             -FilePath $executable `
             -NativeArguments @("--voxel-cube-smoke", "--capture", $repeatCapturePath) `
             -RecordState
+        Invoke-CheckedNative `
+            -Stage "debug-capture" `
+            -Label "Native OpenGL voxel cube wireframe capture" `
+            -FilePath $executable `
+            -NativeArguments @("--voxel-cube-debug-smoke", "--capture", $debugCapturePath) `
+            -RecordState
 
         $script:CurrentStage = "capture-repeat-compare"
         if ($InjectCaptureMismatch.IsPresent) {
@@ -641,11 +770,15 @@ try {
         }
         $normalCaptureHash = Get-FileHash -LiteralPath $normalCapturePath -Algorithm SHA256
         $repeatCaptureHash = Get-FileHash -LiteralPath $repeatCapturePath -Algorithm SHA256
+        $debugCaptureHash = Get-FileHash -LiteralPath $debugCapturePath -Algorithm SHA256
         Write-Logged -Message ("normal_capture_sha256={0}" -f $normalCaptureHash.Hash.ToLowerInvariant())
         Write-Logged -Message ("repeat_capture_sha256={0}" -f $repeatCaptureHash.Hash.ToLowerInvariant())
-        $script:ObservedState["capture_path"] = "normal-frame.png"
+        Write-Logged -Message ("debug_capture_sha256={0}" -f $debugCaptureHash.Hash.ToLowerInvariant())
+        $script:ObservedState["normal_capture_path"] = "normal-frame.png"
+        $script:ObservedState["debug_capture_path"] = "debug-frame.png"
         $script:ObservedState["normal_capture_sha256"] = $normalCaptureHash.Hash.ToLowerInvariant()
         $script:ObservedState["repeat_capture_sha256"] = $repeatCaptureHash.Hash.ToLowerInvariant()
+        $script:ObservedState["debug_capture_sha256"] = $debugCaptureHash.Hash.ToLowerInvariant()
         if ($normalCaptureHash.Hash -ne $repeatCaptureHash.Hash) {
             throw "Repeated direct capture hashes differ."
         }
@@ -686,7 +819,16 @@ finally {
             -LocalSource $localSource `
             -NormalCapturePath $normalCapturePath `
             -RepeatCapturePath $repeatCapturePath `
+            -DebugCapturePath $debugCapturePath `
             -StartedAt $startedAt
+        if ($runResult -eq "pass") {
+            Write-VisualReviewPacket `
+                -ReviewPath $reviewPath `
+                -ManifestPath $manifestPath `
+                -SourceState $sourceState `
+                -PlatformState $platformState `
+                -StartedAt $startedAt
+        }
     }
     catch {
         [Console]::Error.WriteLine("artifact_manifest_result=fail")

@@ -1,0 +1,23 @@
+{
+    "schema_version":  1,
+    "configure_preset":  "dev",
+    "build_preset":  "dev",
+    "test_preset":  "dev",
+    "cmake":  {
+                  "path":  "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
+                  "version":  "cmake version 3.31.6-msvc6"
+              },
+    "ctest":  {
+                  "path":  "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\ctest.exe",
+                  "version":  "ctest version 3.31.6-msvc6"
+              },
+    "required_opengl":  "4.6 Core debug",
+    "required_glsl":  "4.60",
+    "viewport":  {
+                     "width":  64,
+                     "height":  64
+                 },
+    "capture_format":  "png_rgba8_top_left",
+    "debug_view":  "same-camera triangle wireframe",
+    "injected_capture_mismatch":  false
+}

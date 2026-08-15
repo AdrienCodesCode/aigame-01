@@ -112,10 +112,29 @@ if(BUILD_TESTING)
             "${PROJECT_SOURCE_DIR}/tests/assert-core-assertion.cmake"
     )
     add_test(NAME wide_eye.sdl_window_smoke COMMAND wide_eye --window-smoke)
+    add_test(
+        NAME wide_eye.accepted_tracer0_baseline
+        COMMAND
+            ${CMAKE_COMMAND}
+            "-DMANIFEST=${PROJECT_SOURCE_DIR}/tests/goldens/tracer0/voxel_cube_smoke-v1/windows-intel-uhd-630-development/manifest.json"
+            -DEXPECTED_MANIFEST_SHA256=378d2c8cf2a5ec02e5b543311b70bf1a935e4191b24f7cee1b0a6ce84f0b8634
+            -DEXPECTED_REVIEW_SHA256=a0b3453cecde5d2fe684b5635c70cab5686ff7cc07786b953dab63c12e74af6c
+            -DEXPECTED_RESULT=pass
+            -DREQUIRE_CAPTURE=ON
+            -DREQUIRE_DEBUG_CAPTURE=ON
+            -DREQUIRE_REVIEW=ON
+            -DREQUIRE_ACCEPTED_REVIEW=ON
+            -P
+            "${PROJECT_SOURCE_DIR}/tests/assert-artifact-manifest.cmake"
+    )
     if(WIDE_EYE_ENABLE_OPENGL_CONTEXT_TEST)
         add_test(NAME wide_eye.opengl_context_smoke COMMAND wide_eye --context-smoke)
         add_test(NAME wide_eye.opengl_triangle_smoke COMMAND wide_eye --triangle-smoke)
         add_test(NAME wide_eye.opengl_voxel_cube_smoke COMMAND wide_eye --voxel-cube-smoke)
+        add_test(
+            NAME wide_eye.opengl_voxel_cube_debug_smoke
+            COMMAND wide_eye --voxel-cube-debug-smoke
+        )
         add_test(
             NAME wide_eye.opengl_voxel_cube_capture
             COMMAND
@@ -123,6 +142,18 @@ if(BUILD_TESTING)
                 "-DWIDE_EYE_EXECUTABLE=$<TARGET_FILE:wide_eye>"
                 "-DCAPTURE_ONE=${CMAKE_CURRENT_BINARY_DIR}/voxel-cube-capture-one.png"
                 "-DCAPTURE_TWO=${CMAKE_CURRENT_BINARY_DIR}/voxel-cube-capture-two.png"
+                -P
+                "${PROJECT_SOURCE_DIR}/tests/assert-deterministic-png.cmake"
+        )
+        add_test(
+            NAME wide_eye.opengl_voxel_cube_debug_capture
+            COMMAND
+                ${CMAKE_COMMAND}
+                "-DWIDE_EYE_EXECUTABLE=$<TARGET_FILE:wide_eye>"
+                "-DWIDE_EYE_SMOKE_ARGUMENT=--voxel-cube-debug-smoke"
+                "-DWIDE_EYE_RESULT_MARKER=voxel_cube_debug_result=pass"
+                "-DCAPTURE_ONE=${CMAKE_CURRENT_BINARY_DIR}/voxel-cube-debug-capture-one.png"
+                "-DCAPTURE_TWO=${CMAKE_CURRENT_BINARY_DIR}/voxel-cube-debug-capture-two.png"
                 -P
                 "${PROJECT_SOURCE_DIR}/tests/assert-deterministic-png.cmake"
         )
@@ -143,10 +174,13 @@ if(BUILD_TESTING)
     set(wide_eye_ctest_failure_regex_labels unit headless)
     set(wide_eye_core_assertion_labels unit)
     set(wide_eye_window_smoke_labels scenario headless)
+    set(wide_eye_accepted_tracer0_baseline_labels scenario headless)
     set(wide_eye_context_smoke_labels scenario headless)
     set(wide_eye_triangle_smoke_labels scenario headless)
     set(wide_eye_voxel_cube_smoke_labels scenario headless)
+    set(wide_eye_voxel_cube_debug_smoke_labels scenario headless)
     set(wide_eye_voxel_cube_capture_labels scenario headless)
+    set(wide_eye_voxel_cube_debug_capture_labels scenario headless)
     set(wide_eye_gl_debug_labels scenario headless)
     if(WIDE_EYE_ENABLE_SANITIZERS)
         list(APPEND wide_eye_scaffold_labels sanitizer)
@@ -155,10 +189,13 @@ if(BUILD_TESTING)
         list(APPEND wide_eye_window_state_labels sanitizer)
         list(APPEND wide_eye_core_assertion_labels sanitizer)
         list(APPEND wide_eye_window_smoke_labels sanitizer)
+        list(APPEND wide_eye_accepted_tracer0_baseline_labels sanitizer)
         list(APPEND wide_eye_context_smoke_labels sanitizer)
         list(APPEND wide_eye_triangle_smoke_labels sanitizer)
         list(APPEND wide_eye_voxel_cube_smoke_labels sanitizer)
+        list(APPEND wide_eye_voxel_cube_debug_smoke_labels sanitizer)
         list(APPEND wide_eye_voxel_cube_capture_labels sanitizer)
+        list(APPEND wide_eye_voxel_cube_debug_capture_labels sanitizer)
         list(APPEND wide_eye_gl_debug_labels sanitizer)
     endif()
 
@@ -203,6 +240,12 @@ if(BUILD_TESTING)
                    PASS_REGULAR_EXPRESSION "window_result=pass"
                    TIMEOUT 5
     )
+    set_tests_properties(
+        wide_eye.accepted_tracer0_baseline
+        PROPERTIES LABELS "${wide_eye_accepted_tracer0_baseline_labels}"
+                   PASS_REGULAR_EXPRESSION "artifact_manifest_result=pass"
+                   TIMEOUT 5
+    )
     if(WIDE_EYE_ENABLE_OPENGL_CONTEXT_TEST)
         set_tests_properties(
             wide_eye.opengl_context_smoke
@@ -223,8 +266,20 @@ if(BUILD_TESTING)
                        TIMEOUT 5
         )
         set_tests_properties(
+            wide_eye.opengl_voxel_cube_debug_smoke
+            PROPERTIES LABELS "${wide_eye_voxel_cube_debug_smoke_labels}"
+                       PASS_REGULAR_EXPRESSION "wireframe_frame_matches=yes"
+                       TIMEOUT 5
+        )
+        set_tests_properties(
             wide_eye.opengl_voxel_cube_capture
             PROPERTIES LABELS "${wide_eye_voxel_cube_capture_labels}"
+                       PASS_REGULAR_EXPRESSION "capture_repeat_sha256="
+                       TIMEOUT 10
+        )
+        set_tests_properties(
+            wide_eye.opengl_voxel_cube_debug_capture
+            PROPERTIES LABELS "${wide_eye_voxel_cube_debug_capture_labels}"
                        PASS_REGULAR_EXPRESSION "capture_repeat_sha256="
                        TIMEOUT 10
         )
@@ -243,6 +298,7 @@ if(BUILD_TESTING)
         wide_eye.ctest_failure_regex
         wide_eye.core_assertion
         wide_eye.sdl_window_smoke
+        wide_eye.accepted_tracer0_baseline
     )
     if(WIDE_EYE_ENABLE_OPENGL_CONTEXT_TEST)
         list(
@@ -251,7 +307,9 @@ if(BUILD_TESTING)
             wide_eye.opengl_context_smoke
             wide_eye.opengl_triangle_smoke
             wide_eye.opengl_voxel_cube_smoke
+            wide_eye.opengl_voxel_cube_debug_smoke
             wide_eye.opengl_voxel_cube_capture
+            wide_eye.opengl_voxel_cube_debug_capture
             wide_eye.opengl_debug_high_severity
         )
     endif()

@@ -1,13 +1,13 @@
 # Plan: Agentic development workflow and verification harness
 
-**Status:** Accepted foundation; scaffold command/test loop underway, runtime
-capture harness pending
+**Status:** Accepted foundation; Tracer 0 local loop complete, first hosted
+Linux CI run pending
 **Date:** 2026-08-15
 **Source research:**
 [`../research/agentic-development-workflow.md`](../research/agentic-development-workflow.md)
-**Architecture readiness:** Ready for Tracer 0 — Phase 0 verified the native
-Clang/CMake/SDL3/OpenGL toolchain; runtime capture and CI evidence remain to be
-implemented.
+**Architecture readiness:** Ready to finish the Tracer 0 automation gate — the
+local command, capture, failure, and owner-review loop is implemented; hosted
+Linux CI execution remains unverified.
 
 ## Objective and success criteria
 
@@ -59,8 +59,10 @@ Out of scope:
 - [x] Ubuntu LLVM 18.1.3 `clang-format` and `clang-tidy` are available through
   the ignored local fallback, and both configurations passed against the real
   scaffold source on WSL on 2026-08-15.
-- [ ] Engine source, CMake presets, CTest labels, executable scenarios, artifact
-  manifests, captures, and CI exist.
+- [x] Engine source, CMake presets, CTest labels, executable scenarios, artifact
+  manifests, captures, and CI source exist. Observed result: the locally
+  validated [Linux workflow](../../.github/workflows/linux.yml) now reproduces
+  the `dev` preset sequence; its first hosted execution remains pending.
 
 ## Decisions and assumptions
 
@@ -121,8 +123,17 @@ explains the cube smoke tracer.
   Observed result: the native Windows runner's schema-version 1 pass and
   controlled repeat-mismatch packets passed independent required-field,
   retained-file, and SHA-256 validation on 2026-08-15.
-- [ ] Create a candidate cube review packet using the accepted template.
-- [ ] Obtain the owner's explicit verdict before promoting a first golden.
+- [x] Create a candidate cube review packet using the accepted template.
+  Observed result: on 2026-08-15 the native Windows runner emitted matching
+  normal/wireframe captures, a versioned manifest, state/configuration/log
+  evidence, and a blank owner-review record; independent validation passed.
+- [x] Obtain the owner's explicit verdict before promoting a first golden.
+  Observed result: on 2026-08-15 the owner launched the interactive native
+  Windows cube, checked the resizable window and both captures, reported that
+  they looked correct, and explicitly selected Accept. The complete
+  [accepted packet](../../tests/goldens/tracer0/voxel_cube_smoke-v1/windows-intel-uhd-630-development/review.md)
+  is checked in, and its registered CTest verifies all manifest-linked hashes
+  plus the single recorded verdict.
 
 **Likely components:** root CMake/presets, tests, smoke executable CLI, ignored
 artifact writer, and a small checked-in accepted-evidence location chosen during
@@ -138,9 +149,18 @@ to enrich the smoke tracer.
 
 **Outcome:** A small automated gate reproduces the already-working local loop.
 
-- [ ] Add Linux CI using the exact checked-in configure/build/test/headless
-  commands.
+- [x] Add Linux CI using the exact checked-in configure/build/test/headless
+  commands. Observed result: on 2026-08-15 the
+  [Linux fast gate](../../.github/workflows/linux.yml) passed checksum-verified
+  `actionlint` 1.7.12, and its exact preset sequence passed 8/8 tests in a fresh
+  WSL source copy, including 4 labeled `headless` tests. The GitHub-hosted job
+  remains unrun because the changes are uncommitted.
 - [ ] Retain failure logs/manifests/captures as CI artifacts without secrets.
+  Progress: the workflow selects bounded environment, dependency, configure,
+  build, and CTest diagnostics for upload only on failure. A controlled
+  copied-baseline failure exited 8 and populated every selected CTest log
+  locally, but the upload action itself remains unverified until a hosted
+  failing run exists.
 - [ ] Keep the default job fast and deterministic; quarantine or redesign flaky
   checks rather than normalizing retries.
 - [ ] Add native Windows build/context/smoke validation when the target path

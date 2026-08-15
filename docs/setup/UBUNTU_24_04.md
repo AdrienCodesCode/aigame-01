@@ -111,12 +111,12 @@ with `-DWIDE_EYE_ENABLE_OPENGL_CONTEXT_TEST=ON` to register
 - The Phase 1 project executable's direct development and ASan/UBSan
   `--context-smoke` paths requested OpenGL 4.6 Core and failed at context
   creation with the same `GLXBadFBConfig`. The development, ASan/UBSan, and
-  release builds and their seven default CTests passed. Those tests cover exact
-  known-byte PNG encoding, core timing, window state, fatal assertions, SDL
-  lifecycle/event mapping, and rejection of project or sanitizer failure
-  diagnostics even when a pass marker is present; this confirms the
-  platform-independent capture codec and no-fallback failure path, not native
-  Linux graphics support.
+  release builds and their eight default CTests passed. Those tests cover exact
+  known-byte PNG encoding, accepted Tracer 0 packet integrity, core timing,
+  window state, fatal assertions, SDL lifecycle/event mapping, and rejection of
+  project or sanitizer failure diagnostics even when a pass marker is present;
+  this confirms the platform-independent capture codec, baseline guard, and
+  no-fallback failure path, not native Linux graphics support.
 - Local logs and source hashes are under the ignored
   `artifacts/phase0/2026-08-15/` evidence directory.
 

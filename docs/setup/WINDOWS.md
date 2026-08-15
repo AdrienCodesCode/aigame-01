@@ -82,16 +82,20 @@ The script imports the x64 MSVC environment, copies the project-owned CMake,
 source, and test inputs into a new timestamped `%LOCALAPPDATA%\WideEye` directory,
 records their SHA-256 hashes, and uses the checked-in `dev` preset. It runs the
 version, PNG-writer, core runtime, window state, fatal assertion, dummy-driver
-SDL lifecycle, display-backed OpenGL context, triangle framebuffer, cube-depth,
-repeated-capture, and injected high-severity debug-message CTests. It then runs
-`wide_eye.exe --triangle-smoke`, `wide_eye.exe --voxel-cube-smoke`, and two cube
-captures directly through the normal Windows video driver. Each invocation keeps
-one ignored `windows-cube-smoke-<time>/` packet under
-`artifacts/phase1/<date>/`. Its `wide-eye.artifact-manifest` schema version 1
-records Git/worktree state, source hashes, platform/GPU data, exact commands and
-results, relevant configuration, parsed scenario state, and SHA-256 records for
-the retained log, JSON files, and normal PNG. A passing comparison removes the
-temporary repeat PNG.
+SDL lifecycle, accepted-baseline integrity, display-backed OpenGL context,
+triangle framebuffer, cube-depth, normal and wireframe repeated-capture, and
+injected high-severity debug-message CTests. It then runs
+`wide_eye.exe --triangle-smoke`,
+`wide_eye.exe --voxel-cube-smoke`, two normal cube captures, and a matching
+`wide_eye.exe --voxel-cube-debug-smoke` wireframe capture directly through the
+normal Windows video driver. Each invocation keeps one ignored
+`windows-cube-smoke-<time>/` packet under `artifacts/phase1/<date>/`. Its
+`wide-eye.artifact-manifest` schema version 1 records Git/worktree state, source
+hashes, platform/GPU data, exact commands and results, relevant configuration,
+parsed scenario state, and SHA-256 records for the retained log, JSON files, and
+normal/debug PNGs. A passing run also writes `review.md` with matching metadata,
+artifact-manifest hash, known limitations, and an intentionally blank owner
+verdict. A passing comparison removes the temporary repeat PNG.
 
 To verify the failure-preservation branch, run the same command with
 `-InjectCaptureMismatch`. This test-only switch alters the second generated
@@ -102,12 +106,14 @@ manifest independently from WSL with:
 ```bash
 cmake -DMANIFEST="artifacts/phase1/DATE/PACKET/manifest.json" \
   -DEXPECTED_RESULT=pass -DREQUIRE_CAPTURE=ON \
+  -DREQUIRE_DEBUG_CAPTURE=ON -DREQUIRE_REVIEW=ON \
   -P tests/assert-artifact-manifest.cmake
 ```
 
 For the controlled failure packet, use `-DEXPECTED_RESULT=fail` and add
-`-DEXPECTED_FAILURE_STAGE=capture-repeat-compare` and
-`-DREQUIRE_REPEAT_CAPTURE=ON`.
+`-DEXPECTED_FAILURE_STAGE=capture-repeat-compare`,
+`-DREQUIRE_REPEAT_CAPTURE=ON`, and `-DREQUIRE_DEBUG_CAPTURE=ON`. A controlled
+failure does not produce `review.md` and must not be treated as a candidate.
 
 ## Observed Windows host — 2026-08-15
 
@@ -218,14 +224,42 @@ For the controlled failure packet, use `-DEXPECTED_RESULT=fail` and add
   `artifacts/phase1/2026-08-15/windows-cube-smoke-214449957/` passed independent
   manifest/file/hash validation; it records the then-current dirty worktree and
   exact source-hash inventory rather than claiming a clean revision.
+- The candidate visual-packet update was source-hashed and copy-built with MSVC
+  19.44.35228.0 on the same native Windows host. All 14 development CTests
+  passed, including independent two-run deterministic PNG checks for the normal
+  and same-camera wireframe-debug views. Direct captures reported zero
+  high-severity GL messages; the normal hash remained
+  `701595f448a9bb0a82e644e42873a6d1a5e119fd0402f0a6cb4e6f308236ac15`,
+  while the debug hash was
+  `a9bbf89ed449b5d3ffc803239486fd1bb7571a15ab263f1b4bd60cead41107e6`.
+  Agent inspection found the expected colored cube and a matching diagnostic
+  wireframe with visible triangle edges. The ignored candidate packet at
+  `artifacts/phase1/2026-08-15/windows-cube-smoke-220642406/` passed independent
+  manifest/file/hash/review validation; at that checkpoint its owner verdict was
+  blank and no golden existed. A controlled mismatch packet at
+  `artifacts/phase1/2026-08-15/windows-cube-smoke-220753900/` exited at
+  `capture-repeat-compare`, retained normal, altered repeat, and debug PNGs, and
+  passed independent failure-manifest validation.
+- The owner subsequently launched the interactive native Windows cube, verified
+  the resizable window, reviewed the normal and wireframe captures together,
+  reported that both looked correct, and explicitly accepted the packet. The
+  complete checked-in
+  [Tracer 0 baseline](../../tests/goldens/tracer0/voxel_cube_smoke-v1/windows-intel-uhd-630-development/review.md)
+  retains that verdict and every manifest-linked artifact. Its new CTest guard
+  passed in WSL development, ASan/UBSan, and release presets. A post-promotion
+  source-hashed native Windows run passed all 15 development CTests, including
+  the accepted-baseline guard, reproduced both accepted image hashes, and
+  reported zero high-severity GL messages. The ignored verification packet is
+  `artifacts/phase1/2026-08-15/windows-cube-smoke-223401700/`; its manifest also
+  passed independent field/file/hash/review validation.
 
 **Inference:** This laptop satisfies the approved native Windows compiler and
 OpenGL 4.6 context gate, and the project executable now reproduces that context,
 triangle and depth-tested cube oracles, deterministic cube capture,
-lifecycle/runtime checks, reporting, and high-severity debug rejection on
-native Windows. The SDL-only lifecycle and platform-independent PNG writer are
-portable across the observed WSL and native Windows builds, and the controlled
-mismatch demonstrates failure-packet retention for the current capture
-regression. The results do not establish the engine's future frame-time budgets,
-broad hardware compatibility, visual acceptance, or native Linux release
-support; those remain later named gates.
+lifecycle/runtime checks, reporting, high-severity debug rejection, and a
+reproducible accepted normal/wireframe reference packet on native Windows. The
+SDL-only lifecycle and platform-independent PNG writer are portable across the
+observed WSL and native Windows builds, and the controlled mismatch demonstrates
+failure-packet retention for the current capture regression. The results do not
+establish the engine's future frame-time budgets, broad hardware compatibility,
+gameplay quality, or native Linux release support; those remain named gates.

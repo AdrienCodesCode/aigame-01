@@ -1,0 +1,122 @@
+{
+    "schema_version":  1,
+    "aggregate_sha256":  "564999a1bdefc86581af6df4033aaa7ca7512582c7cb5afe7a656a8318462123",
+    "files":  [
+                  {
+                      "path":  ".clang-format",
+                      "sha256":  "1fb2eb18a29fb92e9b3e501abe8dedfc8c4ecbbf5b7dba83e7e03a408dccc2e3"
+                  },
+                  {
+                      "path":  ".clang-tidy",
+                      "sha256":  "c4d2e2734c8f070cbf5e76aeadaf4785411fafe22d1e1a2ca4b05fb9064d3516"
+                  },
+                  {
+                      "path":  "cmake/WideEyeDependencies.cmake",
+                      "sha256":  "324d624856147349a45b7ba2b566b379fba5159c5ea2530c710d3f4117c46aa4"
+                  },
+                  {
+                      "path":  "cmake/WideEyeDeveloperTools.cmake",
+                      "sha256":  "a78a2bb3512c537e20f399f6fb4c76b844e2bdd794f3c853f9e98df8e32a662e"
+                  },
+                  {
+                      "path":  "cmake/WideEyeProjectOptions.cmake",
+                      "sha256":  "ff1aef247799428f908b06f76b9c88d14a809c17fe5e7b214ebbc8ff96726782"
+                  },
+                  {
+                      "path":  "CMakeLists.txt",
+                      "sha256":  "0af386292f77c3fffc531fbf38daa842ae9c58b9610277618d3d411199b9fc1f"
+                  },
+                  {
+                      "path":  "CMakePresets.json",
+                      "sha256":  "a17ab4b65530bea9369c5da027c88842b5695ebf0f1359d5fdc9e8caebc37b26"
+                  },
+                  {
+                      "path":  "src/core/.gitkeep",
+                      "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                  },
+                  {
+                      "path":  "src/core/runtime.cpp",
+                      "sha256":  "21ae74280a77c5dbc3d4d3923a95afe124241293e7d9eb989462a39469c61090"
+                  },
+                  {
+                      "path":  "src/core/runtime.hpp",
+                      "sha256":  "4b965c7ec1558af8ee18c124c2f8529dfad514d9fb2331d61f616a5330a18c44"
+                  },
+                  {
+                      "path":  "src/game/.gitkeep",
+                      "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                  },
+                  {
+                      "path":  "src/platform/main.cpp",
+                      "sha256":  "1aba98b65017f30867c4cd73e3f0e3e98ee18b18fa41b9c70bb23f2b56c1533f"
+                  },
+                  {
+                      "path":  "src/platform/window_state.cpp",
+                      "sha256":  "77729de30860776c7e5db37897b4bae6f5643f3b9c92f48ee4050581b54f91c5"
+                  },
+                  {
+                      "path":  "src/platform/window_state.hpp",
+                      "sha256":  "77d58a6f1887b34833d5aafe9f2425c3b9785047910d07a47bfb52732c77395d"
+                  },
+                  {
+                      "path":  "src/README.md",
+                      "sha256":  "25ced0a201db74b10fa600b3f4dd250784a7af1b85a3378c4d15d19f84925ae3"
+                  },
+                  {
+                      "path":  "src/render/.gitkeep",
+                      "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                  },
+                  {
+                      "path":  "src/render/png_writer.cpp",
+                      "sha256":  "66772157ba42d5dbf1b3329b9c38ef3865fc8be8c59e7322efcc611efcf35b68"
+                  },
+                  {
+                      "path":  "src/render/png_writer.hpp",
+                      "sha256":  "78a89bdb781207e4a8c609da34d8314b3a632fd0ff214a9db0d249e223d251ef"
+                  },
+                  {
+                      "path":  "src/render/triangle_renderer.cpp",
+                      "sha256":  "d74bd2a4e37ef599d88a5d72fbd40fcd4cd706b79152b3a13b862822cfaaf575"
+                  },
+                  {
+                      "path":  "src/render/triangle_renderer.hpp",
+                      "sha256":  "82aad9eaf9a55e26ae6e2ee9d24252b3454b84978b1485c35ec7213233b6c329"
+                  },
+                  {
+                      "path":  "src/voxel/.gitkeep",
+                      "sha256":  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                  },
+                  {
+                      "path":  "tests/assert-artifact-manifest.cmake",
+                      "sha256":  "978c9563d68ebb13974d358abc620c9e3af64899405b4ecd24404ea49e7d65fc"
+                  },
+                  {
+                      "path":  "tests/assert-core-assertion.cmake",
+                      "sha256":  "d1d421652f08ad1bc62e373614d2fb53afdbba725ef32be00e5c483352c27450"
+                  },
+                  {
+                      "path":  "tests/assert-ctest-failure-regex.cmake",
+                      "sha256":  "c6f0a87d8dfde3c5c76d383cdbbbdf9f9f0dd232a6aad4df56dc30329b085028"
+                  },
+                  {
+                      "path":  "tests/assert-deterministic-png.cmake",
+                      "sha256":  "0a220aac33a8d33a96fd9a14a804c075fc23a5439a34c2f879dc806bd1febf43"
+                  },
+                  {
+                      "path":  "tests/assert-opengl-high-severity.cmake",
+                      "sha256":  "9ae2d48ceb9a3fdb6a0e848be5f89baae6fc4a9491f12ec7c8e8a74a70c76b74"
+                  },
+                  {
+                      "path":  "tests/png_writer_tests.cpp",
+                      "sha256":  "8e7a970ac2a202e409523180fa2c706c4b2dca175b4563ecfc74c9f279966ec9"
+                  },
+                  {
+                      "path":  "tests/README.md",
+                      "sha256":  "14a48270c857e868e15a4a6d4f1b35d897100f94102cde033f972ce95a45fba2"
+                  },
+                  {
+                      "path":  "tools/phase1/run-window-smoke.ps1",
+                      "sha256":  "6304f7eca72f2fb1995b935381d8f418f48e068dda8f1444d3f68747896586f4"
+                  }
+              ]
+}

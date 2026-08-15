@@ -1,0 +1,224 @@
+{
+    "schema":  "wide-eye.artifact-manifest",
+    "schema_version":  1,
+    "packet_version":  "tracer0-cube-review-v1",
+    "result":  "pass",
+    "started_at_utc":  "2026-08-15T15:06:42.4077712Z",
+    "finished_at_utc":  "2026-08-15T15:07:28.0447713Z",
+    "source":  {
+                   "commit":  "3793e036e72ec04f777304d7d2d846009a39c288",
+                   "worktree_state":  "dirty",
+                   "status":  [
+                                  " M CMakeLists.txt",
+                                  " M src/platform/main.cpp",
+                                  " M src/render/triangle_renderer.cpp",
+                                  " M src/render/triangle_renderer.hpp",
+                                  " M tests/assert-artifact-manifest.cmake",
+                                  " M tests/assert-deterministic-png.cmake",
+                                  " M tools/phase0/bootstrap-ubuntu-local.sh",
+                                  " M tools/phase0/run-context-smoke.sh",
+                                  " M tools/phase1/run-window-smoke.ps1"
+                              ]
+               },
+    "platform":  {
+                     "name":  "native-windows",
+                     "os":  "Microsoft Windows 11 Pro 10.0.26200 build 26200",
+                     "architecture":  "AMD64",
+                     "cpu":  "Intel(R) Core(TM) i9-8950HK CPU @ 2.90GHz",
+                     "gpus":  [
+                                  {
+                                      "name":  "Intel(R) UHD Graphics 630",
+                                      "driver_version":  "27.20.100.9664"
+                                  },
+                                  {
+                                      "name":  "NVIDIA GeForce GTX 1050 Ti with Max-Q Design",
+                                      "driver_version":  "32.0.15.8157"
+                                  }
+                              ]
+                 },
+    "executable":  {
+                       "name":  "wide_eye",
+                       "version":  "0.1.0"
+                   },
+    "scenario":  {
+                     "name":  "voxel_cube_smoke",
+                     "version":  1,
+                     "replay":  null,
+                     "seed":  null,
+                     "simulation_tick":  null,
+                     "simulation_rate_hz":  60,
+                     "camera":  "tracer0_fixed_perspective",
+                     "viewport":  {
+                                      "width":  64,
+                                      "height":  64
+                                  },
+                     "graphics_profile":  "development",
+                     "flags":  [
+                                   "--voxel-cube-smoke --capture",
+                                   "--voxel-cube-debug-smoke --capture"
+                               ]
+                 },
+    "reproduction_command":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"\\\\wsl.localhost\\Ubuntu\\home\\adunix\\dev\\aigame-01\\tools\\phase1\\run-window-smoke.ps1\"",
+    "review_document":  "review.md",
+    "commands":  [
+                     {
+                         "stage":  "configure",
+                         "label":  "CMake configure",
+                         "file":  "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
+                         "arguments":  [
+                                           "--preset",
+                                           "dev"
+                                       ],
+                         "command":  "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe --preset dev",
+                         "started_at_utc":  "2026-08-15T15:06:47.1651968Z",
+                         "finished_at_utc":  "2026-08-15T15:07:07.9690608Z",
+                         "exit_code":  0,
+                         "result":  "pass"
+                     },
+                     {
+                         "stage":  "build",
+                         "label":  "CMake build",
+                         "file":  "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
+                         "arguments":  [
+                                           "--build",
+                                           "--preset",
+                                           "dev"
+                                       ],
+                         "command":  "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe --build --preset dev",
+                         "started_at_utc":  "2026-08-15T15:07:07.9855603Z",
+                         "finished_at_utc":  "2026-08-15T15:07:19.0787010Z",
+                         "exit_code":  0,
+                         "result":  "pass"
+                     },
+                     {
+                         "stage":  "ctest",
+                         "label":  "CTest",
+                         "file":  "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\ctest.exe",
+                         "arguments":  [
+                                           "--preset",
+                                           "dev"
+                                       ],
+                         "command":  "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\ctest.exe --preset dev",
+                         "started_at_utc":  "2026-08-15T15:07:19.0787010Z",
+                         "finished_at_utc":  "2026-08-15T15:07:24.3453492Z",
+                         "exit_code":  0,
+                         "result":  "pass"
+                     },
+                     {
+                         "stage":  "triangle-smoke",
+                         "label":  "Native OpenGL triangle smoke",
+                         "file":  "C:\\Users\\adous\\AppData\\Local\\WideEye\\phase1-context-220642406\\source\\build\\Windows\\dev\\wide_eye.exe",
+                         "arguments":  [
+                                           "--triangle-smoke"
+                                       ],
+                         "command":  "C:\\Users\\adous\\AppData\\Local\\WideEye\\phase1-context-220642406\\source\\build\\Windows\\dev\\wide_eye.exe --triangle-smoke",
+                         "started_at_utc":  "2026-08-15T15:07:24.3700752Z",
+                         "finished_at_utc":  "2026-08-15T15:07:24.7614498Z",
+                         "exit_code":  0,
+                         "result":  "pass"
+                     },
+                     {
+                         "stage":  "voxel-cube-smoke",
+                         "label":  "Native OpenGL voxel cube smoke",
+                         "file":  "C:\\Users\\adous\\AppData\\Local\\WideEye\\phase1-context-220642406\\source\\build\\Windows\\dev\\wide_eye.exe",
+                         "arguments":  [
+                                           "--voxel-cube-smoke"
+                                       ],
+                         "command":  "C:\\Users\\adous\\AppData\\Local\\WideEye\\phase1-context-220642406\\source\\build\\Windows\\dev\\wide_eye.exe --voxel-cube-smoke",
+                         "started_at_utc":  "2026-08-15T15:07:24.7779347Z",
+                         "finished_at_utc":  "2026-08-15T15:07:25.3946148Z",
+                         "exit_code":  0,
+                         "result":  "pass"
+                     },
+                     {
+                         "stage":  "capture-one",
+                         "label":  "Native OpenGL voxel cube capture one",
+                         "file":  "C:\\Users\\adous\\AppData\\Local\\WideEye\\phase1-context-220642406\\source\\build\\Windows\\dev\\wide_eye.exe",
+                         "arguments":  [
+                                           "--voxel-cube-smoke",
+                                           "--capture",
+                                           "\\\\wsl.localhost\\Ubuntu\\home\\adunix\\dev\\aigame-01\\artifacts\\phase1\\2026-08-15\\windows-cube-smoke-220642406\\normal-frame.png"
+                                       ],
+                         "command":  "C:\\Users\\adous\\AppData\\Local\\WideEye\\phase1-context-220642406\\source\\build\\Windows\\dev\\wide_eye.exe --voxel-cube-smoke --capture \\\\wsl.localhost\\Ubuntu\\home\\adunix\\dev\\aigame-01\\artifacts\\phase1\\2026-08-15\\windows-cube-smoke-220642406\\normal-frame.png",
+                         "started_at_utc":  "2026-08-15T15:07:25.4113336Z",
+                         "finished_at_utc":  "2026-08-15T15:07:26.0958434Z",
+                         "exit_code":  0,
+                         "result":  "pass"
+                     },
+                     {
+                         "stage":  "capture-two",
+                         "label":  "Native OpenGL voxel cube capture two",
+                         "file":  "C:\\Users\\adous\\AppData\\Local\\WideEye\\phase1-context-220642406\\source\\build\\Windows\\dev\\wide_eye.exe",
+                         "arguments":  [
+                                           "--voxel-cube-smoke",
+                                           "--capture",
+                                           "\\\\wsl.localhost\\Ubuntu\\home\\adunix\\dev\\aigame-01\\artifacts\\phase1\\2026-08-15\\windows-cube-smoke-220642406\\repeat-frame.png"
+                                       ],
+                         "command":  "C:\\Users\\adous\\AppData\\Local\\WideEye\\phase1-context-220642406\\source\\build\\Windows\\dev\\wide_eye.exe --voxel-cube-smoke --capture \\\\wsl.localhost\\Ubuntu\\home\\adunix\\dev\\aigame-01\\artifacts\\phase1\\2026-08-15\\windows-cube-smoke-220642406\\repeat-frame.png",
+                         "started_at_utc":  "2026-08-15T15:07:26.1121065Z",
+                         "finished_at_utc":  "2026-08-15T15:07:26.7946702Z",
+                         "exit_code":  0,
+                         "result":  "pass"
+                     },
+                     {
+                         "stage":  "debug-capture",
+                         "label":  "Native OpenGL voxel cube wireframe capture",
+                         "file":  "C:\\Users\\adous\\AppData\\Local\\WideEye\\phase1-context-220642406\\source\\build\\Windows\\dev\\wide_eye.exe",
+                         "arguments":  [
+                                           "--voxel-cube-debug-smoke",
+                                           "--capture",
+                                           "\\\\wsl.localhost\\Ubuntu\\home\\adunix\\dev\\aigame-01\\artifacts\\phase1\\2026-08-15\\windows-cube-smoke-220642406\\debug-frame.png"
+                                       ],
+                         "command":  "C:\\Users\\adous\\AppData\\Local\\WideEye\\phase1-context-220642406\\source\\build\\Windows\\dev\\wide_eye.exe --voxel-cube-debug-smoke --capture \\\\wsl.localhost\\Ubuntu\\home\\adunix\\dev\\aigame-01\\artifacts\\phase1\\2026-08-15\\windows-cube-smoke-220642406\\debug-frame.png",
+                         "started_at_utc":  "2026-08-15T15:07:26.7946702Z",
+                         "finished_at_utc":  "2026-08-15T15:07:27.5473442Z",
+                         "exit_code":  0,
+                         "result":  "pass"
+                     }
+                 ],
+    "failure":  null,
+    "artifacts":  [
+                      {
+                          "role":  "log",
+                          "path":  "run.log",
+                          "media_type":  "text/plain",
+                          "bytes":  43540,
+                          "sha256":  "8c79948fb791003672a7b0df5742ede3d9cb0675f3d1619f2caf84ab5c62ce78"
+                      },
+                      {
+                          "role":  "configuration",
+                          "path":  "configuration.json",
+                          "media_type":  "application/json",
+                          "bytes":  983,
+                          "sha256":  "1e1c51746a51abfed7685f874c2488cfd8128b77209322b7096d2dd24c6a1ecb"
+                      },
+                      {
+                          "role":  "state",
+                          "path":  "state.json",
+                          "media_type":  "application/json",
+                          "bytes":  2199,
+                          "sha256":  "6fce675d7da744d3a6d2d0605363d4e1aab10eb7ffda1d166603b15a746eeab5"
+                      },
+                      {
+                          "role":  "source_hashes",
+                          "path":  "source-hashes.json",
+                          "media_type":  "application/json",
+                          "bytes":  6105,
+                          "sha256":  "e6e41cf76acf6ba9803cf162875ae0b778e461f5458569a9ab68cc52a10ffb8f"
+                      },
+                      {
+                          "role":  "normal_capture",
+                          "path":  "normal-frame.png",
+                          "media_type":  "image/png",
+                          "bytes":  16516,
+                          "sha256":  "701595f448a9bb0a82e644e42873a6d1a5e119fd0402f0a6cb4e6f308236ac15"
+                      },
+                      {
+                          "role":  "debug_capture",
+                          "path":  "debug-frame.png",
+                          "media_type":  "image/png",
+                          "bytes":  16516,
+                          "sha256":  "a9bbf89ed449b5d3ffc803239486fd1bb7571a15ab263f1b4bd60cead41107e6"
+                      }
+                  ]
+}

@@ -61,6 +61,14 @@ cmake --build --preset dev
 ctest --preset dev
 ```
 
+The [minimal Linux fast gate](.github/workflows/linux.yml) runs that same
+sequence with Clang 18 on GitHub's Ubuntu 24.04 image. The default suite includes
+the dummy-driver window lifecycle and other `headless` checks; it does not claim
+the hosted runner provides the approved OpenGL 4.6 graphics baseline. Failed
+jobs select their dependency, configure, build, CTest, and bounded environment
+diagnostics for 14-day artifact retention. The workflow source and failure paths
+have been validated locally; its first hosted run is not yet an observed result.
+
 Replace `dev` with `dev-sanitized` for supported sanitizer coverage or
 `release` for an optimized build. On a graphics target that provides the
 approved OpenGL baseline, launch the interactive SDL window with:
@@ -101,31 +109,43 @@ deterministic PNG; the destination directory must already exist:
 mkdir -p artifacts/phase1/manual
 ./build/Linux/dev/wide_eye --voxel-cube-smoke \
   --capture artifacts/phase1/manual/voxel-cube.png
+./build/Linux/dev/wide_eye --voxel-cube-debug-smoke \
+  --capture artifacts/phase1/manual/voxel-cube-wireframe.png
 ```
 
-The default WSL suite includes a known-byte PNG-writer unit check plus core
-timing, window-state, fatal-assertion, and bounded `--window-smoke` lifecycle
-checks. The latter maps SDL resize, minimize/restore, focus, and close events
-through the dummy video driver because this WSL host exposes only OpenGL 4.5.
+The debug command uses the same cube geometry, camera, viewport, shader, and
+depth state in triangle-wireframe mode. It is diagnostic evidence, not the
+player-facing presentation or a future voxel/chunk debug view.
+
+The default WSL suite includes a known-byte PNG-writer unit check, accepted
+Tracer 0 baseline-integrity check, core timing, window-state, fatal-assertion,
+and bounded `--window-smoke` lifecycle checks. The latter maps SDL resize,
+minimize/restore, focus, and close events through the dummy video driver because
+this WSL host exposes only OpenGL 4.5.
 The display-backed context CTests are enabled by default on Windows; enable them
 explicitly on a capable native Linux machine with
 `-DWIDE_EYE_ENABLE_OPENGL_CONTEXT_TEST=ON`. From WSL, reproduce the native
-Windows MSVC build, 12-test CTest suite, and project graphics report with:
+Windows MSVC build, 15-test CTest suite, and project graphics report with:
 
 ```bash
 powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -File "$(wslpath -w ./tools/phase1/run-window-smoke.ps1)"
 ```
 
-The native Windows runner executes 12 development CTests, including PNG known-
-byte and repeated-capture hash checks, timing, window-state, assertion, common
-failure-diagnostic rejection, triangle, cube-depth, and injected high-severity
-oracles. It then retains direct
-triangle, cube, and repeated-capture reports in one timestamped packet under the
+The native Windows runner executes 15 development CTests, including PNG known-
+byte checks, accepted-baseline integrity, independent two-run normal and
+wireframe-capture hash checks, timing, window-state, assertion, common failure-
+diagnostic rejection, triangle, cube-depth, wireframe, and injected high-
+severity oracles. It then retains the
+direct normal/debug captures and reports in one timestamped packet under the
 ignored `artifacts/phase1/<date>/` tree. Its versioned JSON manifest hashes the
-retained log, configuration, observed state, source inventory, and normal PNG;
-failed comparisons also keep the repeat PNG. A capture remains a candidate until
-the owner explicitly accepts a visual-review packet.
+retained log, configuration, observed state, source inventory, and both PNGs;
+`review.md` carries the matching metadata and blank owner verdict. Failed
+comparisons also keep the altered repeat PNG. A capture remains a candidate
+until the owner explicitly accepts its visual-review packet. The first accepted
+Tracer 0 packet is checked in under
+[`tests/goldens/`](tests/goldens/tracer0/voxel_cube_smoke-v1/windows-intel-uhd-630-development/review.md);
+its registered CTest verifies the retained hashes and recorded Accept verdict.
 
 After configuring `dev`, run the project-only formatting and bounded static
 analysis gates with:
