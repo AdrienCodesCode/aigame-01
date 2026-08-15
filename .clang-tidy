@@ -1,0 +1,22 @@
+Checks: >
+  -*,
+  clang-analyzer-core.*,
+  clang-analyzer-cplusplus.*,
+  clang-analyzer-deadcode.*,
+  clang-analyzer-nullability.*,
+  clang-analyzer-security.*,
+  bugprone-assert-side-effect,
+  bugprone-dangling-handle,
+  bugprone-infinite-loop,
+  bugprone-narrowing-conversions,
+  bugprone-sizeof-expression,
+  bugprone-suspicious-memset-usage,
+  bugprone-use-after-move,
+  performance-for-range-copy,
+  performance-move-const-arg,
+  performance-unnecessary-copy-initialization
+WarningsAsErrors: ''
+HeaderFilterRegex: '(^|/)(src|include|tests|tools)/'
+FormatStyle: file
+CheckOptions:
+  bugprone-assert-side-effect.AssertMacros: 'assert,SDL_assert'

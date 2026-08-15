@@ -1,0 +1,29 @@
+[mcp_servers.cpp]
+command = ".tools/bin/mcp-cpp-server"
+args = [
+  "--root",
+  ".",
+  "--clangd-path",
+  ".tools/sysroot/usr/bin/clangd-18",
+]
+cwd = "."
+default_tools_approval_mode = "auto"
+
+[mcp_servers.cpp.env]
+LD_LIBRARY_PATH = ".tools/sysroot/usr/lib/x86_64-linux-gnu"
+
+[mcp_servers.gdb]
+command = ".tools/bin/gdb-mcp-server"
+args = []
+cwd = "."
+default_tools_approval_mode = "prompt"
+
+[mcp_servers.gdb.env]
+GDB_PATH = ".tools/sysroot/usr/bin/gdb"
+LD_LIBRARY_PATH = ".tools/sysroot/usr/lib/x86_64-linux-gnu"
+
+[mcp_servers.renderdoc-mcp]
+command = ".tools/renderdoc-mcp/renderdoc-mcp-windows-x64-v0.3.0/bin/renderdoc-mcp.exe"
+args = []
+cwd = "."
+default_tools_approval_mode = "prompt"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "End Engine Session"
+  short_description: "Verify work and leave a precise engine handoff"
+  default_prompt: "Use $end-engine-session to verify this work and prepare the next-session handoff."

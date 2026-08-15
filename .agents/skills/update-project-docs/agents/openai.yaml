@@ -1,0 +1,4 @@
+interface:
+  display_name: "Update Project Docs"
+  short_description: "Synchronize engine docs with verified project state"
+  default_prompt: "Use $update-project-docs to synchronize the project documentation with verified state."

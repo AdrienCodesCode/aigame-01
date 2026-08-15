@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan From Research"
+  short_description: "Turn reviewed engine research into an executable plan"
+  default_prompt: "Use $plan-from-research to challenge this research and produce a gated implementation plan."

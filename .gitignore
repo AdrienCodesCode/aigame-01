@@ -1,0 +1,19 @@
+.tools/
+
+# Local build and developer state
+build/
+build-*/
+out/
+CMakeUserPresets.json
+compile_commands.json
+.cache/
+.ccache/
+
+# Generated verification, capture, profile, and crash evidence
+artifacts/
+captures/
+profiles/
+*.rdc
+*.profraw
+*.profdata
+*.dmp

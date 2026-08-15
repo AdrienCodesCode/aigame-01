@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deep Engine Research"
+  short_description: "Research consequential engine decisions with evidence"
+  default_prompt: "Use $deep-research to investigate this engine decision and write a sourced research handoff."

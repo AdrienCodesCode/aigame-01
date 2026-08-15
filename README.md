@@ -10,6 +10,135 @@ Run one prompt at a time, review the result, and commit working changes before m
 - [Open Source Code](https://github.com/Glitch-Gaming-Platform/Glitch-Games-FarmRise-Tycoon)
 - [Explainer Video](https://youtu.be/rW4IriCvpyQ)
 
+## This fork's local workbench
+
+This fork adds locally versioned material for evaluating and applying the linked
+workflow without treating external marketing claims or mutable hosted prompts as
+project facts.
+
+- [Agent operating rules](AGENTS.md)
+- [Accepted development workflow and standardized feedback loop](docs/DEVELOPMENT_WORKFLOW.md)
+  — coherent outcomes, verification cadence, failure evidence, visual review,
+  and chat/context boundaries
+- [Implementation roadmap](ROADMAP.md) — checkbox milestones and the continuation
+  checkpoint for future context windows
+- [Accepted native foundation](docs/decisions/0001-native-foundation.md) — C++
+  primary track, Linux/Windows matrix, procedural-first asset rule, budgets, and
+  dependency/license policy
+- [Ubuntu 24.04 development setup](docs/setup/UBUNTU_24_04.md) — Phase 0 local
+  toolchain and SDL3/OpenGL context diagnostic
+- [Native Windows development setup](docs/setup/WINDOWS.md) — MSVC/CMake/Ninja
+  installation and real-GPU OpenGL 4.6 context diagnostic
+- [Local prompt library](prompts/README.md) — original adaptations covering all
+  prompt topics linked below
+- [Technology used by the example game](docs/TECH_STACK.md)
+- [Custom C++ voxel-engine option](docs/VOXEL_ENGINE_OPTION.md)
+- [Agent harness, MCP/skill review, and official technical references](docs/AGENT_HARNESS_AND_TOOLS.md)
+- [Agentic workflow research](docs/research/agentic-development-workflow.md) and
+  its [implementation plan](docs/plans/agentic-development-workflow.md)
+- [Repository workflow skills](.agents/skills/) — deep research, planning from
+  research, documentation sync, and end-of-session handoff
+- [Glitch Analytics evaluation note](docs/ANALYTICS_NOTE.md)
+- [Border-collie game concepts and recommended vertical slice](docs/game-design/WIDE_EYE.md)
+- [Broader herding gameplay, reward, progression, scale, and animal direction](docs/game-design/HERDING_GAMEPLAY.md)
+- [Sheep/dog behavior and flock-scale research](docs/research/herding-simulation-and-scale.md)
+  with its bounded [implementation plan](docs/plans/herding-simulation-and-scale.md)
+- [Formatted community production prompt](game-prompt.md) and its bounded
+  [ultra production-pass adaptation](prompts/final-aaa-visual-optimization.md)
+
+The local prompts are not verbatim mirrors of the hosted Glitch prompts. The
+source playbook does not currently include a license, so these files preserve the
+workflow ideas in new wording and add scope, evidence, privacy, and stop gates.
+
+### Native scaffold commands
+
+The current Phase 1 scaffold configures, builds, and tests with one checked-in
+preset sequence:
+
+```bash
+cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev
+```
+
+Replace `dev` with `dev-sanitized` for supported sanitizer coverage or
+`release` for an optimized build. On a graphics target that provides the
+approved OpenGL baseline, launch the interactive SDL window with:
+
+```bash
+./build/Linux/dev/wide_eye
+```
+
+The executable requests an OpenGL 4.6 Core debug context without a lower-version
+or compatibility fallback, then reports the actual vendor, renderer, OpenGL
+version, GLSL version, profile, and debug state. It installs a synchronous debug
+callback, logs driver messages, and returns failure from a smoke run when any
+high-severity message occurs. The interactive path presents one perspective
+voxel cube with a 24-bit depth/8-bit stencil request, handles drawable resize,
+minimize/restore, focus, and close events, and advances a monotonic 60 Hz fixed
+step independently of rendering. Close it through the window manager, or run the
+bounded context-only reporting path with:
+
+```bash
+./build/Linux/dev/wide_eye --context-smoke
+```
+
+On a capable graphics target, the hidden triangle smoke also draws one frame and
+checks that the center framebuffer sample contains the triangle rather than the
+clear color:
+
+```bash
+./build/Linux/dev/wide_eye --triangle-smoke
+```
+
+The corresponding cube smoke submits the farther face after the nearer face,
+then verifies the center color and depth plus the active `LESS` comparison and
+depth-write state. Add `--capture` to save its pre-swap RGBA8 framebuffer as a
+deterministic PNG; the destination directory must already exist:
+
+```bash
+./build/Linux/dev/wide_eye --voxel-cube-smoke
+mkdir -p artifacts/phase1/manual
+./build/Linux/dev/wide_eye --voxel-cube-smoke \
+  --capture artifacts/phase1/manual/voxel-cube.png
+```
+
+The default WSL suite includes a known-byte PNG-writer unit check plus core
+timing, window-state, fatal-assertion, and bounded `--window-smoke` lifecycle
+checks. The latter maps SDL resize, minimize/restore, focus, and close events
+through the dummy video driver because this WSL host exposes only OpenGL 4.5.
+The display-backed context CTests are enabled by default on Windows; enable them
+explicitly on a capable native Linux machine with
+`-DWIDE_EYE_ENABLE_OPENGL_CONTEXT_TEST=ON`. From WSL, reproduce the native
+Windows MSVC build, 12-test CTest suite, and project graphics report with:
+
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File "$(wslpath -w ./tools/phase1/run-window-smoke.ps1)"
+```
+
+The native Windows runner executes 12 development CTests, including PNG known-
+byte and repeated-capture hash checks, timing, window-state, assertion, common
+failure-diagnostic rejection, triangle, cube-depth, and injected high-severity
+oracles. It then retains direct
+triangle, cube, and repeated-capture reports in one timestamped packet under the
+ignored `artifacts/phase1/<date>/` tree. Its versioned JSON manifest hashes the
+retained log, configuration, observed state, source inventory, and normal PNG;
+failed comparisons also keep the repeat PNG. A capture remains a candidate until
+the owner explicitly accepts a visual-review packet.
+
+After configuring `dev`, run the project-only formatting and bounded static
+analysis gates with:
+
+```bash
+cmake --build --preset dev --target format-check
+cmake --build --preset dev --target clang-tidy-check
+```
+
+These targets require LLVM 18's `clang-format` and `clang-tidy`, use the
+checked-in configurations, and enumerate only Wide Eye source files. Fetched or
+installed third-party dependency sources are not included.
+
 ## Example Game Took 2 Days To Make
 
 The example took 2 days to make, and it comes with a playable core loop, desktop and mobile optimization, asset pipelines, performance optimization, collision detection, sound affects, music loops, visual affects, onboarding, user progression, saving and loading, menu system, ability to distribute on other platforms, built-in analytics, a full testing suite and extensive documentation. This allows a full prototype of a game and to start getting feedback.
