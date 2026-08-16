@@ -10,6 +10,12 @@ The `game` boundary owns these contracts. They make a fixed-tick input sequence
 and its observed state inspectable without giving file or renderer code control
 of `GameplaySimulation`.
 
+The seed identifies a complete gameplay scenario, not a dog-controller
+scenario. [`ADR 0004`](../decisions/0004-gameplay-scenario-ownership.md) records
+that ownership correction. Existing names and numeric format versions are
+unchanged because the serialized contract already represented the whole
+simulation; only the internal type ownership changed.
+
 The authoritative implementation is
 [`gameplay_replay.hpp`](../../src/game/gameplay_replay.hpp). The JSON writers and
 validation rules are in

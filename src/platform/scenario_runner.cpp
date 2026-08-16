@@ -114,13 +114,14 @@ class NoOpScenarioRunner final : public WindowScenarioRunner {
 
 class RenderScenarioRunner final : public WindowScenarioRunner {
   public:
-    RenderScenarioRunner(RenderScenario scenario,
-                         std::optional<std::filesystem::path> capture_path = std::nullopt,
-                         std::optional<game::DogScenarioDefinition> dog_scenario = std::nullopt,
-                         std::uint64_t capture_tick = 61,
-                         std::optional<std::filesystem::path> state_dump_path = std::nullopt)
-        : scenario_{scenario}, capture_path_{std::move(capture_path)}, dog_scenario_{dog_scenario},
-          capture_tick_{capture_tick}, state_dump_path_{std::move(state_dump_path)} {}
+    RenderScenarioRunner(
+        RenderScenario scenario, std::optional<std::filesystem::path> capture_path = std::nullopt,
+        std::optional<game::GameplayScenarioDefinition> gameplay_scenario = std::nullopt,
+        std::uint64_t capture_tick = 61,
+        std::optional<std::filesystem::path> state_dump_path = std::nullopt)
+        : scenario_{scenario}, capture_path_{std::move(capture_path)},
+          gameplay_scenario_{gameplay_scenario}, capture_tick_{capture_tick},
+          state_dump_path_{std::move(state_dump_path)} {}
 
     WindowResult initialize() override {
         renderer_.emplace();
@@ -174,13 +175,13 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
             }
 
             if (has_gameplay_dog(scenario_)) {
-                if (!dog_scenario_.has_value()) {
-                    dog_scenario_ = game::find_dog_scenario("paddock-start");
+                if (!gameplay_scenario_.has_value()) {
+                    gameplay_scenario_ = game::find_gameplay_scenario("paddock-start");
                 }
-                if (!dog_scenario_.has_value()) {
+                if (!gameplay_scenario_.has_value()) {
                     return WindowFailure{"dog_scenario_select", false};
                 }
-                simulation_.emplace(*dog_scenario_);
+                simulation_.emplace(*gameplay_scenario_);
                 camera_.emplace(simulation_->current_snapshot().dog);
                 previous_camera_state_ = camera_->state();
                 if (scenario_ == RenderScenario::sheep_motion_paddock ||
@@ -209,9 +210,10 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
                                   << '\n';
                     }
                 }
-                std::cout << "dog_scenario=" << dog_scenario_->name << '\n'
-                          << "dog_scenario_version=" << dog_scenario_->version << '\n'
-                          << "dog_scenario_seed=" << dog_scenario_->seed << '\n'
+                std::cout << "gameplay_scenario="
+                          << game::gameplay_scenario_name(gameplay_scenario_->id) << '\n'
+                          << "gameplay_scenario_version=" << gameplay_scenario_->version << '\n'
+                          << "gameplay_scenario_seed=" << gameplay_scenario_->seed << '\n'
                           << "dog_collision=analytic_upright_cylinder\n"
                           << "input_actions=named\n";
             }
@@ -561,7 +563,7 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
 
     RenderScenario scenario_;
     std::optional<std::filesystem::path> capture_path_;
-    std::optional<game::DogScenarioDefinition> dog_scenario_;
+    std::optional<game::GameplayScenarioDefinition> gameplay_scenario_;
     std::uint64_t capture_tick_ = 61;
     std::optional<std::filesystem::path> state_dump_path_;
     std::optional<render::OpenGlRenderer> renderer_;
@@ -609,7 +611,7 @@ WindowRunConfiguration bounded_configuration(std::string_view result_name, bool 
 } // namespace
 
 int run_interactive_scenario(std::string_view dog_scenario) {
-    const auto definition = game::find_dog_scenario(dog_scenario);
+    const auto definition = game::find_gameplay_scenario(dog_scenario);
     if (!definition.has_value()) {
         std::cerr << "dog_scenario_result=fail\n"
                   << "failure_stage=dog_scenario_select\n";
@@ -622,7 +624,7 @@ int run_interactive_scenario(std::string_view dog_scenario) {
 }
 
 int run_dog_headless_scenario(std::string_view dog_scenario) {
-    const auto definition = game::find_dog_scenario(dog_scenario);
+    const auto definition = game::find_gameplay_scenario(dog_scenario);
     if (!definition.has_value()) {
         std::cerr << "dog_scenario_result=fail\n"
                   << "failure_stage=dog_scenario_select\n";
@@ -633,17 +635,18 @@ int run_dog_headless_scenario(std::string_view dog_scenario) {
         simulation.fixed_update({.dog_move = game::DogMoveInput{.world_z = -1.0}});
     }
     const game::DogState final_state = simulation.current_snapshot().dog;
-    const bool expected_contact = definition->id == game::DogScenarioId::wall_contact ||
-                                  definition->id == game::DogScenarioId::closed_gate;
-    const bool expected_passage = definition->id == game::DogScenarioId::open_gate;
+    const bool expected_contact = definition->id == game::GameplayScenarioId::wall_contact ||
+                                  definition->id == game::GameplayScenarioId::closed_gate;
+    const bool expected_passage = definition->id == game::GameplayScenarioId::open_gate;
     const bool result_matches =
         final_state.grounded &&
         (!expected_contact || final_state.position.z >= 16.0 + game::DogController::kRadius) &&
         (!expected_passage || final_state.position.z < 14.0);
     simulation.restart();
-    const bool restart_matches = simulation.current_snapshot().dog == definition->initial_state &&
-                                 simulation.current_snapshot().tick == 0;
-    std::cout << "dog_scenario=" << definition->name << '\n'
+    const bool restart_matches =
+        simulation.current_snapshot().dog == definition->dog.initial_state &&
+        simulation.current_snapshot().tick == 0;
+    std::cout << "dog_scenario=" << game::gameplay_scenario_name(definition->id) << '\n'
               << "dog_scenario_version=" << definition->version << '\n'
               << "dog_scenario_seed=" << definition->seed << '\n'
               << "dog_ticks=240\n"
@@ -659,7 +662,7 @@ int run_dog_headless_scenario(std::string_view dog_scenario) {
 
 int run_dog_render_scenario(std::string_view dog_scenario,
                             const std::optional<std::filesystem::path>& capture_path) {
-    const auto definition = game::find_dog_scenario(dog_scenario);
+    const auto definition = game::find_gameplay_scenario(dog_scenario);
     if (!definition.has_value()) {
         std::cerr << "dog_render_result=fail\n"
                   << "failure_stage=dog_scenario_select\n";
@@ -677,7 +680,7 @@ int run_dog_render_scenario(std::string_view dog_scenario,
 int run_sheep_motion_render_scenario(const std::optional<std::filesystem::path>& capture_path,
                                      std::uint64_t capture_tick, bool debug_view,
                                      const std::optional<std::filesystem::path>& state_dump_path) {
-    const auto definition = game::find_dog_scenario("presentation-motion");
+    const auto definition = game::find_gameplay_scenario("presentation-motion");
     if (!definition.has_value()) {
         std::cerr << "sheep_motion_render_result=fail\n"
                   << "failure_stage=sheep_motion_scenario_select\n";
@@ -696,7 +699,7 @@ int run_sheep_motion_render_scenario(const std::optional<std::filesystem::path>&
 }
 
 int run_sheep_motion_performance_scenario() {
-    const auto definition = game::find_dog_scenario("presentation-motion");
+    const auto definition = game::find_gameplay_scenario("presentation-motion");
     if (!definition.has_value()) {
         std::cerr << "sheep_motion_performance_result=fail\n"
                   << "failure_stage=sheep_motion_scenario_select\n";
@@ -712,6 +715,7 @@ int run_sheep_motion_performance_scenario() {
     configuration.performance_warmup_frames = 120;
     configuration.performance_sample_frames = 600;
     configuration.performance_scenario = "presentation_motion_five_proxy_v1";
+    configuration.performance_budget = core::kTracer2LowProfilePerformanceBudget;
     return run_window(configuration, runner);
 }
 
@@ -770,6 +774,7 @@ int run_handcrafted_paddock_performance_scenario() {
     configuration.performance_warmup_frames = 120;
     configuration.performance_sample_frames = 600;
     configuration.performance_scenario = "handcrafted_paddock_static_v1";
+    configuration.performance_budget = core::kLowProfilePerformanceBudget;
     return run_window(configuration, runner);
 }
 

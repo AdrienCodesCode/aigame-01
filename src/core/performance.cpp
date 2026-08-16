@@ -80,4 +80,12 @@ std::optional<ProcessMemorySample> sample_process_memory() noexcept {
 #endif
 }
 
+bool within_performance_budget(const DurationStatistics& synchronized_frame,
+                               const ProcessMemorySample& memory,
+                               const PerformanceBudget& budget) noexcept {
+    return synchronized_frame.p95_ns <= budget.synchronized_frame_p95_ns &&
+           synchronized_frame.p99_ns <= budget.synchronized_frame_p99_ns &&
+           memory.peak_rss_bytes <= budget.peak_rss_bytes;
+}
+
 } // namespace wide_eye::core

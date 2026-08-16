@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/performance.hpp"
 #include "platform/input.hpp"
 #include "platform/window_state.hpp"
 
@@ -34,6 +35,7 @@ struct WindowRunConfiguration {
     std::uint32_t performance_warmup_frames = 0;
     std::uint32_t performance_sample_frames = 0;
     std::string_view performance_scenario;
+    std::optional<core::PerformanceBudget> performance_budget;
 };
 
 class WindowScenarioRunner {

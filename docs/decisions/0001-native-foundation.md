@@ -1,6 +1,7 @@
 # ADR 0001: Native engine foundation
 
-**Status:** Accepted
+**Status:** Accepted; test-framework clauses amended by
+[`ADR 0003`](0003-project-owned-test-harness.md)
 **Date:** 2026-08-15
 **Decision owner:** Project owner
 
@@ -22,8 +23,9 @@ the herding loop.
 - Development and release target native x86-64 **Linux and Windows**. WSL2 is a
   useful development host, but it is not evidence for either native release.
 - The first implementation foundation is C++23, CMake presets, Ninja, SDL3,
-  OpenGL 4.6 Core, GLSL 4.60, clangd, GDB, sanitizers where supported, and
-  doctest as the initial small test framework.
+  OpenGL 4.6 Core, GLSL 4.60, clangd, GDB, and sanitizers where supported. The
+  initial doctest selection was superseded before adoption by
+  [`ADR 0003`](0003-project-owned-test-harness.md).
 - OpenGL 4.6 is an explicit target, not permission to create a compatibility
   context. If a supported machine cannot provide it, the project must record a
   deliberate baseline change before implementation proceeds.
@@ -77,9 +79,11 @@ Additional gates:
 - Declare source dependencies in CMake and pin an immutable commit or an archive
   with `URL_HASH`. Never depend on an unpinned `latest` tag for a reproducible
   build.
-- Start with SDL3, a generated OpenGL 4.6 Core loader, doctest, and one small PNG
-  writer for deterministic captures. Dear ImGui remains optional and must earn a
-  current debugging requirement.
+- Start with SDL3, a generated OpenGL 4.6 Core loader, project-owned focused test
+  executables orchestrated by CTest, and one small PNG writer for deterministic
+  captures. Dear ImGui remains optional and must earn a current debugging
+  requirement. A third-party test framework must meet the adoption gate in
+  [`ADR 0003`](0003-project-owned-test-harness.md).
 - Prefer MIT, BSD-2-Clause, BSD-3-Clause, Zlib, BSL-1.0, Apache-2.0, CC0, and
   equivalent permissive terms. Public-domain dual licensing is acceptable when
   provenance is recorded.

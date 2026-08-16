@@ -83,8 +83,14 @@ neighbor after a border edit, chunk load, or chunk unload; `Chunk` and the
 mesher do not mutate invalidation state. The current one-time opaque upload does
 not implement rebuild queues, streaming, cutout/translucent submission, or
 dynamic shadow updates.
-The `game` boundary owns the authoritative `GameplaySimulation`, Tracer 1 dog,
-and camera behavior. The core `FixedStepAccumulator` is the only
+The `game` boundary owns a minimal shared `Vec3` value, whole-game scenario
+definitions, the authoritative `GameplaySimulation`, Tracer 1 dog, and camera
+behavior. Generic math and scenario identity therefore do not depend on a
+particular controller. A `GameplayScenarioDefinition` owns the version, seed,
+dog configuration, sheep fixture, and future objective fixture; the dog motor
+receives only its initial state and analytic gate configuration. This boundary
+is recorded in [`ADR 0004`](../docs/decisions/0004-gameplay-scenario-ownership.md).
+The core `FixedStepAccumulator` is the only
 render-to-simulation scheduler. `GameplaySimulation` consumes exactly one
 domain input per fixed tick without receiving render-frame timing, owns the
 existing dog controller, and publishes read-only previous/current snapshots of
@@ -123,9 +129,9 @@ bounds vector acceleration/deceleration, rotates facing toward movement by the
 shortest path, and slows during large heading changes. It retains predictable
 analytic ground contact and collision shapes for the paddock edges,
 representative wall, and gate that are independent of voxel faces and render
-meshes. Version 1,
-seed-zero `paddock-start`, `presentation-motion`, `wall-contact`, `closed-gate`, and `open-gate`
-definitions provide deterministic initialization and exact restart. The
+meshes. Version 1, seed-zero `paddock-start`, `presentation-motion`,
+`wall-contact`, `closed-gate`, and `open-gate` gameplay definitions provide
+deterministic initialization and exact restart. The
 gameplay camera owns orbit yaw/pitch independently of dog facing; orchestration
 applies look first, resolves camera-yaw-relative movement on the ground plane,
 then advances the dog. The free-debug camera retains independent position/look

@@ -26,6 +26,7 @@ set(
     "${PROJECT_SOURCE_DIR}/src/game/dog_controller.cpp"
     "${PROJECT_SOURCE_DIR}/src/game/flock_observables.cpp"
     "${PROJECT_SOURCE_DIR}/src/game/gameplay_replay.cpp"
+    "${PROJECT_SOURCE_DIR}/src/game/gameplay_scenario.cpp"
     "${PROJECT_SOURCE_DIR}/src/game/gameplay_simulation.cpp"
     "${PROJECT_SOURCE_DIR}/src/game/sheep_spatial_grid.cpp"
 )
@@ -35,7 +36,9 @@ set(
     "${PROJECT_SOURCE_DIR}/src/game/dog_controller.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/flock_observables.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/gameplay_replay.hpp"
+    "${PROJECT_SOURCE_DIR}/src/game/gameplay_scenario.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/gameplay_simulation.hpp"
+    "${PROJECT_SOURCE_DIR}/src/game/math.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/sheep_spatial_grid.hpp"
 )
 set(wide_eye_platform_input_sources "${PROJECT_SOURCE_DIR}/src/platform/input.cpp")
@@ -827,7 +830,7 @@ if(BUILD_TESTING)
                 wide_eye.opengl_handcrafted_paddock_performance
                 wide_eye.opengl_sheep_motion_performance
                 PROPERTIES LABELS "performance;scenario;headless"
-                           PASS_REGULAR_EXPRESSION "within_provisional_low_budget="
+                           PASS_REGULAR_EXPRESSION "within_provisional_low_budget=yes"
                            TIMEOUT 60
             )
         endif()

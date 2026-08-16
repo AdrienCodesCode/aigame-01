@@ -46,6 +46,27 @@ foreach(marker IN LISTS failure_markers)
     )
 endforeach()
 
+set(budget_emitter "${FIXTURE_DIRECTORY}/emit-budget.cmake")
+file(
+    WRITE
+    "${budget_emitter}"
+    "if(NOT DEFINED BUDGET_RESULT)\n"
+    "    message(FATAL_ERROR \"BUDGET_RESULT is required\")\n"
+    "endif()\n"
+    "message(\"within_provisional_low_budget=\${BUDGET_RESULT}\")\n"
+)
+foreach(budget_result IN ITEMS no yes)
+    set(fixture_name "ctest_budget_${budget_result}")
+    file(
+        APPEND
+        "${fixture_file}"
+        "add_test([=[${fixture_name}]=] [=[${CMAKE_COMMAND}]=] "
+        "[==[-DBUDGET_RESULT=${budget_result}]==] -P [=[${budget_emitter}]=])\n"
+        "set_tests_properties([=[${fixture_name}]=] PROPERTIES "
+        "PASS_REGULAR_EXPRESSION [=[within_provisional_low_budget=yes]=])\n"
+    )
+endforeach()
+
 execute_process(
     COMMAND "${CMAKE_CTEST_COMMAND}" --test-dir "${FIXTURE_DIRECTORY}" --output-on-failure
     RESULT_VARIABLE fixture_result
@@ -66,5 +87,11 @@ foreach(fixture_index RANGE 1 4)
         )
     endif()
 endforeach()
+if(NOT fixture_output MATCHES "ctest_budget_no.*Failed")
+    message(FATAL_ERROR "CTest accepted a negative budget marker:\n${fixture_output}")
+endif()
+if(NOT fixture_output MATCHES "ctest_budget_yes.*Passed")
+    message(FATAL_ERROR "CTest rejected the affirmative budget marker:\n${fixture_output}")
+endif()
 
 message("ctest_failure_regex_result=pass")

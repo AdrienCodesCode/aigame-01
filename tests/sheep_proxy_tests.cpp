@@ -48,7 +48,7 @@ bool check(bool condition, const char* name) {
 } // namespace
 
 int main() {
-    const auto scenario = wide_eye::game::find_dog_scenario("paddock-start");
+    const auto scenario = wide_eye::game::find_gameplay_scenario("paddock-start");
     if (!check(scenario.has_value(), "scenario_available")) {
         return EXIT_FAILURE;
     }
@@ -74,8 +74,10 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    const auto motion_scenario = wide_eye::game::find_dog_scenario("presentation-motion");
-    if (!check(motion_scenario.has_value() && motion_scenario->presentation_only_sheep_motion,
+    const auto motion_scenario = wide_eye::game::find_gameplay_scenario("presentation-motion");
+    if (!check(motion_scenario.has_value() &&
+                   motion_scenario->sheep_fixture ==
+                       wide_eye::game::SheepFixture::scripted_presentation_motion,
                "presentation_motion_fixture_available")) {
         return EXIT_FAILURE;
     }

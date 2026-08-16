@@ -162,6 +162,9 @@ try {
     if ($script:Observed["within_provisional_low_budget"] -ne "yes") {
         throw "The five-proxy scene exceeded a provisional Low budget."
     }
+    if ($script:Observed["performance_budget_id"] -ne "tracer2-low-profile-v1") {
+        throw "The five-proxy scene did not use the Tracer 2 performance budget."
+    }
 
     if ((Get-FileHash $normal -Algorithm SHA256).Hash -ne
         (Get-FileHash $repeat -Algorithm SHA256).Hash) {
@@ -199,15 +202,19 @@ $configuration = [ordered]@{
     capture_viewport = [ordered]@{ width = 1920; height = 1080 }
     capture_ticks = @(1, 61, 121); same_state_debug = "face_normals"
     performance = [ordered]@{ viewport = "1920x1080"; warmup_frames = 120; sample_frames = 600
-        timing_mode = "serialized_gpu_query_and_swap" }
+        timing_mode = "serialized_gpu_query_and_swap"; budget_id = "tracer2-low-profile-v1" }
 }
 $configurationPath = Join-Path $packet "configuration.json"
 $statePath = Join-Path $packet "measurements.json"
 $sourceHashesPath = Join-Path $packet "source-hashes.json"
 Write-JsonFile $configurationPath $configuration
 Write-JsonFile $statePath ([pscustomobject]$script:Observed)
-$hashInputs = @((Join-Path $repoRoot "CMakeLists.txt"), $PSCommandPath)
-foreach ($directory in "src", "tests") {
+$hashInputs = @(
+    (Join-Path $repoRoot "CMakeLists.txt"),
+    (Join-Path $repoRoot "CMakePresets.json"),
+    $PSCommandPath
+)
+foreach ($directory in "cmake", "src", "tests", "third_party") {
     $hashInputs += Get-ChildItem -LiteralPath (Join-Path $repoRoot $directory) -File -Recurse |
         Select-Object -ExpandProperty FullName
 }
@@ -274,7 +281,7 @@ Are five recognizable procedural sheep, their facing and motion, the same-state 
 | Synchronized frame | median $($script:Observed["synchronized_frame_median_ns"]) ns; p95 $($script:Observed["synchronized_frame_p95_ns"]) ns; p99 $($script:Observed["synchronized_frame_p99_ns"]) ns | measurements.json |
 | Allocation oracle | fixed update $($script:Observed["steady_state_allocations"]); snapshot/presentation preparation $($script:Observed["snapshot_presentation_preparation_allocations"]) | release CTest output in run.log |
 | Process memory | current $($script:Observed["process_rss_bytes"]) bytes; peak $($script:Observed["process_peak_rss_bytes"]) bytes | measurements.json |
-| Provisional Low comparison | $($script:Observed["within_provisional_low_budget"]) on this proxy host | measurements.json |
+| Tracer 2 Low budget | $($script:Observed["performance_budget_id"]): $($script:Observed["within_provisional_low_budget"]) on this proxy host | configuration.json, measurements.json |
 
 Known limits: the scripted motion is presentation evidence, not flock behavior; sheep are deliberate procedural proxies; the debug view diagnoses paddock surface normals while preserving the identical authoritative sheep state; synchronized timings serialize each GPU query and include swap; the available Intel UHD 630 is a proxy, not the named Iris Xe Low device; native Linux graphics remain unverified.
 

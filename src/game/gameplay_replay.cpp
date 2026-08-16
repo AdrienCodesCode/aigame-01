@@ -9,8 +9,8 @@
 namespace wide_eye::game {
 namespace {
 
-bool is_known_scenario(DogScenarioId scenario) noexcept {
-    return dog_scenario_name(scenario) != "unknown";
+bool is_known_scenario(GameplayScenarioId scenario) noexcept {
+    return gameplay_scenario_name(scenario) != "unknown";
 }
 
 bool valid_action(const GameplayTickInput& input) noexcept {
@@ -32,9 +32,10 @@ bool finite(const DogState& state) noexcept {
     return finite(state.position) && finite(state.velocity) && std::isfinite(state.heading_radians);
 }
 
-bool finite(const SheepState& state) noexcept {
+bool valid_state(const SheepState& state) noexcept {
     return finite(state.position) && finite(state.velocity) &&
-           std::isfinite(state.heading_radians) && std::isfinite(state.arousal);
+           std::isfinite(state.heading_radians) && std::isfinite(state.arousal) &&
+           is_known_sheep_behavior(state.behavior);
 }
 
 std::string_view sheep_behavior_name(SheepBehaviorState behavior) noexcept {
@@ -79,7 +80,7 @@ bool append_scenario(std::string& output, const GameplayScenarioSeed& scenario) 
         return false;
     }
     output += ",\"id\":\"";
-    output += dog_scenario_name(scenario.scenario);
+    output += gameplay_scenario_name(scenario.scenario);
     output += "\",\"version\":";
     if (!append_integer(output, scenario.scenario_version)) {
         return false;
@@ -185,7 +186,7 @@ bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
 } // namespace
 
 GameplayScenarioSeed gameplay_scenario_seed(const GameplaySimulation& simulation) noexcept {
-    const DogScenarioDefinition& scenario = simulation.scenario();
+    const GameplayScenarioDefinition& scenario = simulation.scenario();
     return {
         .format_version = kGameplaySeedFormatVersion,
         .scenario = scenario.id,
@@ -331,12 +332,12 @@ GameplayTextResult gameplay_state_dump_json(const GameplaySimulation& simulation
         return {.error = GameplayContractError::non_finite_state, .text = {}};
     }
     for (const SheepState& sheep : simulation.previous_snapshot().sheep) {
-        if (!finite(sheep)) {
+        if (!valid_state(sheep)) {
             return {.error = GameplayContractError::non_finite_state, .text = {}};
         }
     }
     for (const SheepState& sheep : simulation.current_snapshot().sheep) {
-        if (!finite(sheep)) {
+        if (!valid_state(sheep)) {
             return {.error = GameplayContractError::non_finite_state, .text = {}};
         }
     }

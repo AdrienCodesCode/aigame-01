@@ -19,9 +19,32 @@ int main() {
         std::cerr << "performance_failure=process_memory\n";
         return EXIT_FAILURE;
     }
+    constexpr wide_eye::core::DurationStatistics at_frame_limits{
+        .p95_ns = wide_eye::core::kLowProfilePerformanceBudget.synchronized_frame_p95_ns,
+        .p99_ns = wide_eye::core::kLowProfilePerformanceBudget.synchronized_frame_p99_ns,
+    };
+    constexpr wide_eye::core::ProcessMemorySample at_tracer2_memory_limit{
+        .peak_rss_bytes = wide_eye::core::kTracer2LowProfilePerformanceBudget.peak_rss_bytes,
+    };
+    constexpr wide_eye::core::ProcessMemorySample over_tracer2_memory_limit{
+        .peak_rss_bytes = wide_eye::core::kTracer2LowProfilePerformanceBudget.peak_rss_bytes + 1,
+    };
+    if (!wide_eye::core::within_performance_budget(
+            at_frame_limits, at_tracer2_memory_limit,
+            wide_eye::core::kTracer2LowProfilePerformanceBudget) ||
+        wide_eye::core::within_performance_budget(
+            at_frame_limits, over_tracer2_memory_limit,
+            wide_eye::core::kTracer2LowProfilePerformanceBudget) ||
+        !wide_eye::core::within_performance_budget(at_frame_limits, over_tracer2_memory_limit,
+                                                   wide_eye::core::kLowProfilePerformanceBudget)) {
+        std::cerr << "performance_failure=milestone_budget_selection\n";
+        return EXIT_FAILURE;
+    }
     std::cout << "duration_statistics=nearest_rank\n"
               << "process_rss_bytes=" << memory->current_rss_bytes << '\n'
               << "process_peak_rss_bytes=" << memory->peak_rss_bytes << '\n'
+              << "tracer2_memory_budget_bytes="
+              << wide_eye::core::kTracer2LowProfilePerformanceBudget.peak_rss_bytes << '\n'
               << "performance_result=pass\n";
     return EXIT_SUCCESS;
 }

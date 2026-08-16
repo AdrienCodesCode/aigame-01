@@ -20,7 +20,7 @@ inline constexpr std::uint32_t kGameplayStateDumpFormatVersion = 2;
 // increment.
 struct GameplayScenarioSeed {
     std::uint32_t format_version = kGameplaySeedFormatVersion;
-    DogScenarioId scenario = DogScenarioId::paddock_start;
+    GameplayScenarioId scenario = GameplayScenarioId::paddock_start;
     std::uint32_t scenario_version = 1;
     std::uint64_t seed = 0;
 

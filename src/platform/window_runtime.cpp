@@ -425,7 +425,8 @@ int run_window(const WindowRunConfiguration& configuration, WindowScenarioRunner
     }
 
     if (configuration.performance_sample_frames > 0) {
-        if (!configuration.use_opengl || configuration.performance_scenario.empty()) {
+        if (!configuration.use_opengl || configuration.performance_scenario.empty() ||
+            !configuration.performance_budget.has_value()) {
             const int status =
                 fail(configuration.result_name, {"performance_configuration", false});
             clean_up();
@@ -514,14 +515,11 @@ int run_window(const WindowRunConfiguration& configuration, WindowScenarioRunner
             return status;
         }
 
-        constexpr std::uint64_t kLowP95BudgetNs = 16'670'000;
-        constexpr std::uint64_t kLowP99BudgetNs = 25'000'000;
-        constexpr std::uint64_t kLowMemoryBudgetBytes = 1'073'741'824;
+        const core::PerformanceBudget& budget = *configuration.performance_budget;
         const bool within_provisional_low_budget =
-            synchronized_statistics->p95_ns <= kLowP95BudgetNs &&
-            synchronized_statistics->p99_ns <= kLowP99BudgetNs &&
-            memory->peak_rss_bytes <= kLowMemoryBudgetBytes;
+            core::within_performance_budget(*synchronized_statistics, *memory, budget);
         std::cout << "performance_scenario=" << configuration.performance_scenario << '\n'
+                  << "performance_budget_id=" << budget.id << '\n'
                   << "performance_warmup_frames=" << configuration.performance_warmup_frames << '\n'
                   << "performance_sample_frames=" << configuration.performance_sample_frames << '\n'
                   << "performance_timing_mode=serialized_gpu_query_and_swap\n";
@@ -531,11 +529,16 @@ int run_window(const WindowRunConfiguration& configuration, WindowScenarioRunner
         write_duration_statistics("synchronized_frame", *synchronized_statistics);
         std::cout << "process_rss_bytes=" << memory->current_rss_bytes << '\n'
                   << "process_peak_rss_bytes=" << memory->peak_rss_bytes << '\n'
-                  << "provisional_low_p95_budget_ns=" << kLowP95BudgetNs << '\n'
-                  << "provisional_low_p99_budget_ns=" << kLowP99BudgetNs << '\n'
-                  << "provisional_low_memory_budget_bytes=" << kLowMemoryBudgetBytes << '\n'
+                  << "provisional_low_p95_budget_ns=" << budget.synchronized_frame_p95_ns << '\n'
+                  << "provisional_low_p99_budget_ns=" << budget.synchronized_frame_p99_ns << '\n'
+                  << "provisional_low_memory_budget_bytes=" << budget.peak_rss_bytes << '\n'
                   << "within_provisional_low_budget="
                   << (within_provisional_low_budget ? "yes" : "no") << '\n';
+        if (!within_provisional_low_budget) {
+            const int status = fail(configuration.result_name, {"performance_budget", false});
+            clean_up();
+            return status;
+        }
     } else if (configuration.render_bounded_frame) {
         if (const WindowResult failure = scenario.render_frame(window_state, 1.0);
             failure.has_value()) {

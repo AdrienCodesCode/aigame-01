@@ -2,498 +2,68 @@
 
 ## Current checkpoint
 
-- **Status:** Phase 1 is complete. The versioned `core`, `platform`, `render`,
-  `voxel`, `game`, `tools`, and `tests` boundaries and a minimal C++23
-  `wide_eye` executable now exist. The platform window runtime owns SDL 3.4.10
-  startup, a resizable window, resize/minimize/focus/close state, presentation,
-  clean shutdown, an explicit OpenGL 4.6 Core debug-context request,
-  context/driver reporting, and high-severity rejection. Named scenario runners
-  own their configuration, render-resource lifetime, framebuffer oracles, and
-  optional capture path without receiving the raw SDL window. The `render`
-  boundary owns GLSL 4.60 triangle and
-  perspective voxel-cube pipelines, a same-camera triangle-wireframe diagnostic,
-  color/depth/framebuffer oracles, top-left RGBA8 readback, and a
-  dependency-free deterministic PNG writer. The `core` boundary owns a
-  steady-clock frame timer, render-cadence-independent 60 Hz fixed-step
-  accumulator with a 250 ms clamp, structured logging, and automation-safe
-  fatal assertions. On 2026-08-15, the initial source-hashed native Windows
-  candidate build with MSVC 19.44.35228.0 passed all 14 then-current development
-  CTests on Intel UHD Graphics 630. Separate hidden capture CTests required two
-  independent normal runs and two independent wireframe-debug runs to produce
-  byte-identical PNGs. The normal capture is a validated 64x64 RGBA8 PNG with
-  SHA-256
-  `701595f448a9bb0a82e644e42873a6d1a5e119fd0402f0a6cb4e6f308236ac15`;
-  the matching wireframe capture has SHA-256
-  `a9bbf89ed449b5d3ffc803239486fd1bb7571a15ab263f1b4bd60cead41107e6`
-  and passed a sparse-frame oracle with 253 visible pixels. Both paths preserved
-  the intended depth state and zero high-severity messages. The owner then
-  launched the interactive native Windows cube, confirmed that its resizable
-  window worked, reviewed both captures, reported that they looked correct, and
-  explicitly accepted the packet. The complete source packet is now the first
-  checked-in [Tracer 0 visual baseline](tests/goldens/tracer0/voxel_cube_smoke-v1/windows-intel-uhd-630-development/review.md).
-  Its manifest retains the source/worktree state, source hashes, platform/GPU
-  data, commands, configuration, state, log, and exact normal/debug hashes. A
-  registered platform-independent CTest requires every retained hash plus
-  exactly one recorded Accept verdict. The root [`.gitattributes`](.gitattributes)
-  prevents cross-platform text conversion from changing any hash-addressed
-  packet byte. After promotion, a fresh source-hashed native Windows copy-build
-  passed all 15 development CTests and reproduced both accepted hashes with zero
-  high-severity messages; its ignored verification packet is
-  [`windows-cube-smoke-223401700`](artifacts/phase1/2026-08-15/windows-cube-smoke-223401700/manifest.json).
-  The WSL development, ASan/UBSan, and release builds and their eight default
-  fast tests pass. Direct 4.6 context requests still fail as expected with
-  `GLXBadFBConfig` because this WSL host exposes only 4.5. System `clang-format`
-  and `clang-tidy` 18.1.3 pass the project-only checks. Native Linux graphics
-  remains unverified. A controlled repeat-capture mismatch still supplies the
-  retained failure-path evidence; it is not a baseline. A minimal
-  [GitHub Actions Linux fast gate](.github/workflows/linux.yml) now targets
-  Ubuntu 24.04 with Clang 18 and runs the exact checked-in `dev`
-  configure/build/test sequence. In a clean export of the staged index on WSL,
-  that sequence passed all 8 tests, including 4 `headless` tests and the
-  accepted-packet integrity guard. A
-  controlled copied-baseline failure then exited nonzero and populated each
-  CTest diagnostic selected for CI upload; checksum-verified `actionlint`
-  1.7.12 also accepted the workflow. Commit
-  `fcb7d70f64ca3b1c37ffc1caf64670072a5070ca` was then pushed to `main`; its
-  [hosted Linux fast gate](https://github.com/AdrienCodesCode/aigame-01/actions/runs/31894480357)
-  completed in 1 minute 10 seconds on GitHub's Ubuntu 24.04 image and passed all
-  8 tests, including 4 labeled `headless`. A separate, temporary revision
-  changed only the expected accepted-manifest hash. Its
-  [controlled hosted run](https://github.com/AdrienCodesCode/aigame-01/actions/runs/31894689894)
-  failed the named baseline-integrity test, passed the other 7 tests, and
-  uploaded the expected dependency, environment, configure, build, and CTest
-  diagnostics. GitHub reported the artifact archive as 35,894 bytes; inspection
-  of its downloaded contents confirmed the actual-versus-expected hash error and
-  found no credential-pattern matches in a targeted scan. The remote probe
-  branch was deleted after verification. Commit
-  `b4d5d5c4eb9421d18e74c91911ff4321d72dd41f` was then exported with
-  `git archive`; the export contained no `.git`, build, or artifact tree. On the
-  WSL Ubuntu 24.04.4 development host, Clang 18.1.3 configured the
-  `dev-sanitized` preset with strict warnings and ASan/UBSan, all 244 build
-  steps passed, and all 8 CTests passed, including 7 labeled `sanitizer` and 4
-  labeled `headless`. The retained logs contain no project failure marker or
-  ASan, LSan, or UBSan diagnostic, and the generated project compile/link rules
-  preserve the intended sanitizer flags. The ignored
-  [`linux-clean-dev-sanitized-b4d5d5c`](artifacts/phase1/2026-08-15/linux-clean-dev-sanitized-b4d5d5c/manifest.json)
-  packet records the source-archive hash, commands, configuration, toolchain,
-  flags, test labels, logs, and their hashes. Together with the source-equivalent
-  hosted `dev` proof above, this completes the clean-tree preset gate; it does
-  not establish native Linux graphics or sanitizer coverage of the OpenGL 4.6
-  render/capture path. The native Windows runner now also has a first-class
-  `dev-sanitized` mode. On the same Windows 11/Intel UHD Graphics 630 host, MSVC
-  19.44.35228.0 applied AddressSanitizer to all six project compile commands and
-  the executable link, built the source-hashed copy, and passed all 15 CTests;
-  14 were sanitizer-labeled and 11 headless. The five direct render/capture
-  invocations reported clean shutdown, zero high-severity GL messages, and the
-  accepted normal/debug hashes. An explicit scan found no project, ASan, LSan,
-  UBSan, or nonzero high-severity GL marker. The ignored
-  [`windows-sanitized-cube-smoke-234237930`](artifacts/phase1/2026-08-15/windows-sanitized-cube-smoke-234237930/manifest.json)
-  packet passed independent manifest/file/hash validation. SDL remains a
-  separately built, non-instrumented shared dependency in this configuration. A
-  fresh agent then followed only the repository's native Windows setup and smoke
-  runner instructions from the dirty, source-hashed working tree at commit
-  `b4d5d5c4eb9421d18e74c91911ff4321d72dd41f`. The default `dev` copy-build
-  passed all 15 CTests, including 11 labeled `headless`, and the five direct
-  triangle/cube/capture invocations shut down cleanly with zero high-severity GL
-  messages. The two normal captures were byte-identical and matched accepted
-  SHA-256
-  `701595f448a9bb0a82e644e42873a6d1a5e119fd0402f0a6cb4e6f308236ac15`;
-  the debug capture matched accepted SHA-256
-  `a9bbf89ed449b5d3ffc803239486fd1bb7571a15ab263f1b4bd60cead41107e6`.
-  Independent manifest/file/hash/review validation passed for the ignored
-  [`windows-cube-smoke-235312691`](artifacts/phase1/2026-08-15/windows-cube-smoke-235312691/manifest.json)
-  packet, and no missing or ambiguous reproduction instruction was observed. On
-  2026-08-16, the first Phase 2 foundation outcome split the lifecycle and named
-  scenario ownership without changing the CLI or accepted pixels. The final WSL
-  `dev` and ASan/UBSan builds each passed all 8 default CTests. A source-hashed
-  native Windows MSVC 19.44.35228.0 copy-build passed all 15 CTests on Intel UHD
-  Graphics 630; every direct render/capture path shut down cleanly with zero
-  high-severity messages, and the repeated normal plus debug captures matched
-  the accepted hashes. Evidence: the ignored
-  [`Windows lifecycle-split packet`](artifacts/phase1/2026-08-16/windows-cube-smoke-001038930/manifest.json).
-  The second Phase 2 foundation outcome then renamed the tracer-specific
-  `TriangleRenderer` façade to `OpenGlRenderer` and made its triangle methods
-  explicit. The façade now states ownership of current-context OpenGL rendering
-  entry points, render resources, draw submission, and framebuffer readback,
-  while scenario runners retain oracle decisions and PNG output. WSL `dev` and
-  ASan/UBSan builds each passed all 8 CTests; native Windows passed all 15 CTests
-  and reproduced both accepted hashes with zero high-severity messages.
-  Evidence: the ignored
-  [`Windows renderer-rename packet`](artifacts/phase1/2026-08-16/windows-cube-smoke-001947114/manifest.json).
-  The third Phase 2 foundation outcome replaced both handwritten OpenGL symbol
-  tables with glad 2.0.8 output generated reproducibly for OpenGL 4.6 Core with
-  no extensions. The retained generator archive hash, command, source hashes,
-  and permissive license terms are recorded beside the generated source. CMake
-  rejects any generated-file or retained-license hash mismatch, and a controlled
-  copied-source mutation made configure exit nonzero with the expected named
-  checksum error. `window_runtime` performs the single glad initialization
-  through SDL after making the context current; `OpenGlRenderer` consumes the
-  generated API without owning another entry-point table. WSL `dev` and
-  ASan/UBSan builds each passed all 8 CTests, and the project-only formatting
-  and bounded static-analysis gates passed. Native Windows MSVC 19.44.35228.0
-  passed all 15 CTests on Intel UHD Graphics 630, reported `loaded_gl=4.6` on
-  every direct path, preserved zero high-severity messages, and reproduced both
-  accepted capture hashes. Evidence: the ignored
-  [`Windows generated-loader packet`](artifacts/phase1/2026-08-16/windows-cube-smoke-003632556/manifest.json).
-  The fourth Phase 2 foundation outcome established distinct signed 64-bit
-  world-voxel, chunk, and local-voxel triples. Conversion uses floor division
-  so local axes remain non-negative across negative world boundaries, while
-  checked recomposition rejects invalid local offsets and signed overflow. The
-  positive cubic edge length is caller-supplied, so this outcome did not select
-  16 or 32. WSL Clang 18.1.3 development and ASan/UBSan builds each passed all
-  9 CTests, and the project-only formatting and bounded static-analysis gates
-  passed. Native Windows MSVC 19.44.35228.0 passed all 16 CTests, including the
-  new coordinate unit test, and reproduced both accepted capture hashes with
-  zero high-severity messages. Evidence: the ignored
-  [`Windows coordinate-semantics packet`](artifacts/phase1/2026-08-16/windows-cube-smoke-010409722/manifest.json).
-  The fifth Phase 2 foundation outcome then compared 16³ and 32³ without
-  introducing production storage or meshing. A deterministic 32³ one-byte
-  occupancy fixture verified equivalent full-field occupied/visible results,
-  exact modeled memory, and interior/boundary rebuild-proxy work. The selected
-  initial production edge is 16: its modeled equal-world footprint was 33,120
-  bytes versus 32,840 for 32³ (+0.85%), while it scanned 8× fewer cells for an
-  interior edit and 4× fewer for the cross-boundary edit. On the WSL GCC 13.3
-  release run, its full-rebuild median was 2.1% slower, below the predefined 25%
-  defer threshold. WSL development, ASan/UBSan, and release suites each passed
-  all 10 CTests; native Windows MSVC 19.44.35228.0 passed all 17 and preserved
-  both accepted capture hashes with zero high-severity messages. Evidence:
-  [`ADR 0002`](docs/decisions/0002-chunk-edge-length.md), the ignored
-  [`measurement manifest`](artifacts/phase2/2026-08-16/chunk-size-comparison-wsl-gcc13-release-manifest.json),
-  and the ignored
-  [`Windows packet`](artifacts/phase1/2026-08-16/windows-cube-smoke-013203819/manifest.json).
-  The sixth Phase 2 foundation outcome implemented the production 16³ chunk as
-  4,096 one-byte material IDs with zero reserved for explicit empty space.
-  Bounds-safe reads return no value for invalid locals; writes distinguish
-  invalid, unchanged, and changed results. Actual edits conservatively expand an
-  inclusive local-space dirty region, and clearing that region preserves cell
-  contents. The focused unit oracle covers empty and full chunks, all valid
-  corners and invalid axis boundaries, positive and negative adjacent-chunk
-  splits, independent neighboring storage, no-op and material-changing edits,
-  dirty-region expansion/clear, and editing back to empty. WSL Clang 18.1.3
-  development and ASan/UBSan suites each passed all 11 CTests; project-only
-  formatting and bounded static analysis passed. Native Windows MSVC
-  19.44.35228.0 passed all 18 CTests and preserved both accepted capture hashes
-  with zero high-severity OpenGL messages. Evidence:
-  [`chunk.hpp`](src/voxel/chunk.hpp),
-  [`chunk_storage_tests.cpp`](tests/chunk_storage_tests.cpp), and the ignored
-  [`Windows packet`](artifacts/phase1/2026-08-16/windows-cube-smoke-110914010/manifest.json).
-  The seventh Phase 2 foundation outcome implemented a deterministic naive CPU
-  mesher. Every non-empty cell face adjacent to empty space emits one duplicated
-  four-vertex/two-triangle quad with outward winding, a cardinal normal, and its
-  material ID; adjacent non-empty materials occlude their shared face. A
-  caller-owned read-only snapshot supplies the six axial chunks, and missing
-  neighbors are sampled as empty. The future world/rebuild queue owns snapshot
-  lifetime and must remesh both sides of a changed shared border or chunk
-  load/unload; chunk storage and meshing remain read-only with respect to
-  invalidation. WSL Clang 18.1.3 development and ASan/UBSan suites each passed
-  all 12 CTests; project-only formatting and bounded static analysis passed.
-  Native Windows MSVC 19.44.35228.0 passed all 19 CTests and preserved both
-  accepted capture hashes with zero high-severity OpenGL messages. Evidence:
-  [`naive_mesher.hpp`](src/voxel/naive_mesher.hpp),
-  [`naive_mesher_tests.cpp`](tests/naive_mesher_tests.cpp), and the ignored
-  [`Windows packet`](artifacts/phase1/2026-08-16/windows-cube-smoke-112151833/manifest.json).
-  The eighth Phase 2 foundation outcome added palette-owned material-pass
-  classification and independent opaque, cutout, and translucent CPU mesh
-  buffers. Value-initialized classification keeps every material opaque, and
-  the pass does not change the verified rule that any non-empty neighbor
-  occludes the shared face. The focused oracle now also verifies default and
-  explicit classification, exact per-pass face counts, cross-pass culling, and
-  unchanged topology/material data in every output. WSL development and
-  ASan/UBSan suites each passed all 12 CTests; project-only formatting and
-  bounded static analysis passed. Native Windows MSVC 19.44.35228.0 passed all
-  19 CTests and preserved both accepted capture hashes with zero high-severity
-  OpenGL messages. Evidence: [`naive_mesher.hpp`](src/voxel/naive_mesher.hpp),
-  [`naive_mesher_tests.cpp`](tests/naive_mesher_tests.cpp), and the independently
-  validated ignored
-  [`Windows packet`](artifacts/phase1/2026-08-16/windows-cube-smoke-113523193/manifest.json).
-  The ninth Phase 2 foundation outcome now gives the fixed 16³ naive mesh a
-  conservative ceiling of 24,576 faces, 98,304 vertices, and 147,456 indices.
-  A two-pass build counts and classifies every exposed face before allocation,
-  rejects arithmetic/type overflow or caller-supplied aggregate limits without
-  returning partial buffers, reserves exact storage for each material pass, and
-  then emits in the previously verified order. The focused checkerboard oracle
-  emitted 12,288 faces from 2,048 isolated cells, accepted exact limits of
-  49,152 vertices and 73,728 indices, and rejected each one-less limit. WSL
-  development and ASan/UBSan suites each passed all 12 CTests; project-only
-  formatting and bounded static analysis passed. Native Windows MSVC
-  19.44.35228.0 passed all 19 CTests and preserved both accepted capture hashes
-  with zero high-severity OpenGL messages. Evidence:
-  [`naive_mesher.hpp`](src/voxel/naive_mesher.hpp),
-  [`naive_mesher_tests.cpp`](tests/naive_mesher_tests.cpp), and the independently
-  validated ignored
-  [`Windows packet`](artifacts/phase1/2026-08-16/windows-cube-smoke-120029373/manifest.json).
-- **Current milestone:** Phase 3 — Tracer 2: five sheep and one gate. Phase 2 is
-  complete; the repository
-  build scaffold, SDL window lifecycle, context/debug gate, triangle and
-  depth-tested cube, core timing/logging/assertion primitives, deterministic PNG
-  capture, versioned artifact/failure packet, and a documented hidden-window
-  reproduction, normal/debug review packet, explicit owner acceptance, and
-  protected first visual baseline are complete. The clean-tree development and
-  sanitized preset gate, minimal Linux CI definition, local validation, hosted
-  known-good run, controlled failure-artifact verification, native Windows
-  sanitizer graphics gate, and independent documentation-only reproduction are
-  complete. Every Phase 1 exit gate is closed. The first Phase 2 foundation
-  boundaries are also complete: `main` dispatches named scenarios,
-  `window_runtime` owns SDL/OpenGL lifecycle and presentation, and
-  `scenario_runner` owns scenario-specific rendering, oracles, and capture.
-  `window_runtime` also performs the one generated OpenGL-loader initialization;
-  `OpenGlRenderer` names backend-level resource, drawing, and readback ownership
-  without a second symbol table. The `voxel` boundary owns checked integer
-  world/chunk/local conversion plus fixed 16³ one-byte material storage with
-  explicit empty space, safe local access, and conservative per-chunk dirty
-  regions. The coordinate API remains caller-configurable, while production
-  storage fixes its selected edge at 16. The naive mesher now produces
-  deterministic duplicated quads across local and explicitly sampled
-  cross-chunk boundaries, classifying each material through a caller-owned
-  snapshot and routing faces into independent opaque, cutout, and translucent
-  buffers while preserving the opaque-default baseline. It counts before
-  allocation, enforces a fixed conservative ceiling plus caller-supplied
-  aggregate limits, and rejects invalid output atomically. The first visible
-  Tracer 1 outcome now stores a handcrafted 32×16×32 paddock in four production
-  chunks, meshes live cross-chunk boundaries, offsets each complete checked
-  opaque output into one world-space mesh, and uploads/draws 2,754 quads through
-  an indexed OpenGL path. The default interactive window and the bounded
-  `--paddock-smoke` scenario show green ground, a light-stone wall, centered red
-  gate, and a distant stepped-roof barn using a fixed blockout camera. Repeated
-  native Windows 960×540 captures were byte-identical. On 2026-08-16 the owner
-  explicitly accepted that named candidate; its exact normal frame is now the
-  checked-in
-  [first Tracer 1 visual baseline](tests/goldens/tracer1/handcrafted_paddock-v1/windows-intel-uhd-630-development-blockout/review.md),
-  protected by a registered platform-independent hash/verdict CTest.
-  Post-promotion WSL development and ASan/UBSan suites each passed 14/14
-  CTests. The fixed geometry and camera now also have a voxel-owned seven-entry
-  palette, a fixed directional light, deliberate sky and distance fog, and a
-  static 1024x1024 filtered shadow map. Named same-camera chunk-bounds,
-  face-normal, indexed-wireframe, and mesh-statistics scenarios expose the
-  four chunks and exact mesh topology without changing the accepted blockout
-  baseline. The `game` boundary now owns a 60 Hz kinematic upright-cylinder dog,
-  deterministic named starting scenarios, restart, independent analytic
-  paddock collision, a gameplay follow camera, and a movable free-debug camera.
-  The `platform` boundary maps SDL keyboard and gamepad events to named actions,
-  including disconnect/focus clearing and a tested stick dead zone. The `core`
-  boundary supplies nearest-rank duration summaries and current/peak process
-  RSS sampling. On 2026-08-16, WSL development and ASan/UBSan suites passed
-  20/20 CTests; project formatting and bounded static analysis passed. A native
-  Windows Release build passed 35/35 CTests on Intel UHD Graphics 630 with zero
-  high-severity OpenGL messages. Its candidate
-  [same-state review packet](artifacts/phase2/2026-08-16/tracer1-review-windows-142557466/review.md)
-  contains byte-identical repeated normal frames, all four fixed-camera debug
-  frames, and a grounded dog frame with a visible facing marker. The serialized
-  1920x1080 static-paddock measurement used 120 warmup and 600 sampled frames;
-  synchronized frame time was 2,864,800 ns p95 and 5,449,000 ns p99, GPU render
-  time was 1,625,223 ns p95 and 1,774,623 ns p99, and current/peak RSS was
-  104,673,280 bytes. This passed the provisional Low comparison on this Intel
-  UHD 630 proxy, not on the named Iris Xe reference device. Cross-chunk rebuild
-  propagation, budgeted or dynamic upload, and cutout/translucent submission
-  remain unimplemented. Native Linux graphics and a physical controller remain
-  unverified. The accepted Tracer 1 blockout baseline is unchanged. On
-  2026-08-16, the owner explicitly accepted the broader same-state packet while
-  retaining those limitations. The selected third-
-  person correction is implemented: relative mouse input owns gameplay orbit
-  yaw/pitch; WASD resolves from live camera yaw on the ground plane; mouse-only
-  look does not rotate the
-  dog; the world-space planar motor bounds acceleration/deceleration, turns by
-  the shortest path, and slows through hard reversals; and previous/current dog
-  and camera state share the fixed-step interpolation alpha. Relative input is
-  consumed once per fixed tick and cleared across focus/capture transitions.
-  Focused tests cover mapping signs at multiple yaws, normalized diagonals,
-  mouse delta timing, same-tick held-W steering, orbit/body independence,
-  motor/reversal bounds, interpolation, restart/mode isolation, collision, and
-  repeated-sequence determinism. WSL Clang 18.1.3 development and ASan/UBSan
-  suites each passed 20/20 CTests; format and bounded static analysis passed.
-  The source-aligned native Windows Release run passed 35/35 CTests on Intel UHD
-  Graphics 630 with zero high-severity messages. Its ignored
-  [`171645758` packet](artifacts/phase2/2026-08-16/tracer1-review-windows-171645758/review.md)
-  retained byte-identical normal captures and a grounded dog frame; the static
-  1920×1080 proxy measurement reported synchronized p95/p99 of 2.273/2.828 ms,
-  GPU p95/p99 of 1.040/1.061 ms, and peak RSS of 103,682,048 bytes. These are
-  implementation/regression results. The owner subsequently reported the native
-  keyboard/mouse behavior as good on 2026-08-16, including the clarified hard-
-  reversal expectation, and chose to defer refinement. This accepts the direct-
-  control baseline without finalizing tuning or verifying a physical controller.
-  The chunk/mesh diagnostic exit gate is closed by a caller-requested deterministic
-  face-decision ledger. For every side of every non-empty cell, the voxel
-  boundary records source local/material/direction, wrapped neighbor local and
-  material, same/adjacent/missing-chunk provenance, and whether the side emitted
-  a quad or was culled. The handcrafted paddock associates each record with its
-  source chunk and reconciles all 10,476 decisions—2,754 emitted and 7,722
-  culled—one-to-one with the world-space opaque mesh. Focused oracles cover
-  same-chunk, cross-chunk, stored-empty, and missing-chunk cases, reject duplicate
-  or absent occupied-cell sides, and match every emitted record to its rendered
-  quad. WSL development and ASan/UBSan suites passed 20/20 CTests; project
-  formatting and bounded static analysis passed. No native graphics capture was
-  rerun for this CPU diagnostic outcome, and the accepted Tracer 1 blockout
-  baseline remains unchanged. The owner's explicit Accept verdict is recorded
-  in the
-  [`same-state normal/debug packet`](artifacts/phase2/2026-08-16/tracer1-review-windows-142557466/review.md),
-  closing every Phase 2 exit gate without claiming physical-controller, native-
-  Linux-graphics, or Iris Xe verification.
-  The first Phase 3 outcome now gives `game` a platform-independent
-  `GameplaySimulation` owner. The platform accumulator remains the only
-  render-to-simulation scheduler; the simulation API accepts one domain input
-  per tick and exposes no render delta. It advances an authoritative 60 Hz tick,
-  owns the existing dog controller, publishes read-only previous/current dog
-  snapshots, and supplies read-only interpolation for presentation. Existing
-  interactive and headless dog scenarios use this path. A focused oracle drove
-  the same tick-indexed input through one second partitioned as either 100 10 ms
-  frames or 10 100 ms frames and obtained exactly 60 ticks plus exactly equal
-  published state. On 2026-08-16, WSL Clang 18.1.3 development and ASan/UBSan
-  suites each passed 21/21 CTests; project formatting and bounded static analysis
-  passed. Native Windows and graphics captures were not rerun for this
-  platform-independent, nonvisual outcome, and no cross-platform replay claim
-  is made.
-  The second Phase 3 outcome defined independent version 1 seed, action-input,
-  replay, and initial dog-only state-dump contracts around that owner. A typed
-  replay binds the 60 Hz rate, named scenario/version/seed, and a complete
-  contiguous action for every tick. Validation rejects unsupported versions,
-  rate or scenario mismatches, gaps, and invalid normalized values before the
-  simulation can be mutated. Canonical compact JSON writers expose the replay
-  and published previous/current state without adding file or renderer
-  ownership to `game`.
-  Two fresh simulations consumed the same three-tick dog-only replay and
-  produced equal state plus byte-identical local state dumps. On 2026-08-16,
-  WSL Clang 18.1.3 development and ASan/UBSan suites each passed 21/21 CTests;
-  project formatting and bounded static analysis passed. JSON decoding, CLI
-  flags, checked-in replay fixtures, objective results, native Windows, and
-  cross-platform identity remain unimplemented or unverified.
-  The third Phase 3 outcome adds exactly five authoritative sheep in a fixed
-  contiguous buffer. Stable IDs 1–5 carry position, velocity, heading, arousal,
-  explicit behavior state, and grounded state. Each tick derives the next sheep
-  buffer from the immutable prior snapshot; this deliberately stationary
-  baseline adds no flock behavior. Restart restores both published buffers, and
-  presentation interpolation is read-only. The state-dump contract advanced to
-  version 2 rather than reinterpreting dog-only version 1, and now emits both
-  dog and sheep state. A focused allocation-counted oracle observed zero heap
-  allocations across 600 fixed updates. On 2026-08-16, WSL Clang 18.1.3
-  development and ASan/UBSan suites each passed 21/21 CTests; project formatting
-  and bounded static analysis passed. Native Windows, graphics, sheep behavior,
-  and cross-platform text/state identity were not tested by this nonvisual
-  outcome.
-  The fourth Phase 3 outcome renders five deliberately simple procedural sheep
-  proxies in the gameplay paddock. One shared static mesh gives each proxy a
-  cream body and tail, dark face, paired ears, and four legs. Every rendered
-  pose is copied one-to-one from the interpolated published snapshot's stable
-  ID, position, and heading; `game` remains the sole owner of sheep truth, and
-  environment-only paddock/debug paths submit zero sheep. A focused CPU oracle
-  verifies the five-pose mapping. WSL development and ASan/UBSan suites each
-  passed 22/22 CTests; project formatting and bounded static analysis passed.
-  A native Windows MSVC 19.44.35228.0 Release build passed 37/37 CTests on Intel
-  UHD Graphics 630, including the OpenGL gameplay render path, with zero high-
-  severity messages. Two independent 960x540 gameplay-camera captures were
-  byte-identical with SHA-256
-  `3e5e922def861473fee18a3fef234696c48638cfbbc306daab1afd9d0d2aaa5b`.
-  Agent inspection found all five blocky proxies visible in their two-row
-  stationary formation with the dog and gate. This is implementation evidence,
-  not owner acceptance of final animal art or flock behavior. Evidence:
-  [`sheep_proxy.hpp`](src/render/sheep_proxy.hpp),
-  [`sheep_proxy_tests.cpp`](tests/sheep_proxy_tests.cpp), and the ignored
-  [`native Windows review packet`](artifacts/phase2/2026-08-16/tracer1-review-windows-195609961/review.md).
-  The fifth Phase 3 outcome adds version 1, seed-zero `presentation-motion` as
-  an explicitly scripted, non-behavior fixture. `GameplaySimulation` advances
-  all five sheep synchronously from the immutable prior buffer around a
-  four-leg square at 1.5 world units per second while leaving behavior
-  `settled` and arousal zero. The renderer still receives only interpolated
-  published snapshots. A bounded `--sheep-motion-render-smoke` pre-rolls to
-  tick 61 and draws interpolation alpha 0.5 through the existing shared proxy
-  material, static shadow receiver, and five-draw submission path. Repeated CPU
-  runs produced exactly equal state; focused tests verify all five translations,
-  the first interpolated turn, prior/current publication, exact restart, and
-  one-to-one renderer pose mapping. WSL development and ASan/UBSan suites each
-  passed 22/22 CTests; project formatting and bounded static analysis passed.
-  Native Windows/OpenGL execution, capture, performance, memory, and owner
-  review remain unverified. The accepted stationary paddock
-  baseline was not changed.
-  The sixth Phase 3 outcome adds parameterized 1920x1080 capture of the
-  presentation fixture, canonical version 2 state-dump output, a same-state
-  face-normal debug view, a three-frame motion contact sheet, and a dedicated
-  five-proxy measurement path. On 2026-08-16, native Windows Release passed
-  39/39 CTests on Intel UHD Graphics 630 with zero high-severity OpenGL
-  messages. WSL development and ASan/UBSan suites each passed 22/22 CTests;
-  project formatting and bounded static analysis passed. Tick-61 normal
-  captures repeated byte-identically at SHA-256
-  `81726cfeb5584d33702344d0907c0adf4129e8a74531c85fbbd0d5cfc5922047`;
-  the normal, repeat, and debug commands emitted byte-identical canonical state
-  dumps at SHA-256
-  `8b2921e4a87bc2e8b8b86e08f4f17d8b3a7bf7c9413293b90b03b728ec27a905`.
-  Across 600 measured frames after 120 warmup frames, snapshot/presentation
-  preparation p95/p99 was 15,200/26,200 ns, CPU submission was
-  361,500/485,400 ns, GPU render was 2,367,409/2,656,996 ns, and synchronized
-  frame time was 3,498,600/4,886,200 ns. Allocation-counted oracles observed
-  zero allocations across 600 fixed updates and 600 snapshot/pose preparations;
-  peak RSS was 104,382,464 bytes. This passes the provisional Low comparison on
-  the available Intel UHD 630 proxy, not the named Iris Xe target. Agent visual
-  inspection found five recognizable proxies moving and turning in the contact
-  sheet while the debug frame preserved the authoritative group state. The
-  owner explicitly accepted the packet on 2026-08-16 as representative enough
-  for gameplay iteration with its recorded limits. The packet remains ignored
-  and is not promoted as final art, accepted flock behavior, or a golden
-  baseline. Evidence: the ignored
-  [`Tracer 2 presentation packet`](artifacts/phase3/2026-08-16/tracer2-presentation-windows-204608051/review.md).
-  The seventh Phase 3 outcome adds a pure, allocation-free five-sheep observable
-  pass over the published contiguous state. It computes the three-dimensional
-  centroid plus ground-plane mean radius, mean member speed, moving-member
-  polarization, bounded covariance elongation, per-member and mean nearest-
-  neighbor spacing, threshold-connected component count, and total/minimum/
-  maximum/mean chosen-neighbor counts. Connectivity distance and the currently
-  external chosen-neighbor counts are explicit read-only inputs because social
-  selection does not exist yet. Symmetric-cross and separated-collinear
-  fixtures establish hand-computable values and reject duplicate IDs,
-  non-finite state/thresholds, and impossible neighbor counts. On WSL Ubuntu
-  24.04.4 with Clang 18.1.3, development and ASan/UBSan suites each passed
-  23/23 CTests; project formatting and bounded static analysis passed. This
-  outcome did not implement dog-relative/response timing metrics, a spatial grid,
-  social behavior, named flock scenarios, or debug rendering. Evidence:
-  [`flock_observables.hpp`](src/game/flock_observables.hpp) and
-  [`flock_observables_tests.cpp`](tests/flock_observables_tests.cpp).
-  The eighth Phase 3 outcome adds a deterministic, ground-plane uniform spatial
-  grid inside `game`. A rebuild copies ID and planar position from caller-owned
-  published sheep state into fixed-capacity sorted cell and row ranges, so later
-  source mutation cannot change the query snapshot. The caller's output span is
-  the explicit neighbor bound; queries inspect occupied cells in the exact
-  radius bounds, exclude the subject, filter by exact planar distance, and keep
-  the nearest results in distance/ID/source-index order. Invalid cell sizes,
-  indexed state fields, duplicate IDs, capacity overflow, subjects, and radii
-  produce explicit errors without leaving a built grid after a failed rebuild.
-  Hand-authored fixtures cover cell and radius boundaries, negative cells, box
-  false positives, reversed storage, bounded truncation, and snapshot-copy
-  ownership.
-  The direct oracle observed zero allocations across repeated rebuild/query
-  cycles and at the fixed 1,000-member capacity-experiment ceiling; this is
-  allocation/correctness evidence, not a population performance result or
-  product-scope decision. On WSL Ubuntu 24.04.4 with Clang 18.1.3, development
-  and ASan/UBSan suites each passed 24/24 CTests; project formatting and bounded
-  static analysis passed. Native Windows was not rerun because this outcome is
-  headless and platform-independent. This does not add steering forces, dog
-  pressure, behavior scenarios, or presentation. Evidence:
-  [`sheep_spatial_grid.hpp`](src/game/sheep_spatial_grid.hpp) and
-  [`sheep_spatial_grid_tests.cpp`](tests/sheep_spatial_grid_tests.cpp).
-- **Next action:** Implement close-range sheep/sheep repulsion as the first
+- **Current milestone:** Phase 3 — Tracer 2: five sheep and one gate. Phases 0–2
+  and their exit gates are complete. Phase 3 has not yet implemented the
+  playable herding loop.
+- **Verified completed state:** the repository has the accepted native
+  C++23/SDL3/OpenGL foundation and bounded voxel paddock; fixed 60 Hz gameplay;
+  versioned seed/action/replay and dog-plus-five-sheep state output; five
+  contiguous authoritative sheep; snapshot-driven procedural proxies; an
+  owner-accepted presentation/measurement packet; fixed five-sheep observables;
+  and a deterministic allocation-free uniform spatial grid. Detailed evidence
+  remains with the checked Phase 3 items and their owning source, decision,
+  format, test, and artifact records below.
+- **Architecture correction (observed result, 2026-08-16):** review remediation
+  moved `Vec3` into shared game math and moved deterministic scenario
+  ID/version/seed, dog configuration, and sheep fixture ownership into
+  `GameplayScenarioDefinition`. `DogController` now accepts only motor and
+  analytic-collision configuration. Existing serialized scenario names and
+  replay/state format versions are unchanged. Evidence:
+  [ADR 0004](docs/decisions/0004-gameplay-scenario-ownership.md),
+  [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp), and
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp).
+- **Correctness correction (observed result, 2026-08-16):** a clipped dog
+  displacement clears the blocked velocity axis on the first contact tick;
+  flock-observable validation now rejects non-finite heading/arousal and unknown
+  behavior state; focused regression tests cover both contracts.
+- **Evidence correction (observed result, 2026-08-16):** performance budgets now
+  have one typed source in `core`. Tracer 1 uses the general Low 1 GiB RSS cap,
+  Tracer 2 uses its tighter 512 MiB cap, both keep the accepted Low frame limits,
+  and a failed budget returns process failure. Release CTests require the exact
+  `within_provisional_low_budget=yes` marker. The Phase 3 packet hashes CMake
+  presets/modules and third-party build inputs in addition to source and tests.
+  Existing native measurements were not rerun by this headless remediation.
+- **Test-stack correction:** doctest was never adopted. Project-owned focused
+  executables plus CTest remain the accepted Tracer 2 harness under
+  [ADR 0003](docs/decisions/0003-project-owned-test-harness.md); framework
+  adoption is deferred until a concrete maintenance cost justifies it.
+- **Verification run:** on WSL Ubuntu 24.04.4 with Clang 18.1.3, development,
+  Release, and ASan/UBSan configurations each built and passed 24/24 CTests.
+  Project formatting and bounded clang-tidy passed. The accepted spatial-grid
+  implementation remained unchanged and its focused test passed in every
+  configuration.
+- **Known limits:** native Windows/OpenGL capture, the presentation performance
+  scenarios, and human visual review were not rerun because this outcome changes
+  headless ownership, validation, and enforcement rather than pixels. Native
+  Linux graphics, the named Iris Xe target, and a physical controller remain
+  unverified. Sheep behavior, named behavior scenarios, dog pressure,
+  objectives, success/failure, HUD, and fresh-player evidence remain
+  unimplemented.
+- **Next action:** implement close-range sheep/sheep repulsion as the first
   independently inspectable social influence. Rebuild/query the accepted grid
-  from the immutable prior sheep buffer, add a named sheep-only separation
-  fixture with overlap and stable-order oracles, and keep attraction, alignment,
-  dog pressure, and presentation out of that coherent outcome.
+  from the immutable prior sheep buffer, add a named game-level sheep-only
+  separation fixture with overlap and stable-order oracles, and keep attraction,
+  alignment, dog pressure, and presentation out of that coherent outcome.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
-  [engine architecture boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
+  [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
   [first-playable design](docs/game-design/WIDE_EYE.md),
-  [herding simulation research](docs/research/herding-simulation-and-scale.md),
-  [herding simulation plan](docs/plans/herding-simulation-and-scale.md),
-  [`src/README.md`](src/README.md),
-  [`runtime.hpp`](src/core/runtime.hpp),
-  [`dog_controller.hpp`](src/game/dog_controller.hpp),
-  [`gameplay_replay.hpp`](src/game/gameplay_replay.hpp),
+  [herding plan](docs/plans/herding-simulation-and-scale.md),
+  [ADR 0004](docs/decisions/0004-gameplay-scenario-ownership.md),
+  [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
   [`gameplay_simulation.hpp`](src/game/gameplay_simulation.hpp),
-  [`flock_observables.hpp`](src/game/flock_observables.hpp),
-  [`sheep_spatial_grid.hpp`](src/game/sheep_spatial_grid.hpp),
-  [replay/state format](docs/formats/GAMEPLAY_REPLAY_AND_STATE.md),
-  [`gameplay_simulation.cpp`](src/game/gameplay_simulation.cpp),
-  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp),
-  [`flock_observables_tests.cpp`](tests/flock_observables_tests.cpp),
-  [`sheep_spatial_grid_tests.cpp`](tests/sheep_spatial_grid_tests.cpp),
-  [`sheep_proxy.hpp`](src/render/sheep_proxy.hpp),
-  [`opengl_renderer.cpp`](src/render/opengl_renderer.cpp),
-  [`scenario_runner.cpp`](src/platform/scenario_runner.cpp), and
-  [`CMakeLists.txt`](CMakeLists.txt).
+  [`sheep_spatial_grid.hpp`](src/game/sheep_spatial_grid.hpp), and their
+  focused tests.
 - **Last reviewed:** 2026-08-16.
 - **Primary playtest question:** Can a first-time player intentionally steer five
   mixed-temperament sheep through one gate using only the dog's movement,
@@ -556,7 +126,9 @@ Supporting references:
 - [x] Develop and release for native x86-64 Linux and Windows. WSL2 development
   does not substitute for either native release test.
 - [x] Use C++23, CMake presets, Ninja, SDL3, OpenGL 4.6 Core/GLSL 4.60, and
-  doctest as the provisional foundation.
+  focused project-owned C++ test executables orchestrated by CTest as the
+  provisional foundation. The initial doctest choice was superseded before
+  adoption by [`ADR 0003`](docs/decisions/0003-project-owned-test-harness.md).
 - [x] Use procedural-first media: no imported runtime media through Tracer 2,
   with a provenance-approved authored fallback from Tracer 3 when readability,
   accessibility, audio, or animal animation evidence justifies it.
@@ -1163,8 +735,14 @@ Supporting references:
   [`GAMEPLAY_REPLAY_AND_STATE.md`](docs/formats/GAMEPLAY_REPLAY_AND_STATE.md),
   [`gameplay_replay.hpp`](src/game/gameplay_replay.hpp), and
   [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp).
-- [ ] Add named scenarios for calm gather, nervous sheep, stubborn sheep, split,
-  collision, gate success, restart, and recovery.
+- [x] Establish a versioned game-owned catalog for deterministic scenarios.
+  Observed result: the catalog currently owns the base paddock, presentation,
+  wall-contact, and closed/open-gate starting contracts above controller-level
+  configuration. Behavior-specific fixtures remain unchecked with the rules
+  they must prove; their absence is not hidden by this foundation item.
+  Evidence: [`ADR 0004`](docs/decisions/0004-gameplay-scenario-ownership.md),
+  [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp), and
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp).
 - [x] Verify the same replay produces the same outcome across repeated local
   runs; record any cross-platform determinism limit honestly. Observed result:
   two fresh simulations consumed the same three-tick typed dog-only replay and
@@ -1258,8 +836,26 @@ Supporting references:
   each passed 24/24 CTests; formatting and bounded static analysis passed.
   Native Windows was not rerun for this headless platform-independent outcome.
   This does not establish 1,000-sheep performance or product scope.
-- [ ] Implement named, independently inspectable close-range repulsion,
-  selected-neighbor attraction, and optional selected-neighbor alignment.
+- [x] Reconcile the senior-review contract findings before social behavior.
+  Observed result: shared game math and complete gameplay-scenario ownership are
+  independent of `DogController`; clipped first-contact velocity, full sheep
+  state validation, milestone-specific 1 GiB/512 MiB performance budgets, exact
+  Release budget pass markers, and complete Phase 3 build-input hashes have
+  focused coverage. WSL development, Release, and ASan/UBSan configurations each
+  passed 24/24 CTests; formatting and bounded static analysis passed. Native
+  graphics and measurements were not rerun. Evidence:
+  [`ADR 0003`](docs/decisions/0003-project-owned-test-harness.md),
+  [`ADR 0004`](docs/decisions/0004-gameplay-scenario-ownership.md),
+  [`performance_tests.cpp`](tests/performance_tests.cpp), and
+  [`dog_controller_tests.cpp`](tests/dog_controller_tests.cpp).
+- [ ] Implement named, independently inspectable close-range repulsion from the
+  immutable prior sheep buffer. Prove overlap recovery, bounded acceleration,
+  stable ID/update-order results, and zero steady-state allocations before
+  adding another social term.
+- [ ] Add attraction to a bounded selected-neighbor set with explicit chosen-
+  neighbor evidence.
+- [ ] Add alignment as an independently switchable term; keep or remove it only
+  after paired alignment-on/alignment-off fixtures are observed.
 - [ ] Implement dog pressure from distance, approach velocity, facing, line of
   sight, terrain, and temperament.
 - [ ] Implement obstacle/drop avoidance and bounded acceleration/turning.
@@ -1487,8 +1083,11 @@ implementation begins.
   dog, one farmer signal, one gate, success/failure/restart, and debug evidence.
 - **2026-08-15 — Foundation:** The project owner selected the custom C++ engine
   as the primary track and approved native Linux/Windows releases plus the
-  provisional C++23/CMake/Ninja/SDL3/OpenGL 4.6/doctest foundation. Evidence:
-  [`ADR 0001`](docs/decisions/0001-native-foundation.md).
+  provisional C++23/CMake/Ninja/SDL3/OpenGL 4.6 foundation. The initially named
+  doctest framework was never adopted and was superseded by the project-owned
+  CTest harness decision on 2026-08-16. Evidence:
+  [`ADR 0001`](docs/decisions/0001-native-foundation.md) and
+  [`ADR 0003`](docs/decisions/0003-project-owned-test-harness.md).
 - **2026-08-15 — Assets:** Use procedural-first media. Tracer 0–2 remains free
   of imported runtime media; later authored exceptions require readability or
   feedback evidence plus complete provenance and license review.
@@ -2079,3 +1678,17 @@ implementation begins.
   ignored packet and is not a promoted final-art, flock-behavior, or golden
   baseline. Evidence: the ignored
   [`candidate packet`](artifacts/phase3/2026-08-16/tracer2-presentation-windows-204608051/review.md).
+- **2026-08-16 — Review remediation before social behavior:** The engine now
+  owns complete deterministic scenarios above controller-specific configuration,
+  and shared game math no longer comes from the dog header. Replay/state wire
+  values remain unchanged. Dog collision clears a clipped axis on the first
+  contact tick, flock observables validate every authoritative finite field and
+  behavior enum, and typed performance budgets enforce the general Low 1 GiB
+  cap or Tracer 2's 512 MiB cap as appropriate. Budget failure is a failing
+  process and Release CTest requires the exact `yes` marker. The Phase 3 packet
+  hashes presets, CMake modules, and third-party build inputs. WSL development,
+  Release, and ASan/UBSan suites each passed 24/24 CTests; formatting and bounded
+  clang-tidy passed. Native graphics/measurements were not rerun. This closes
+  the review findings without checking sheep behavior or changing the accepted
+  visual packet. Evidence: [`ADR 0003`](docs/decisions/0003-project-owned-test-harness.md)
+  and [`ADR 0004`](docs/decisions/0004-gameplay-scenario-ownership.md).

@@ -11,10 +11,12 @@ namespace {
     return std::hypot(left.x - right.x, left.z - right.z);
 }
 
-[[nodiscard]] bool finite(const SheepState& sheep) noexcept {
+[[nodiscard]] bool valid_state(const SheepState& sheep) noexcept {
     return sheep.id != 0 && std::isfinite(sheep.position.x) && std::isfinite(sheep.position.y) &&
            std::isfinite(sheep.position.z) && std::isfinite(sheep.velocity.x) &&
-           std::isfinite(sheep.velocity.y) && std::isfinite(sheep.velocity.z);
+           std::isfinite(sheep.velocity.y) && std::isfinite(sheep.velocity.z) &&
+           std::isfinite(sheep.heading_radians) && std::isfinite(sheep.arousal) &&
+           is_known_sheep_behavior(sheep.behavior);
 }
 
 } // namespace
@@ -27,7 +29,7 @@ std::optional<FiveSheepObservables> compute_five_sheep_observables(
         return std::nullopt;
     }
     for (std::size_t index = 0; index < sheep.size(); ++index) {
-        if (!finite(sheep[index]) || chosen_neighbor_counts[index] >= sheep.size()) {
+        if (!valid_state(sheep[index]) || chosen_neighbor_counts[index] >= sheep.size()) {
             return std::nullopt;
         }
         for (std::size_t prior = 0; prior < index; ++prior) {

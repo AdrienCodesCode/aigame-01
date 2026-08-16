@@ -100,7 +100,7 @@ Recommended foundation:
 | Build | CMake presets and Ninja | Reproducible local and CI builds |
 | Platform | SDL3 | Window, input, controllers, audio, and portable GL context |
 | Graphics | OpenGL 4.6 Core and GLSL | Inspectable, sufficient for the style, simpler than a Vulkan-first engine |
-| Tests | doctest plus the engine's scenario harness | Small unit tests and headless simulation evidence |
+| Tests | Focused project-owned C++ executables plus CTest scenario orchestration | Small unit tests and headless simulation evidence without an unearned dependency; see [ADR 0003](decisions/0003-project-owned-test-harness.md) |
 | Debug UI | Dear ImGui, optional | High-leverage tuning and visualization, never required at runtime |
 | Assets | Code-generated media through Tracer 2; small provenance-approved authored fallback later | Procedural identity without sacrificing animal or UI readability |
 
@@ -143,7 +143,7 @@ score, inventory, minimap, and task structure are not requirements. See the
 ```text
 platform + input + audio
            |
-core time, jobs, logging, math, resources
+core time, logging, assertions, performance
            |
   +--------+---------+
   |                  |
@@ -162,10 +162,12 @@ same public state used by the presentation layer.
 Suggested modules:
 
 - `platform`: lifecycle, window, input, controller, audio device, file paths.
-- `core`: time, math, logging, assertions, handles, jobs, memory accounting.
+- `core`: time, logging, assertions, performance budgets, and memory accounting.
 - `render`: GL resources, shaders, frame graph, cameras, culling, lighting.
 - `voxel`: chunk storage, palettes, generation, edits, meshing, streaming.
-- `game`: dog controller, pressure field, sheep behavior, objectives, scoring.
+- `game`: shared gameplay math, complete scenario definitions, dog controller,
+  pressure field, sheep behavior, objectives, and scoring. Scenario ownership is
+  fixed by [`ADR 0004`](decisions/0004-gameplay-scenario-ownership.md).
 - `animation`: authored clips and small procedural layers.
 - `presentation`: particles, audio cues, HUD, menus, accessibility options.
 - `tools`: tuning panels, profilers, inspectors, capture, and replay controls.

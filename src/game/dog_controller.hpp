@@ -1,20 +1,12 @@
 #pragma once
 
+#include "game/math.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
-#include <string_view>
 
 namespace wide_eye::game {
-
-struct Vec3 {
-    double x = 0.0;
-    double y = 0.0;
-    double z = 0.0;
-
-    bool operator==(const Vec3&) const = default;
-};
 
 struct DogState {
     Vec3 position{};
@@ -31,6 +23,11 @@ struct DogMoveInput {
     double world_x = 0.0;
     double world_z = 0.0;
     bool sprint = false;
+};
+
+struct DogControllerConfiguration {
+    DogState initial_state{};
+    bool gate_open = false;
 };
 
 [[nodiscard]] DogState interpolate_dog_state(const DogState& previous, const DogState& current,
@@ -66,30 +63,6 @@ class PaddockCollisionField {
     bool gate_open_ = false;
 };
 
-enum class DogScenarioId : std::uint8_t {
-    paddock_start,
-    wall_contact,
-    closed_gate,
-    open_gate,
-    presentation_motion,
-};
-
-struct DogScenarioDefinition {
-    DogScenarioId id = DogScenarioId::paddock_start;
-    std::string_view name;
-    std::uint32_t version = 1;
-    std::uint64_t seed = 0;
-    DogState initial_state{};
-    bool gate_open = false;
-    // This named fixture drives deterministic sheep transforms solely to
-    // exercise presentation. It is not flock behavior or player-facing tuning.
-    bool presentation_only_sheep_motion = false;
-};
-
-[[nodiscard]] std::optional<DogScenarioDefinition>
-find_dog_scenario(std::string_view name) noexcept;
-[[nodiscard]] std::string_view dog_scenario_name(DogScenarioId scenario) noexcept;
-
 class DogController {
   public:
     static constexpr double kRadius = 0.42;
@@ -99,18 +72,17 @@ class DogController {
     static constexpr double kDeceleration = 30.0;
     static constexpr double kTurnRateRadiansPerSecond = 6.0;
 
-    explicit DogController(DogScenarioDefinition scenario) noexcept;
+    explicit DogController(DogControllerConfiguration configuration) noexcept;
 
     void fixed_update(const DogMoveInput& input, double fixed_delta_seconds) noexcept;
     void restart() noexcept;
 
     [[nodiscard]] const DogState& state() const noexcept;
-    [[nodiscard]] const DogScenarioDefinition& scenario() const noexcept;
     [[nodiscard]] std::uint64_t tick() const noexcept;
     [[nodiscard]] std::uint32_t restart_count() const noexcept;
 
   private:
-    DogScenarioDefinition scenario_;
+    DogControllerConfiguration configuration_;
     PaddockCollisionField collision_;
     DogState state_{};
     std::uint64_t tick_ = 0;

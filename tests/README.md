@@ -63,10 +63,12 @@ presentation-only fixture to tick 61 and draws alpha 0.5 through the same proxy
 material, static-shadow receiver, and five-draw path. The proxy-pose oracle also
 counts allocations across 600 snapshot/interpolation preparations. Release
 additionally runs the named 1920×1080 static-paddock and five-proxy motion
-measurement paths; their CTests check completion and diagnostics, while review
-packets record preparation/submission/GPU/frame percentiles, RSS, allocations,
-and the explicit provisional-budget comparison instead of enforcing a
-machine-agnostic timing threshold.
+measurement paths. Their CTests and executables require the exact selected
+budget to pass: the static Tracer 1 scene uses the general Low 1 GiB RSS cap,
+while the five-proxy Tracer 2 scene uses its tighter 512 MiB cap; both retain the
+Low frame p95/p99 limits. Review packets record the budget ID, preparation,
+submission, GPU/frame percentiles, RSS, and allocations. These provisional proxy
+comparisons do not establish support for the named Iris Xe target.
 The CMake wrappers distinguish required process behavior from a crash or a
 missing diagnostic; the capture wrapper preserves failed outputs but removes
 its temporary PNGs after a passing repeat comparison. The artifact-manifest
@@ -75,4 +77,6 @@ fields, retained files, and SHA-256 hashes. Accepted-review validation requires
 exactly one Accept verdict plus an owner observation and date. A nested CTest
 regression proves that the common failure regex rejects
 project failure markers and ASan, LSan, and UBSan diagnostics even when output
-also contains a configured pass marker.
+also contains a configured pass marker. The same nested fixture proves that the
+exact performance pass expression rejects `within_provisional_low_budget=no`
+and accepts only `within_provisional_low_budget=yes`.

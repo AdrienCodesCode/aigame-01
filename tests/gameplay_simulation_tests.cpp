@@ -68,7 +68,7 @@ struct CadenceResult {
     std::uint64_t scheduled_ticks = 0;
 };
 
-CadenceResult run_cadence(const wide_eye::game::DogScenarioDefinition& scenario,
+CadenceResult run_cadence(const wide_eye::game::GameplayScenarioDefinition& scenario,
                           std::span<const std::chrono::nanoseconds> frame_deltas) {
     wide_eye::core::FixedStepAccumulator scheduler;
     wide_eye::game::GameplaySimulation simulation{scenario};
@@ -107,12 +107,22 @@ wide_eye::game::GameplayReplay sample_replay(const wide_eye::game::GameplaySimul
 } // namespace
 
 int main() {
+    if (!check(
+            wide_eye::game::is_known_sheep_behavior(wide_eye::game::SheepBehaviorState::settled) &&
+                wide_eye::game::is_known_sheep_behavior(
+                    wide_eye::game::SheepBehaviorState::recovering) &&
+                !wide_eye::game::is_known_sheep_behavior(
+                    static_cast<wide_eye::game::SheepBehaviorState>(255)),
+            "sheep_behavior_domain_is_closed")) {
+        return EXIT_FAILURE;
+    }
+
     using namespace std::chrono_literals;
 
     static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepState>);
     static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepStateBuffer>);
 
-    const auto scenario = wide_eye::game::find_dog_scenario("paddock-start");
+    const auto scenario = wide_eye::game::find_gameplay_scenario("paddock-start");
     if (!check(scenario.has_value(), "scenario_available") ||
         !check(wide_eye::game::GameplaySimulation::kTicksPerSecond ==
                    wide_eye::core::FixedStepAccumulator::ticks_per_second,
@@ -223,8 +233,10 @@ int main() {
     }
     simulation.restart();
 
-    const auto motion_scenario = wide_eye::game::find_dog_scenario("presentation-motion");
-    if (!check(motion_scenario.has_value() && motion_scenario->presentation_only_sheep_motion,
+    const auto motion_scenario = wide_eye::game::find_gameplay_scenario("presentation-motion");
+    if (!check(motion_scenario.has_value() &&
+                   motion_scenario->sheep_fixture ==
+                       wide_eye::game::SheepFixture::scripted_presentation_motion,
                "named_presentation_motion_fixture_available")) {
         return EXIT_FAILURE;
     }
@@ -337,7 +349,7 @@ int main() {
         return EXIT_FAILURE;
     }
     incompatible = replay;
-    incompatible.scenario.scenario = static_cast<wide_eye::game::DogScenarioId>(255);
+    incompatible.scenario.scenario = static_cast<wide_eye::game::GameplayScenarioId>(255);
     if (!check(wide_eye::game::validate_gameplay_replay(incompatible) ==
                    wide_eye::game::GameplayContractError::unknown_scenario,
                "unknown_scenario_rejected")) {
@@ -393,8 +405,8 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    wide_eye::game::DogScenarioDefinition invalid_state_scenario = *scenario;
-    invalid_state_scenario.initial_state.position.x = std::numeric_limits<double>::quiet_NaN();
+    wide_eye::game::GameplayScenarioDefinition invalid_state_scenario = *scenario;
+    invalid_state_scenario.dog.initial_state.position.x = std::numeric_limits<double>::quiet_NaN();
     const wide_eye::game::GameplaySimulation invalid_state_simulation{invalid_state_scenario};
     if (!check(wide_eye::game::gameplay_state_dump_json(invalid_state_simulation).error ==
                    wide_eye::game::GameplayContractError::non_finite_state,
@@ -402,7 +414,7 @@ int main() {
         return EXIT_FAILURE;
     }
     invalid_state_scenario = *scenario;
-    invalid_state_scenario.id = static_cast<wide_eye::game::DogScenarioId>(255);
+    invalid_state_scenario.id = static_cast<wide_eye::game::GameplayScenarioId>(255);
     const wide_eye::game::GameplaySimulation unknown_state_simulation{invalid_state_scenario};
     if (!check(wide_eye::game::gameplay_state_dump_json(unknown_state_simulation).error ==
                    wide_eye::game::GameplayContractError::unknown_scenario,

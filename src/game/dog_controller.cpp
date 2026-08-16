@@ -27,46 +27,6 @@ constexpr AnalyticObstacle kClosedGate{
     .maximum_z = 16.0,
 };
 
-constexpr std::array<DogScenarioDefinition, 5> kDogScenarios{{
-    {
-        .id = DogScenarioId::paddock_start,
-        .name = "paddock-start",
-        .initial_state = {.position = {.x = 16.0, .y = 1.0, .z = 24.0},
-                          .heading_radians = 0.0,
-                          .grounded = true},
-    },
-    {
-        .id = DogScenarioId::presentation_motion,
-        .name = "presentation-motion",
-        .initial_state = {.position = {.x = 16.0, .y = 1.0, .z = 24.0},
-                          .heading_radians = 0.0,
-                          .grounded = true},
-        .presentation_only_sheep_motion = true,
-    },
-    {
-        .id = DogScenarioId::wall_contact,
-        .name = "wall-contact",
-        .initial_state = {.position = {.x = 8.0, .y = 1.0, .z = 20.0},
-                          .heading_radians = 0.0,
-                          .grounded = true},
-    },
-    {
-        .id = DogScenarioId::closed_gate,
-        .name = "closed-gate",
-        .initial_state = {.position = {.x = 16.0, .y = 1.0, .z = 20.0},
-                          .heading_radians = 0.0,
-                          .grounded = true},
-    },
-    {
-        .id = DogScenarioId::open_gate,
-        .name = "open-gate",
-        .initial_state = {.position = {.x = 16.0, .y = 1.0, .z = 20.0},
-                          .heading_radians = 0.0,
-                          .grounded = true},
-        .gate_open = true,
-    },
-}};
-
 [[nodiscard]] bool overlaps(double minimum_a, double maximum_a, double minimum_b,
                             double maximum_b) noexcept {
     return maximum_a > minimum_b && minimum_a < maximum_b;
@@ -208,26 +168,9 @@ std::size_t PaddockCollisionField::obstacle_count() const noexcept {
     return obstacle_count_;
 }
 
-std::optional<DogScenarioDefinition> find_dog_scenario(std::string_view name) noexcept {
-    for (const DogScenarioDefinition& scenario : kDogScenarios) {
-        if (scenario.name == name) {
-            return scenario;
-        }
-    }
-    return std::nullopt;
-}
-
-std::string_view dog_scenario_name(DogScenarioId scenario) noexcept {
-    for (const DogScenarioDefinition& definition : kDogScenarios) {
-        if (definition.id == scenario) {
-            return definition.name;
-        }
-    }
-    return "unknown";
-}
-
-DogController::DogController(DogScenarioDefinition scenario) noexcept
-    : scenario_{scenario}, collision_{scenario.gate_open}, state_{scenario.initial_state} {
+DogController::DogController(DogControllerConfiguration configuration) noexcept
+    : configuration_{configuration}, collision_{configuration.gate_open},
+      state_{configuration.initial_state} {
     state_.position.y = collision_.ground_height(state_.position.x, state_.position.z);
     state_.grounded = std::isfinite(state_.position.y);
 }
@@ -273,15 +216,17 @@ void DogController::fixed_update(const DogMoveInput& input, double fixed_delta_s
                              velocity_rate * fixed_delta_seconds);
 
     const Vec3 previous = state_.position;
-    state_.position = collision_.move_cylinder(state_.position,
-                                               {.x = state_.velocity.x * fixed_delta_seconds,
-                                                .y = 0.0,
-                                                .z = state_.velocity.z * fixed_delta_seconds},
-                                               kRadius);
-    if (state_.position.x == previous.x && std::abs(state_.velocity.x) > 0.0) {
+    const Vec3 requested_displacement{.x = state_.velocity.x * fixed_delta_seconds,
+                                      .y = 0.0,
+                                      .z = state_.velocity.z * fixed_delta_seconds};
+    state_.position = collision_.move_cylinder(state_.position, requested_displacement, kRadius);
+    constexpr double kCollisionDisplacementTolerance = 1.0e-12;
+    const double resolved_x = state_.position.x - previous.x;
+    const double resolved_z = state_.position.z - previous.z;
+    if (std::abs(resolved_x - requested_displacement.x) > kCollisionDisplacementTolerance) {
         state_.velocity.x = 0.0;
     }
-    if (state_.position.z == previous.z && std::abs(state_.velocity.z) > 0.0) {
+    if (std::abs(resolved_z - requested_displacement.z) > kCollisionDisplacementTolerance) {
         state_.velocity.z = 0.0;
     }
     state_.velocity.y = 0.0;
@@ -291,7 +236,7 @@ void DogController::fixed_update(const DogMoveInput& input, double fixed_delta_s
 }
 
 void DogController::restart() noexcept {
-    state_ = scenario_.initial_state;
+    state_ = configuration_.initial_state;
     state_.position.y = collision_.ground_height(state_.position.x, state_.position.z);
     state_.grounded = std::isfinite(state_.position.y);
     tick_ = 0;
@@ -300,10 +245,6 @@ void DogController::restart() noexcept {
 
 const DogState& DogController::state() const noexcept {
     return state_;
-}
-
-const DogScenarioDefinition& DogController::scenario() const noexcept {
-    return scenario_;
 }
 
 std::uint64_t DogController::tick() const noexcept {

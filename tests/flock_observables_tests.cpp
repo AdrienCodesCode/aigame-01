@@ -95,6 +95,24 @@ int main() {
                "non_finite_state_rejected")) {
         return EXIT_FAILURE;
     }
+    invalid = cross;
+    invalid[0].heading_radians = std::numeric_limits<double>::quiet_NaN();
+    if (!check(!wide_eye::game::compute_five_sheep_observables(invalid, chosen, 1.0),
+               "non_finite_heading_rejected")) {
+        return EXIT_FAILURE;
+    }
+    invalid = cross;
+    invalid[0].arousal = std::numeric_limits<double>::infinity();
+    if (!check(!wide_eye::game::compute_five_sheep_observables(invalid, chosen, 1.0),
+               "non_finite_arousal_rejected")) {
+        return EXIT_FAILURE;
+    }
+    invalid = cross;
+    invalid[0].behavior = static_cast<wide_eye::game::SheepBehaviorState>(255);
+    if (!check(!wide_eye::game::compute_five_sheep_observables(invalid, chosen, 1.0),
+               "unknown_behavior_rejected")) {
+        return EXIT_FAILURE;
+    }
 
     std::cout << "flock_observables_result=pass\n";
     return EXIT_SUCCESS;

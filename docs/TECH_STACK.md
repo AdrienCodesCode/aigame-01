@@ -4,8 +4,10 @@
 
 As of 2026-08-15, **Wide Eye's primary implementation track is the clean-room
 custom C++ voxel engine**. The selected foundation is C++23, CMake presets,
-Ninja, SDL3, OpenGL 4.6 Core/GLSL 4.60, and doctest, targeting native x86-64
-Linux and Windows.
+Ninja, SDL3, OpenGL 4.6 Core/GLSL 4.60, and project-owned focused C++ tests
+orchestrated by CTest, targeting native x86-64 Linux and Windows. The initial
+doctest choice was superseded before adoption by
+[`ADR 0003`](decisions/0003-project-owned-test-harness.md).
 
 The exact platform, asset, hardware-budget, dependency, and license rules are
 accepted in [`ADR 0001`](decisions/0001-native-foundation.md). The Three.js

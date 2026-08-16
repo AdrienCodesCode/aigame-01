@@ -90,7 +90,8 @@ SheepState interpolate_sheep_state(const SheepState& previous, const SheepState&
     };
 }
 
-GameplaySimulation::GameplaySimulation(DogScenarioDefinition scenario) noexcept : dog_{scenario} {
+GameplaySimulation::GameplaySimulation(GameplayScenarioDefinition scenario) noexcept
+    : scenario_{scenario}, dog_{scenario.dog} {
     current_.dog = dog_.state();
     current_.sheep = kInitialSheepStates;
     previous_ = current_;
@@ -107,7 +108,7 @@ void GameplaySimulation::fixed_update(const GameplayTickInput& input) noexcept {
     current_.tick += 1;
     current_.dog = dog_.state();
     advance_sheep_from_prior(previous_.sheep, current_.sheep, previous_.tick,
-                             scenario().presentation_only_sheep_motion);
+                             scenario_.sheep_fixture == SheepFixture::scripted_presentation_motion);
 }
 
 void GameplaySimulation::restart() noexcept {
@@ -137,8 +138,8 @@ GameplaySnapshot GameplaySimulation::interpolated_snapshot(double alpha) const n
     return result;
 }
 
-const DogScenarioDefinition& GameplaySimulation::scenario() const noexcept {
-    return dog_.scenario();
+const GameplayScenarioDefinition& GameplaySimulation::scenario() const noexcept {
+    return scenario_;
 }
 
 std::uint32_t GameplaySimulation::restart_count() const noexcept {

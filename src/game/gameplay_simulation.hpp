@@ -2,6 +2,7 @@
 
 #include "core/runtime.hpp"
 #include "game/dog_controller.hpp"
+#include "game/gameplay_scenario.hpp"
 
 #include <array>
 #include <cstddef>
@@ -22,6 +23,17 @@ enum class SheepBehaviorState : std::uint8_t {
     driven,
     recovering,
 };
+
+[[nodiscard]] constexpr bool is_known_sheep_behavior(SheepBehaviorState behavior) noexcept {
+    switch (behavior) {
+    case SheepBehaviorState::settled:
+    case SheepBehaviorState::alert:
+    case SheepBehaviorState::driven:
+    case SheepBehaviorState::recovering:
+        return true;
+    }
+    return false;
+}
 
 struct SheepState {
     std::uint32_t id = 0;
@@ -57,7 +69,7 @@ class GameplaySimulation {
     static constexpr std::uint32_t kTicksPerSecond = core::FixedStepAccumulator::ticks_per_second;
     static constexpr double kFixedDeltaSeconds = 1.0 / static_cast<double>(kTicksPerSecond);
 
-    explicit GameplaySimulation(DogScenarioDefinition scenario) noexcept;
+    explicit GameplaySimulation(GameplayScenarioDefinition scenario) noexcept;
 
     void fixed_update(const GameplayTickInput& input) noexcept;
     void restart() noexcept;
@@ -65,10 +77,11 @@ class GameplaySimulation {
     [[nodiscard]] const GameplaySnapshot& previous_snapshot() const noexcept;
     [[nodiscard]] const GameplaySnapshot& current_snapshot() const noexcept;
     [[nodiscard]] GameplaySnapshot interpolated_snapshot(double alpha) const noexcept;
-    [[nodiscard]] const DogScenarioDefinition& scenario() const noexcept;
+    [[nodiscard]] const GameplayScenarioDefinition& scenario() const noexcept;
     [[nodiscard]] std::uint32_t restart_count() const noexcept;
 
   private:
+    GameplayScenarioDefinition scenario_;
     DogController dog_;
     GameplaySnapshot previous_{};
     GameplaySnapshot current_{};
