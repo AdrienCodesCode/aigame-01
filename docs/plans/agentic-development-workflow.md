@@ -1,13 +1,13 @@
 # Plan: Agentic development workflow and verification harness
 
-**Status:** Accepted foundation; Tracer 0 local and hosted Linux automation gate
-verified
+**Status:** Accepted foundation; all Tracer 0 exit gates verified
 **Date:** 2026-08-15
 **Source research:**
 [`../research/agentic-development-workflow.md`](../research/agentic-development-workflow.md)
-**Architecture readiness:** Ready to finish the remaining Tracer 0 exit gates —
-the local command, capture, failure, owner-review, and hosted Linux CI loops are
-implemented and verified.
+**Architecture readiness:** Tracer 0 is complete. The local command, capture,
+failure, owner-review, clean-tree preset, native Windows, and hosted Linux CI
+loops are implemented and verified; the common loop is ready to extend with
+Tracer 1 evidence.
 
 ## Objective and success criteria
 
@@ -65,6 +65,26 @@ Out of scope:
   preset sequence locally and in a passing
   [GitHub-hosted run](https://github.com/AdrienCodesCode/aigame-01/actions/runs/31894480357);
   its controlled hosted failure also retained the selected diagnostic bundle.
+- [x] The Phase 1 clean-tree preset gate is verified. Observed result: the
+  source-equivalent hosted `dev` run above passed 8/8 CTests, and a committed
+  `git archive` export of `b4d5d5c4eb9421d18e74c91911ff4321d72dd41f`
+  passed the WSL Ubuntu 24.04.4 Clang 18.1.3 `dev-sanitized` configure, all 244
+  build steps, and 8/8 CTests with ASan/UBSan flags present and no sanitizer
+  diagnostic. Evidence: the
+  [roadmap Phase 1 exit gate](../../ROADMAP.md#phase-1-exit-gate).
+- [x] The native Windows sanitizer graphics gate is verified. Observed result:
+  MSVC 19.44.35228.0 applied AddressSanitizer to all six project compile commands
+  and the executable link, passed 15/15 CTests including 14 sanitizer-labeled
+  tests, and completed the direct OpenGL 4.6 render/capture/shutdown paths with
+  zero high-severity GL messages or sanitizer diagnostics. Evidence: the
+  [native Windows setup record](../setup/WINDOWS.md#observed-windows-host--2026-08-15).
+- [x] A fresh agent reproduced the native Windows smoke using only repository
+  documentation. Observed result: the source-hashed MSVC 19.44.35228.0 `dev`
+  copy-build passed 15/15 CTests, the repeated normal and debug captures matched
+  the accepted hashes with zero high-severity GL messages, and independent
+  packet validation passed. No missing or ambiguous reproduction instruction
+  was observed. Evidence: the
+  [roadmap Phase 1 exit gate](../../ROADMAP.md#phase-1-exit-gate).
 
 ## Decisions and assumptions
 
@@ -175,8 +195,11 @@ to enrich the smoke tracer.
   controlled-failure hosted jobs completed in 1 minute 10 seconds without
   retries; repeat evidence across future changes is still required before this
   operational property is closed.
-- [ ] Add native Windows build/context/smoke validation when the target path
-  exists; WSL does not count as native release evidence.
+- [x] Add native Windows build/context/smoke validation when the target path
+  exists; WSL does not count as native release evidence. Observed result: the
+  source-hashed Windows runner now covers the `dev` visual/capture path and the
+  MSVC AddressSanitizer graphics path on the native Intel UHD Graphics 630 host.
+  This does not replace the later native Windows release/configuration matrix.
 
 **Validation:** a known-good revision passes, an intentional fixture failure
 fails with useful artifacts, and local/CI commands do not diverge.
@@ -265,6 +288,7 @@ This plan is complete when:
 
 ## Recommended first step
 
-Complete the first unchecked Phase 0 toolchain item in `ROADMAP.md`. Once Clang
-is available, validate `.clang-format` and `.clang-tidy` before treating either
-configuration as an enforced gate.
+Follow the current [`ROADMAP.md`](../../ROADMAP.md#current-checkpoint) checkpoint:
+begin Tracer 1 by splitting the tracer-sized `run_window` lifecycle from the
+named scenario runners while preserving the existing event, shutdown, CLI, and
+smoke-test evidence.

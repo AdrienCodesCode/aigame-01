@@ -7,9 +7,25 @@ tracked in [`HERDING_GAMEPLAY.md`](HERDING_GAMEPLAY.md).
 ## Recommendation
 
 Build **Wide Eye** as a small 3D herding simulation-puzzle in which the player is
-the border collie, not the farmer. The sheep are never selected or ordered. The
-player communicates entirely through position, movement, facing, pressure, and
-release while an experienced farmer communicates intent through whistles.
+the border collie, not the farmer. In this first-playable mode, the sheep are
+never selected or ordered. The player communicates entirely through position,
+movement, facing, pressure, and release while an experienced farmer communicates
+intent through whistles.
+
+Direct third-person dog control is the approved current experiment. A separate
+overhead command mode, in which selected dogs or other agents receive movement
+or action orders, is preserved as a future product hypothesis rather than part
+of this slice. Its exact camera, selection, mouse, and keyboard behavior remains
+unresolved. See the broader [herding gameplay direction](HERDING_GAMEPLAY.md).
+
+The accepted direct-control baseline uses free mouse orbit, camera-yaw-relative
+WASD on the ground plane, and dog facing toward the resulting movement. Mouse
+look alone does not turn a stationary dog, pitch never changes movement height,
+and the gameplay camera does not automatically recenter in this experiment.
+On 2026-08-16 the owner reported the native keyboard/mouse behavior as good
+enough to continue and explicitly deferred refinement. This accepts the control
+model, not its constants as final tuning, and does not verify a physical
+controller.
 
 This is more distinctive than a general farming game because the central verb is
 reading and shaping a living group rather than collecting and upgrading objects.
@@ -154,7 +170,9 @@ temperaments, and multi-dog coordination—not merely increase stats.
 
 Large flocks and progression through different herdable animals are promising
 north-star hypotheses, not permission to enlarge this slice. Five sheep remain
-the correctness and first-fun gate. See the broader
+the correctness and first-fun gate. A bird's-eye command mode may eventually be
+more legible for very large flocks, but that is an untested design hypothesis,
+not a reason to delay direct dog control. See the broader
 [herding gameplay direction](HERDING_GAMEPLAY.md).
 
 ## Other promising concepts

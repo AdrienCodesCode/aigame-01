@@ -182,11 +182,39 @@ later procedural terrain will use.
 
 Initial representation:
 
-- Integer world and chunk coordinates.
+- Distinct signed 64-bit world-voxel, chunk, and local-voxel coordinate types;
+  floor division keeps each local axis in `[0, chunk edge)`, including across
+  negative world boundaries. Coordinate conversion keeps a positive cubic edge
+  as an input even though initial production storage now selects 16 cells per
+  axis.
 - Palette/material IDs rather than a large texture per block.
-- Fixed-size chunks; begin by testing 16³ and 32³ rather than assuming one.
-- Solid, cutout, and translucent render passes kept separate.
-- Greedy meshing only after a naive face mesher is verified.
+- Fixed-size 16³ chunks initially. The isolated 16³/32³ comparison and its
+  limitations are recorded in
+  [`ADR 0002`](decisions/0002-chunk-edge-length.md); revisit the edge only with
+  comparable real storage, meshing, upload, and target-hardware evidence.
+- A verified naive CPU baseline emits a duplicated indexed quad only when a
+  non-empty cell borders empty space. Meshing receives a read-only snapshot of
+  the six axial chunks and treats a missing neighbor as empty. The world/rebuild
+  owner, not chunk storage or the mesher, must keep that snapshot alive and
+  invalidate both sides after a shared border changes or a chunk loads/unloads.
+- A caller-requested diagnostic traversal records every side of every non-empty
+  cell, including source local/material/direction, wrapped neighbor
+  local/material, same/adjacent/missing-chunk provenance, and emitted/culled
+  disposition. It shares the mesher's traversal and sampler but is not retained
+  by ordinary chunk builds. The handcrafted-paddock oracle independently checks
+  complete unique side coverage and maps each emitted decision to one actual
+  world-space quad.
+- A caller-owned material table classifies every non-empty material as opaque,
+  cutout, or translucent and defaults to opaque. Emitted faces enter three
+  independent CPU buffers; classification does not alter the baseline rule that
+  any non-empty neighbor occludes the shared face.
+- The fixed 16³ naive build has a conservative ceiling of 24,576 faces, 98,304
+  vertices, and 147,456 indices. Meshing counts and classifies exposed faces
+  before allocation, checks the `uint32` index boundary, and returns a checked
+  error if arithmetic or caller-supplied aggregate vertex/index limits would be
+  exceeded. A rejected build does not expose partial buffers.
+- Greedy meshing only after the naive baseline is rendered and a measured
+  bottleneck justifies replacing it.
 - Chunk rebuild queues with explicit time and memory budgets.
 - A height/slope query for animal locomotion independent of triangle collision.
 
@@ -258,12 +286,20 @@ fences can use simple analytic shapes even when their render meshes are detailed
 
 ### Tracer 2 — The actual game question
 
-- Add five placeholder sheep, three temperaments, a pressure debug field, one
-  gate objective, restart, success, and recoverable failure.
-- Record inputs and seeds; run headless behavior tests and emit group
-  observables.
+- Define versioned seed, tick-indexed action, replay, and state-dump contracts,
+  then add minimal contiguous authoritative state for five sheep.
+- Render five simple, recognizable procedural sheep proxies from published
+  snapshots in the accepted paddock. Exercise them with a deterministic
+  non-behavior motion fixture, capture normal/debug/motion evidence, and measure
+  the whole paddock, dog, sheep, camera, material, shadow, and debug workload
+  before deep behavior tuning. Optimize only a named measured bottleneck.
+- Add three temperaments, a pressure debug field, one gate objective, restart,
+  success, and recoverable failure. Record inputs and seeds; run headless
+  behavior tests and emit group observables.
 - Build data layout and bounded-neighbor queries that can run 14-, 25-, and
   100-sheep diagnostic scenarios without making them player content.
+- Treat the proxy packet as a representative performance/readability envelope,
+  not as accepted final animal art.
 - Do not add procedural terrain, chunk streaming, weather, accounts, or advanced
   post-processing.
 
@@ -273,6 +309,10 @@ fences can use simple analytic shapes even when their render meshes are detailed
   style.
 - Add locomotion state, facing, ears/tail/head cues, stress feedback, farmer
   whistle, minimal HUD, and essential audio.
+- Repeat the whole-scene capture and CPU/GPU/frame/memory measurements with the
+  articulated presentation. Optimize named regressions before recruiting fresh
+  players; the simpler Tracer 2 envelope is a comparison point, not a permanent
+  performance claim.
 - Test the core playtest question with fresh players.
 
 ### Tracer 4 — Voxel world depth
@@ -309,7 +349,8 @@ Continue investing in the custom engine only when all are true:
 - Five sheep can be driven through one gate using the intended pressure model.
 - A recorded run replays to the same outcome.
 - Debug views explain every surprising flock response.
-- Frame time and memory stay within declared budgets with ample headroom.
+- The representative paddock, dog, five-sheep, objective, and debug workload
+  stays within declared frame-time and memory budgets with ample headroom.
 - Engine work has not prevented a fresh-player test of the core loop.
 
 If these do not pass, simplify the renderer and simulation. Do not compensate by

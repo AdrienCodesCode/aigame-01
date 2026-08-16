@@ -2,3 +2,7 @@
 # bytes across Linux and Windows checkouts instead of applying text conversion.
 # The captured logs also retain upstream trailing spaces as evidence.
 tests/goldens/** -text whitespace=-blank-at-eol,-blank-at-eof,cr-at-eol
+
+# glad is checksum-verified during CMake configuration. Preserve the generated
+# source and retained license bytes across native Windows/Linux checkouts.
+third_party/glad/** -text

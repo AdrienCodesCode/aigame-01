@@ -266,9 +266,15 @@ Every registered CTest also rejects project failure markers and ASan, LSan, or
 UBSan diagnostics; a nested fixture verifies that common guard independently of
 the engine executable.
 The same 4.6 request fails with `GLXBadFBConfig` on the 4.5-limited WSL host; no
-fallback is implemented. Native Linux graphics, generic gameplay
-scenario/replay/state formats, voxel/chunk/gameplay debug views, metrics, and
-performance budgets remain unverified or unimplemented.
+fallback is implemented. The `game` boundary now has implemented version 1
+seed/action/replay types, a version 2 dog-and-five-sheep state dump,
+pre-mutation compatibility validation, an in-memory replay executor, and
+canonical JSON writers. A general
+JSON decoder, executable replay/seed/state-dump flags, persistent replay
+fixtures, sheep behavior/objective state, native Linux graphics, broader
+gameplay debug views, metrics, and later performance budgets remain unverified
+or unimplemented. See the
+[format contract](formats/GAMEPLAY_REPLAY_AND_STATE.md).
 
 ```bash
 cmake --preset dev
@@ -291,10 +297,14 @@ The harness must eventually provide:
 - `compile_commands.json` for clangd and static tools.
 - Fixed-tick simulation independent of render cadence.
 - Named, tiny deterministic scenarios.
-- Versioned seed and input replay format.
+- Versioned seed and input replay format. The dog-only version 1 typed contract
+  and canonical JSON writer exist; general file decoding and CLI execution are
+  pending.
 - Headless or virtual-display execution.
 - Deterministic PNG capture and optional short frame sequences.
-- Structured JSON state and metrics output.
+- Structured JSON state and metrics output. Canonical version 2 dog-and-sheep
+  state JSON exists as a game-owned writer; executable output paths and metrics
+  are pending.
 - Debug views for voxel chunks/meshes, collision, dog pressure, sheep neighbors,
   steering influences, arousal/recovery, group observables, objective state, and
   timings.

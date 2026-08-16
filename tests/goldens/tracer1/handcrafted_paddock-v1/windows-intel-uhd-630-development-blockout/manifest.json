@@ -1,0 +1,106 @@
+{
+  "schema": "wide-eye.artifact-manifest",
+  "schema_version": 1,
+  "packet_version": "tracer1-handcrafted-paddock-baseline-v1",
+  "result": "pass",
+  "captured_at": "2026-08-16T12:35:03+07:00",
+  "accepted_on": "2026-08-16",
+  "source": {
+    "commit": "b4d5d5c4eb9421d18e74c91911ff4321d72dd41f",
+    "worktree_state": "dirty",
+    "hashes": {
+      "CMakeLists.txt": "aeb3548356779f9de5d6627dcd43102e22f65df24047693544aa4c9909866ec9",
+      "src/platform/scenario_runner.cpp": "29c4b471a081dde9b78efc58b995b4a6435952fe0851fb409604520d17ff448e",
+      "src/render/opengl_renderer.cpp": "3fba3a123d50e83d8a0e89a91577af88282603c51ce221b9eb36684701d33ec4",
+      "src/voxel/handcrafted_paddock.cpp": "aec51cafa3aca6d1fe83dbbb4084160bd4196fb307a32684b0eedcab86ad29ce",
+      "src/voxel/handcrafted_paddock.hpp": "1f90b33f654a7744008594bd818e018d87a5d8533f61a1a2dc99babf5869cb96",
+      "tests/handcrafted_paddock_tests.cpp": "c47598e11d0f77798392058214765d04317cc2f7a3973e864d88240dc49ec9bf"
+    }
+  },
+  "platform": {
+    "name": "native-windows",
+    "os": "Microsoft Windows 11 Pro 10.0.26200 build 26200",
+    "architecture": "AMD64",
+    "cpu": "Intel(R) Core(TM) i9-8950HK CPU @ 2.90GHz",
+    "gpu": "Intel(R) UHD Graphics 630",
+    "driver_version": "27.20.100.9664",
+    "opengl_version": "4.6.0 - Build 27.20.100.9664",
+    "glsl_version": "4.60 - Build 27.20.100.9664"
+  },
+  "build": {
+    "compiler": "MSVC 19.44.35228.0",
+    "configure_preset": "dev",
+    "build_preset": "dev",
+    "test_preset": "dev",
+    "executable_version": "0.1.0"
+  },
+  "scenario": {
+    "name": "handcrafted_paddock",
+    "version": 1,
+    "replay": null,
+    "seed": null,
+    "simulation_tick": null,
+    "simulation_rate_hz": 60,
+    "camera": "tracer1_fixed_paddock_blockout",
+    "viewport": {
+      "width": 960,
+      "height": 540
+    },
+    "graphics_profile": "development-blockout",
+    "flags": [
+      "--paddock-smoke",
+      "--capture"
+    ]
+  },
+  "scene_metrics": {
+    "chunks": 4,
+    "occupied_blocks": 1746,
+    "faces": 2754,
+    "vertices": 11016,
+    "indices": 16524,
+    "opaque_pass_drawn": true,
+    "cutout_pass_drawn": false,
+    "translucent_pass_drawn": false
+  },
+  "verification": {
+    "wsl_dev_ctest_at_capture": "13/13 pass",
+    "wsl_dev_sanitized_ctest_at_capture": "13/13 pass",
+    "native_windows_dev_ctest_at_capture": "22/22 pass",
+    "format_check_at_capture": "pass",
+    "bounded_static_analysis_at_capture": "pass",
+    "wsl_dev_ctest_at_promotion": "14/14 pass",
+    "wsl_dev_sanitized_ctest_at_promotion": "14/14 pass",
+    "sanitizer_labeled_ctest_at_promotion": "13/13 pass",
+    "format_check_at_promotion": "pass",
+    "bounded_static_analysis_at_promotion": "pass",
+    "accepted_baseline_integrity_at_promotion": "pass",
+    "gl_debug_high_severity_messages": 0,
+    "center_rgba": [176, 26, 15, 255],
+    "center_depth": 0.998679,
+    "center_oracle": "pass",
+    "repeat_capture_byte_identical": true,
+    "accepted_tracer0_normal_sha256": "701595f448a9bb0a82e644e42873a6d1a5e119fd0402f0a6cb4e6f308236ac15",
+    "accepted_tracer0_debug_sha256": "a9bbf89ed449b5d3ffc803239486fd1bb7571a15ab263f1b4bd60cead41107e6"
+  },
+  "artifacts": [
+    {
+      "role": "normal_capture",
+      "path": "normal-frame.png",
+      "media_type": "image/png",
+      "bytes": 2074363,
+      "sha256": "173238274346f39ce3a5fae87e2524e515cb65636302e0e2c3541cf0eaec92d2"
+    }
+  ],
+  "review_document": "review.md",
+  "owner_verdict": "accept",
+  "provenance": {
+    "candidate_manifest": "artifacts/phase2/2026-08-16/handcrafted-paddock/windows-intel-uhd-630/manifest.json",
+    "candidate_review": "artifacts/phase2/2026-08-16/handcrafted-paddock/windows-intel-uhd-630/review.md"
+  },
+  "limitations": [
+    "This is a static geometry blockout with flat material colors and face tint, not a lighting or gameplay pass.",
+    "No matching chunk-debug frame, motion evidence, frame-time measurement, or memory measurement was required for this coherent outcome.",
+    "WSL could not create the required OpenGL 4.6 context and failed at context_create before scene initialization.",
+    "Exact pixel identity is a property of the named reference machine and profile, not an assumed cross-GPU guarantee."
+  ]
+}

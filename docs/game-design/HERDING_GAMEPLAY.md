@@ -9,7 +9,7 @@ progression, or economy specification
 **Research basis:**
 [`herding-simulation-and-scale.md`](../research/herding-simulation-and-scale.md)
 
-**Reviewed:** 2026-08-15
+**Reviewed:** 2026-08-16
 
 ## Purpose
 
@@ -26,10 +26,11 @@ engine can reproduce and explain the behavior.
 
 ## Product thesis
 
-Wide Eye should be about **reading and influencing a living group**, not issuing
-unit commands or chasing waypoints. The player acts directly as the border
-collie. Position, direction, speed, approach, and release change local sheep
-responses; those responses propagate through the flock and reshape the problem.
+The approved first-playable mode should be about **reading and influencing a
+living group** through direct control of the border collie, not issuing unit
+commands or chasing waypoints. Position, direction, speed, approach, and release
+change local sheep responses; those responses propagate through the flock and
+reshape the problem.
 
 The distinctive experience is a causal conversation:
 
@@ -59,6 +60,27 @@ The approved first playable remains deliberately small:
 
 Its primary question is unchanged: can a first-time player intentionally steer
 five sheep through the gate using the dog's physical relationship to the flock?
+
+## Control-mode hypotheses
+
+Wide Eye may eventually support two substantially different ways to play. They
+must remain separate experiments rather than being blended accidentally:
+
+- **Direct dog control — approved current experiment:** a third-person camera
+  follows a player-controlled border collie. The player creates flock movement
+  through the dog's physical position, direction, speed, pressure, and release.
+- **Overhead command control — deferred product hypothesis:** a freely
+  controllable bird's-eye camera could let the player select a dog or other
+  agent and issue movement or action orders at world locations. This may provide
+  better awareness if later evidence supports flocks approaching the population
+  scale benchmarks.
+
+The second mode is not approved implementation scope. Selection rules, order
+types, camera motion, mouse behavior, keyboard panning, and whether the player
+commands one dog or multiple agents are all unresolved. Large-flock capacity
+and an overhead view also do not establish that the mode is readable or fun.
+For now, controller and camera work should improve only the direct third-person
+experiment without closing off a later command-mode input layer.
 
 ## North-star hypotheses
 
@@ -174,7 +196,10 @@ readability and performance tests.
 
 Do not infer commands, controls, score, clock, day counter, inventory, minimap,
 flock size, progression, or task structure from either image. The depicted UI
-was not generated from an approved game design. No final camera has been chosen.
+was not generated from an approved game design. The current experiment has
+selected the third-person camera family, but its movement relationship, orbit,
+alignment, and tuning are not final. The deferred overhead command mode would
+require its own camera and control experiment.
 
 ## Evidence gates for expanding this document
 

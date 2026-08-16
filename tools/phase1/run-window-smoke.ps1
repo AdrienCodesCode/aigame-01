@@ -1,11 +1,18 @@
 [CmdletBinding()]
 param(
+    [ValidateSet("dev", "dev-sanitized")]
+    [string]$Preset = "dev",
+
     [switch]$InjectCaptureMismatch
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$script:EnabledSanitizers = [string[]]@()
+if ($Preset -eq "dev-sanitized") {
+    $script:EnabledSanitizers = [string[]]@("AddressSanitizer")
+}
 $script:CommandRecords = [System.Collections.Generic.List[object]]::new()
 $script:ObservedState = [ordered]@{
     scenario = "voxel_cube_smoke"
@@ -17,6 +24,8 @@ $script:ObservedState = [ordered]@{
     simulation_rate_hz = 60
     camera = "tracer0_fixed_perspective"
     graphics_profile = "development"
+    build_preset = $Preset
+    sanitizers = $script:EnabledSanitizers
 }
 $script:CurrentStage = "initialization"
 $script:LogPath = ""
@@ -148,6 +157,83 @@ function Invoke-CheckedNative {
         throw "$Label failed with exit code $nativeExitCode."
     }
 
+}
+
+function Assert-SanitizerInstrumentation {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LocalSource
+    )
+
+    if ($Preset -ne "dev-sanitized") {
+        return
+    }
+
+    $script:CurrentStage = "sanitizer-instrumentation"
+    $buildDirectory = Join-Path $LocalSource "build\Windows\dev-sanitized"
+    $compileDatabasePath = Join-Path $buildDirectory "compile_commands.json"
+    $buildRulesPath = Join-Path $buildDirectory "build.ninja"
+    if (-not (Test-Path -LiteralPath $compileDatabasePath -PathType Leaf)) {
+        throw "Sanitizer verification requires compile_commands.json."
+    }
+    if (-not (Test-Path -LiteralPath $buildRulesPath -PathType Leaf)) {
+        throw "Sanitizer verification requires build.ninja."
+    }
+
+    $compileRecords = Get-Content -LiteralPath $compileDatabasePath -Raw | ConvertFrom-Json
+    [string[]]$projectSourcePrefixes = @(
+        (Join-Path $LocalSource "src") + "\"
+        (Join-Path $LocalSource "tests") + "\"
+    )
+    $projectCompileRecords = @(
+        foreach ($compileRecord in $compileRecords) {
+            $file = $compileRecord.file.ToString()
+            foreach ($prefix in $projectSourcePrefixes) {
+                if ($file.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+                    $compileRecord
+                    break
+                }
+            }
+        }
+    )
+    if ($projectCompileRecords.Count -eq 0) {
+        throw "Sanitizer verification found no project compile commands."
+    }
+    $missingCompileFlags = @(
+        $projectCompileRecords | Where-Object { $_.command -notmatch '(?:^|\s)/fsanitize=address(?:\s|$)' }
+    )
+    if ($missingCompileFlags.Count -ne 0) {
+        throw "AddressSanitizer is missing from one or more project compile commands."
+    }
+
+    $buildRules = Get-Content -LiteralPath $buildRulesPath -Raw
+    $wideEyeLinkRule = '(?s)# Link the executable wide_eye\.exe.*?LINK_FLAGS\s*=\s*[^\r\n]*/fsanitize=address'
+    if ($buildRules -notmatch $wideEyeLinkRule) {
+        throw "AddressSanitizer is missing from the wide_eye executable link rule."
+    }
+
+    $script:ObservedState["sanitizer_compile_commands_checked"] = $projectCompileRecords.Count
+    $script:ObservedState["sanitizer_compile_flags_match"] = "yes"
+    $script:ObservedState["sanitizer_link_flags_match"] = "yes"
+    Write-Logged -Message ("sanitizer_compile_commands_checked={0}" -f $projectCompileRecords.Count)
+    Write-Logged -Message "sanitizer_compile_flags_match=yes"
+    Write-Logged -Message "sanitizer_link_flags_match=yes"
+}
+
+function Assert-NoFailureDiagnostics {
+    if ($Preset -ne "dev-sanitized") {
+        return
+    }
+
+    $script:CurrentStage = "sanitizer-diagnostic-scan"
+    $log = Get-Content -LiteralPath $script:LogPath -Raw
+    $failureExpression = 'failure_stage=|ERROR: AddressSanitizer|ERROR: LeakSanitizer|runtime error:|gl_debug_high_severity_messages=[1-9]'
+    if ($log -match $failureExpression) {
+        throw "The sanitized run log contains a project, sanitizer, or high-severity GL failure marker."
+    }
+
+    $script:ObservedState["sanitizer_diagnostic_scan"] = "pass"
+    Write-Logged -Message "sanitizer_diagnostic_scan=pass"
 }
 
 function Get-VisualStudioInstallation {
@@ -438,7 +524,7 @@ function Write-ArtifactPacket {
 
     $ctestCaptureNames = @("voxel-cube-capture-one.png", "voxel-cube-capture-two.png")
     foreach ($captureName in $ctestCaptureNames) {
-        $temporaryCapture = Join-Path $LocalSource ("build\Windows\dev\{0}" -f $captureName)
+        $temporaryCapture = Join-Path $LocalSource ("build\Windows\{0}\{1}" -f $Preset, $captureName)
         if (Test-Path -LiteralPath $temporaryCapture -PathType Leaf) {
             Copy-Item -LiteralPath $temporaryCapture -Destination (Join-Path $PacketDirectory ("ctest-{0}" -f $captureName)) -Force
         }
@@ -453,9 +539,10 @@ function Write-ArtifactPacket {
 
     $configuration = [ordered]@{
         schema_version = 1
-        configure_preset = "dev"
-        build_preset = "dev"
-        test_preset = "dev"
+        configure_preset = $Preset
+        build_preset = $Preset
+        test_preset = $Preset
+        sanitizers = $script:EnabledSanitizers
         cmake = [ordered]@{
             path = $CMakePath
             version = Get-ToolVersion -FilePath $CMakePath
@@ -505,13 +592,22 @@ function Write-ArtifactPacket {
         }
     }
     $reproductionCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    if ($Preset -ne "dev") {
+        $reproductionCommand += " -Preset $Preset"
+    }
     if ($InjectCaptureMismatch.IsPresent) {
         $reproductionCommand += " -InjectCaptureMismatch"
+    }
+    $packetVersion = if ($Preset -eq "dev-sanitized") {
+        "tracer0-cube-sanitizer-v1"
+    }
+    else {
+        "tracer0-cube-review-v1"
     }
     $manifest = [ordered]@{
         schema = "wide-eye.artifact-manifest"
         schema_version = 1
-        packet_version = "tracer0-cube-review-v1"
+        packet_version = $packetVersion
         result = $Result
         started_at_utc = $StartedAt.ToUniversalTime().ToString("o")
         finished_at_utc = $finishedAt.ToString("o")
@@ -520,6 +616,12 @@ function Write-ArtifactPacket {
         executable = [ordered]@{
             name = "wide_eye"
             version = "0.1.0"
+        }
+        build = [ordered]@{
+            configure_preset = $Preset
+            build_preset = $Preset
+            test_preset = $Preset
+            sanitizers = $script:EnabledSanitizers
         }
         scenario = [ordered]@{
             name = "voxel_cube_smoke"
@@ -534,7 +636,7 @@ function Write-ArtifactPacket {
             flags = @("--voxel-cube-smoke --capture", "--voxel-cube-debug-smoke --capture")
         }
         reproduction_command = $reproductionCommand
-        review_document = "review.md"
+        review_document = if ($Preset -eq "dev") { "review.md" } else { $null }
         commands = @($script:CommandRecords | ForEach-Object { $_ })
         failure = $failure
         artifacts = @($artifactRecords | ForEach-Object { $_ })
@@ -660,8 +762,9 @@ Only an explicit **Accept** verdict can promote this candidate. Agent inspection
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $artifactRoot = Join-Path $repoRoot ("artifacts\phase1\{0}" -f (Get-Date -Format "yyyy-MM-dd"))
 $timestamp = Get-Date -Format "HHmmssfff"
-$packetDirectory = Join-Path $artifactRoot ("windows-cube-smoke-{0}" -f $timestamp)
-$localRoot = Join-Path $env:LOCALAPPDATA ("WideEye\phase1-context-{0}" -f $timestamp)
+$packetName = if ($Preset -eq "dev-sanitized") { "windows-sanitized-cube-smoke" } else { "windows-cube-smoke" }
+$packetDirectory = Join-Path $artifactRoot ("{0}-{1}" -f $packetName, $timestamp)
+$localRoot = Join-Path $env:LOCALAPPDATA ("WideEye\phase1-context-{0}-{1}" -f $Preset, $timestamp)
 $localSource = Join-Path $localRoot "source"
 $normalCapturePath = Join-Path $packetDirectory "normal-frame.png"
 $repeatCapturePath = Join-Path $packetDirectory "repeat-frame.png"
@@ -700,7 +803,7 @@ try {
 
     $script:CurrentStage = "source-snapshot"
     New-Item -ItemType Directory -Force -Path $localSource | Out-Null
-    foreach ($directory in "cmake", "src", "tests") {
+    foreach ($directory in "cmake", "src", "tests", "third_party") {
         Copy-Item -LiteralPath (Join-Path $repoRoot $directory) -Destination $localSource -Recurse
     }
     foreach ($file in ".clang-format", ".clang-tidy", "CMakeLists.txt", "CMakePresets.json") {
@@ -724,6 +827,7 @@ try {
     $hashInputs += Get-ChildItem -LiteralPath (Join-Path $repoRoot "cmake") -File -Recurse | Select-Object -ExpandProperty FullName
     $hashInputs += Get-ChildItem -LiteralPath (Join-Path $repoRoot "src") -File -Recurse | Select-Object -ExpandProperty FullName
     $hashInputs += Get-ChildItem -LiteralPath (Join-Path $repoRoot "tests") -File -Recurse | Select-Object -ExpandProperty FullName
+    $hashInputs += Get-ChildItem -LiteralPath (Join-Path $repoRoot "third_party") -File -Recurse | Select-Object -ExpandProperty FullName
     $sourceHashRecords = [System.Collections.Generic.List[object]]::new()
     foreach ($sourcePath in $hashInputs | Sort-Object -Unique) {
         $sourceHash = Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256
@@ -737,11 +841,12 @@ try {
 
     Push-Location -LiteralPath $localSource
     try {
-        Invoke-CheckedNative -Stage "configure" -Label "CMake configure" -FilePath $cmake -NativeArguments @("--preset", "dev")
-        Invoke-CheckedNative -Stage "build" -Label "CMake build" -FilePath $cmake -NativeArguments @("--build", "--preset", "dev")
-        Invoke-CheckedNative -Stage "ctest" -Label "CTest" -FilePath $ctest -NativeArguments @("--preset", "dev") -RecordState
+        Invoke-CheckedNative -Stage "configure" -Label "CMake configure" -FilePath $cmake -NativeArguments @("--preset", $Preset)
+        Assert-SanitizerInstrumentation -LocalSource $localSource
+        Invoke-CheckedNative -Stage "build" -Label "CMake build" -FilePath $cmake -NativeArguments @("--build", "--preset", $Preset)
+        Invoke-CheckedNative -Stage "ctest" -Label "CTest" -FilePath $ctest -NativeArguments @("--preset", $Preset) -RecordState
 
-        $executable = Join-Path $localSource "build\Windows\dev\wide_eye.exe"
+        $executable = Join-Path $localSource ("build\Windows\{0}\wide_eye.exe" -f $Preset)
         Invoke-CheckedNative -Stage "triangle-smoke" -Label "Native OpenGL triangle smoke" -FilePath $executable -NativeArguments @("--triangle-smoke") -RecordState
         Invoke-CheckedNative -Stage "voxel-cube-smoke" -Label "Native OpenGL voxel cube smoke" -FilePath $executable -NativeArguments @("--voxel-cube-smoke") -RecordState
         Invoke-CheckedNative `
@@ -783,6 +888,7 @@ try {
             throw "Repeated direct capture hashes differ."
         }
         Remove-Item -LiteralPath $repeatCapturePath
+        Assert-NoFailureDiagnostics
     }
     finally {
         Pop-Location
@@ -821,7 +927,7 @@ finally {
             -RepeatCapturePath $repeatCapturePath `
             -DebugCapturePath $debugCapturePath `
             -StartedAt $startedAt
-        if ($runResult -eq "pass") {
+        if ($runResult -eq "pass" -and $Preset -eq "dev") {
             Write-VisualReviewPacket `
                 -ReviewPath $reviewPath `
                 -ManifestPath $manifestPath `

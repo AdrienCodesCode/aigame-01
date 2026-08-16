@@ -110,8 +110,17 @@ Additional gates:
 - Native Windows compiler/context smoke passed on 2026-08-15 with MSVC
   19.44.35228.0, SDL 3.4.10, and an Intel UHD Graphics 630 OpenGL 4.6 Core debug
   context. Evidence: [`../setup/WINDOWS.md`](../setup/WINDOWS.md).
+- The generated loader is glad 2.0.8 at commit
+  `73db193f853e2ee079bf3ca8a64aa2eaf6459043`, generated reproducibly for
+  OpenGL 4.6 Core with no extensions and SDL-supplied symbol lookup. Its
+  generator archive SHA-256, command, generated-file hashes, MIT generator
+  terms, Khronos terms, and generated
+  `(WTFPL OR CC0-1.0) AND Apache-2.0` expression are retained in
+  [`../../third_party/glad/README.md`](../../third_party/glad/README.md) and
+  enforced by [`../../cmake/WideEyeDependencies.cmake`](../../cmake/WideEyeDependencies.cmake).
 - A native Linux compiler/context smoke test is still required; WSL evidence
   does not satisfy it.
 - Actual low/high devices and driver versions.
 - First measured frame-time, memory, startup, and package baselines.
-- License review of the exact dependency revisions selected during scaffolding.
+- License review of exact dependency revisions added after SDL 3.4.10 and glad
+  2.0.8.

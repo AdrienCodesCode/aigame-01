@@ -1,8 +1,11 @@
 # Plan: Herding simulation and scale
 
-**Status:** Draft plan; not implemented
+**Status:** Active implementation plan; completion evidence is tracked in
+[`ROADMAP.md`](../../ROADMAP.md)
 
 **Date:** 2026-08-15
+
+**Last revised:** 2026-08-16
 
 **Source research:**
 [`herding-simulation-and-scale.md`](../research/herding-simulation-and-scale.md)
@@ -13,34 +16,39 @@
 
 Preserve the existing tracer order. Build the compiler/rendering foundation and
 bounded paddock first, then implement a deterministic five-sheep simulation that
-is data-oriented and measurable from its first commit. Do not make a 1,000-sheep
-scenario, campaign progression, or multiple species part of the first-playable
-gate.
+is data-oriented and measurable from its first commit. Before deep flock tuning,
+render five recognizable procedural proxies from authoritative snapshots and
+measure the representative paddock, dog, sheep, camera, material, shadow, and
+debug workload together. Do not make a 1,000-sheep scenario, campaign
+progression, or multiple species part of the first-playable gate.
 
 This plan changes the quality of Tracer 2, not its product scope. "Realistic"
 means that named replays exhibit explainable, research-informed group signatures;
 it does not mean copying a paper's model wholesale or building an exhaustive
 livestock simulator.
 
-Success means the engine can prove five-sheep correctness and causal legibility,
-then run a reproducible population ladder that labels 1,000 sheep pass, fail, or
-deferred without silently weakening behavior.
+Success means the engine can establish a credible five-sheep presentation
+envelope, prove five-sheep correctness and causal legibility, then run a
+reproducible population ladder that labels 1,000 sheep pass, fail, or deferred
+without silently weakening behavior.
 
 ## Scope and non-goals
 
-In scope are the headless simulation contract, research-informed local behavior,
-group observables, debug/state evidence, the five-sheep gameplay integration,
-and population benchmarks. Out of scope are a campaign, reward economy,
+In scope are the headless simulation contract, a representative five-sheep
+render envelope, research-informed local behavior, group observables,
+debug/state evidence, the five-sheep gameplay integration, and population
+benchmarks. Final animal art, final animation polish, a campaign, reward economy,
 additional animals, a published 1,000-sheep promise, GPU-first simulation,
-generic AI architecture, and direct reuse of external MATLAB code.
+generic AI architecture, and direct reuse of external MATLAB code are out of
+scope.
 
-## Verified current state
+## Verified state at plan approval
 
 ### Confirmed
 
 - The C++ engine and Linux/Windows target are approved in ADR 0001.
-- The current repository has no engine source or build system, so this work
-  cannot start before Tracer 0 and the paddock prerequisites.
+- Tracer 0 and the paddock prerequisites must complete before this work starts;
+  current implementation progress belongs in `ROADMAP.md`, not this plan.
 - Sheep/dog research provides candidate interaction terms and group observables.
 - A uniform spatial grid is already in the roadmap and provides a credible
   bounded-neighbor path.
@@ -56,6 +64,10 @@ generic AI architecture, and direct reuse of external MATLAB code.
   benchmark on the named low target can establish that.
 - Published trajectories may help calibration, but importing them is optional
   and requires license/provenance review.
+- The accepted Tracer 1 paddock is the environment baseline for the early
+  five-sheep envelope. Simple sheep proxies are added before behavior depth so
+  that performance work sees a representative whole scene, but accepting that
+  packet does not accept final animal art.
 
 ### Rejected
 
@@ -66,6 +78,8 @@ generic AI architecture, and direct reuse of external MATLAB code.
   generic behavior tree before a profile identifies the need.
 - Do not tune by hiding instability under unrecorded randomness.
 - Do not use the generated reference HUD as a requirement.
+- Do not polish final animals before the core loop earns that investment, or use
+  an environment-only benchmark as proof that the complete scene is fast.
 
 ### Material decisions intentionally deferred
 
@@ -90,11 +104,12 @@ None blocks Tracer 0, Tracer 1, or the five-sheep correctness model.
 
 ### 1. Establish the headless contract
 
-**Outcome and ownership:** a fixed-tick sheep-simulation component owned by
-`game`; it depends on core math/time but not OpenGL or render-frame timing.
+**Outcome and ownership:** the existing fixed-tick `GameplaySimulation` owner in
+`game` gains versioned replay/state contracts and the minimum authoritative
+sheep state; it depends on core math/time but not OpenGL or render-frame timing.
 
-- Add the fixed-tick component without committing to an exact class API before
-  the source tree exists.
+- Preserve `GameplaySimulation` as the only fixed-tick gameplay owner and keep
+  the platform accumulator as the render-to-simulation scheduler.
 - Define stable sheep IDs, seeded scenario inputs, immutable previous/current
   state buffers, and a versioned state dump.
 - Store hot kinematic and behavioral fields contiguously; avoid per-tick heap
@@ -111,7 +126,37 @@ state comparisons, state dumps, and timing output.
 **Stop:** do not tune social behavior until repeated base scenarios publish the
 same result and state ownership is inspectable.
 
-### 2. Build the observable baseline
+### 2. Prove the representative presentation envelope
+
+**Outcome and ownership:** `render` consumes published, read-only sheep
+snapshots; `game` remains the sole owner of identity, transforms, collision, and
+rules. Five deliberately simple but recognizable procedural sheep exercise the
+real paddock, dog, gameplay camera, basic material/shadow path, and debug path
+before social-behavior depth is added.
+
+- Render five proxies from the minimal contiguous state established in Phase 1.
+- Add a deterministic, non-behavior motion fixture that turns and translates the
+  proxies to exercise interpolation, facing, shadow/material cost, and draw
+  submission. Label it as presentation evidence, not accepted flock behavior.
+- Capture same-state normal/debug frames and a short motion/contact-sheet packet
+  at 1920x1080.
+- Record total frame and GPU p50/p95/p99, snapshot/presentation preparation,
+  render submission, allocations, and current/peak RSS on the available native
+  Windows proxy. Preserve the named Low target requirement for the milestone
+  gate.
+- Optimize only when a named budget fails or the measurements identify a
+  bottleneck; keep the optimization attached to the failing stage.
+- Obtain an explicit owner verdict that the packet is representative enough for
+  gameplay iteration. Do not promote it as the production animal-art baseline.
+
+**Evidence:** reproducible fixture inputs, state metadata, normal/debug/motion
+captures, serialized measurements, and an owner verdict with limitations.
+
+**Stop:** do not deepen flock behavior while the representative five-animal
+scene fails its provisional budgets or its ownership boundary. Do not add final
+art detail merely to make the proxy packet attractive.
+
+### 3. Build the observable baseline
 
 **Outcome and ownership:** pure metric calculations consume published simulation
 state and expose read-only results to tests, dumps, and debug presentation.
@@ -128,7 +173,7 @@ state and expose read-only results to tests, dumps, and debug presentation.
 **Stop:** do not use a metric as an acceptance criterion until its hand-authored
 fixture passes.
 
-### 3. Add local social response
+### 4. Add local social response
 
 **Outcome and ownership:** the `game` simulation owns bounded social queries and
 forces; rendering only visualizes their published results.
@@ -148,7 +193,7 @@ breakdowns, and stable repeated scenarios.
 **Stop:** do not add dog pressure while sheep-only overlap, density, or
 update-order results remain unexplained.
 
-### 4. Add dog stimulus and behavior state
+### 5. Add dog stimulus and behavior state
 
 **Outcome and ownership:** player-controlled dog state enters the sheep
 simulation as an explicit stimulus; behavior state remains authoritative in
@@ -169,7 +214,7 @@ latencies, and explainable split/rejoin fixtures.
 **Stop:** do not accept a new pressure variable unless a paired replay shows the
 intended difference without destabilizing existing fixtures.
 
-### 5. Calibrate for legibility before fidelity claims
+### 6. Calibrate for legibility before fidelity claims
 
 **Outcome and ownership:** versioned scenario parameters and comparison reports
 remain test data; external research artifacts, if approved later, remain
@@ -192,7 +237,7 @@ same-camera replay captures.
 **Stop:** do not call the model behaviorally grounded while a listed qualitative
 contradiction remains or a result depends on unexplained randomness.
 
-### 6. Prove the five-sheep gameplay question
+### 7. Prove the five-sheep gameplay question
 
 **Outcome and ownership:** objectives consume authoritative simulation state;
 presentation and UI communicate but do not decide gate success or sheep state.
@@ -210,7 +255,7 @@ budget, and the fresh-player notes required by `ROADMAP.md`.
 **Stop:** do not progress to campaign or animal expansion if the fresh-player
 gate yields change, simplify, pivot, or discard.
 
-### 7. Run the population ladder
+### 8. Run the population ladder
 
 **Outcome and ownership:** a reproducible benchmark scenario exercises the same
 authoritative rules while timing simulation and presentation stages separately.
@@ -231,7 +276,7 @@ authoritative rules while timing simulation and presentation stages separately.
 **Stop:** do not optimize or promote a population tier without a named failing
 budget or a behavior/readability finding.
 
-### 8. Earn the larger game design
+### 9. Earn the larger game design
 
 **Outcome and ownership:** approved product decisions move into the dedicated
 game-design document and milestone-level roadmap; benchmark capacity alone does
@@ -258,6 +303,8 @@ research, distinct player lesson, and proof scenario are approved.
 | Hidden quadratic cost | Population ladder | Per-stage timings and neighbor counts |
 | Unreadable causes | Dog flank, split, release | Influence overlay plus state trace |
 | Unstable tuning | Repeat fixed seed and input | Same result and bounded metrics |
+| Environment-only optimization hides the gameplay workload | Five-proxy paddock fixture | Whole-scene CPU/GPU/frame/memory timings plus normal/debug/motion packet |
+| Proxy presentation forks authoritative state | Replay state versus rendered instances | Stable one-to-one IDs/transforms read from published snapshots |
 | Fake scale through visual-only sheep | Headless and rendered counts | Same authoritative agent count |
 | Simulation LOD changes behavior | Full-rate versus candidate LOD | Observable deltas within approved tolerances |
 | Reference-image scope leak | UI/design review | Every requirement linked to an approved design/playtest source |
@@ -266,6 +313,7 @@ research, distinct player lesson, and proof scenario are approved.
 
 | Evidence tier | Linux development host | Native Linux target | Native Windows target |
 | --- | --- | --- | --- |
+| Representative five-proxy render envelope | Useful for iteration when graphics are available | Required before its release gate | Required early on the available proxy and before its release gate |
 | Five-sheep correctness | Required during Tracer 2 | Required before its release gate | Required before its release gate |
 | 14/25/100 behavior fixtures | Required before calibration claims | Recheck deterministic limits | Recheck deterministic limits |
 | 250/500/1,000 capacity | Measure on the named low/high hardware when available | Required before a Linux capacity claim | Required before a Windows capacity claim |
@@ -280,6 +328,12 @@ profile; no higher-count budget is accepted until a baseline exists.
   influences so a failed term can be removed without rewriting state ownership.
 - Keep full-rate CPU behavior as the comparison point before jobs, GPU compute,
   or simulation LOD.
+- Keep the Phase 2 sheep recognizable but deliberately simple. They must cover
+  the representative render path without becoming accidental final art or
+  introducing a second source of sheep transforms and identity.
+- Treat the early five-proxy result as an envelope for gameplay iteration, not a
+  guarantee that later articulated animation, wool detail, particles, or audio
+  fit without another measurement gate.
 - Revert tuning through versioned parameter/seed fixtures, not by deleting
   failed evidence.
 - Defer research-data import, 1,000-sheep product scope, campaign/reward design,
@@ -290,6 +344,8 @@ profile; no higher-count budget is accepted until a baseline exists.
 This plan is complete only when:
 
 - five sheep pass deterministic correctness and the first-playable gate;
+- the representative paddock, dog, five-sheep, camera, shadow/material, and
+  debug workload has measured frame/memory evidence and an owner verdict;
 - surprising flock responses can be traced to named inputs and state;
 - the population ladder has measured results on named hardware;
 - 1,000 sheep is labeled pass, fail, or deferred against explicit budgets;
@@ -297,7 +353,8 @@ This plan is complete only when:
 
 ## Recommended first step
 
-Continue Phase 0 rather than starting sheep code: install or provide the native
-toolchain and SDL/OpenGL development inputs, record exact versions, and prove the
-compiler/context smoke test. When Tracer 2 is reached, implement the headless
-state and metric fixtures before tuning motion.
+Define the smallest versioned seed, action-input, replay, and state-dump contract
+around `GameplaySimulation`. Then add minimal contiguous sheep state and the
+five-proxy presentation envelope before tuning social motion. This ordering
+tests the complete representative scene early while keeping final procedural
+animal art and animation in Tracer 3.

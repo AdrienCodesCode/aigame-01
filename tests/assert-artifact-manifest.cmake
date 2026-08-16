@@ -41,8 +41,22 @@ require_json("1" scenario version)
 
 string(JSON packet_version GET "${manifest_json}" packet_version)
 if(NOT packet_version STREQUAL "tracer0-cube-smoke-v1" AND
-   NOT packet_version STREQUAL "tracer0-cube-review-v1")
+   NOT packet_version STREQUAL "tracer0-cube-review-v1" AND
+   NOT packet_version STREQUAL "tracer0-cube-sanitizer-v1")
     message(FATAL_ERROR "Unsupported artifact packet version: ${packet_version}")
+endif()
+
+if(DEFINED EXPECTED_PRESET)
+    require_json("${EXPECTED_PRESET}" build configure_preset)
+    require_json("${EXPECTED_PRESET}" build build_preset)
+    require_json("${EXPECTED_PRESET}" build test_preset)
+endif()
+
+if(packet_version STREQUAL "tracer0-cube-sanitizer-v1")
+    require_json("dev-sanitized" build configure_preset)
+    require_json("dev-sanitized" build build_preset)
+    require_json("dev-sanitized" build test_preset)
+    require_json("AddressSanitizer" build sanitizers 0)
 endif()
 
 string(JSON source_commit ERROR_VARIABLE source_commit_error GET "${manifest_json}" source commit)
@@ -78,9 +92,11 @@ foreach(required_stage IN ITEMS configure build ctest triangle-smoke voxel-cube-
 endforeach()
 
 string(JSON packet_result GET "${manifest_json}" result)
-if(packet_version STREQUAL "tracer0-cube-review-v1" AND packet_result STREQUAL "pass")
+if((packet_version STREQUAL "tracer0-cube-review-v1" OR
+    packet_version STREQUAL "tracer0-cube-sanitizer-v1") AND
+   packet_result STREQUAL "pass")
     if(NOT debug-capture IN_LIST found_stages)
-        message(FATAL_ERROR "Passing review manifest is missing command stage: debug-capture")
+        message(FATAL_ERROR "Passing capture manifest is missing command stage: debug-capture")
     endif()
 endif()
 
