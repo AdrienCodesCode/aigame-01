@@ -375,7 +375,17 @@ exactly the stimulus radius, where the falloff is exactly zero; one stands where
 the stimulus is exactly `0.625`, inside the driven hysteresis band; and a
 `nervous` and a `stubborn` sheep stand at the same exact `5`-unit distance, so an
 identical cause puts one exactly on the driven entry threshold and leaves the
-other below the alert threshold entirely. Terrain and damping remain absent,
+other below the alert threshold entirely. The unpaired
+`sheep-all-influences-diagnostic` fixture is the exception to the
+one-variable-at-a-time rule and is deliberately maximal: every steering term,
+temperament, line of sight, the combined bound, both motion limits, and the
+behavior transitions are switched on together, and the dog drives five sheep —
+two `nervous`, one `stubborn` — into the closed wall line and then releases
+them. It exists so that the properties that only appear when everything runs at
+once can be observed: that the applied acceleration is exactly the published
+terms summed and scaled, that no term oscillates between ticks, and that the
+whole published sequence repeats. Its numbers are not exact fixture arithmetic
+and **it is a diagnostic rather than accepted tuned gameplay**. Terrain and damping remain absent,
 avoidance does not replace the hard collision authority — the paddock still
 resolves every displacement last — and behavior does not feed back into
 steering. A non-finite state is rejected because JSON has no portable

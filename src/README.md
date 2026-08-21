@@ -97,7 +97,13 @@ behavior. Generic math, sheep state, and scenario identity therefore do not
 depend on a particular controller. A `GameplayScenarioDefinition` owns the
 version, seed, dog configuration, initial sheep buffer, sheep behavior
 configuration, and future objective fixture; the dog motor receives only its
-initial state plus the scenario's gate flag. The analytic paddock shapes, their
+initial state plus the scenario's gate flag. **No rule reads the seed.** Every
+accepted rule is a function of the immutable prior state, so the simulation
+contains no randomness at all and the seed is carried by the contract without
+being consumed; `wide_eye.gameplay_simulation` pins that as an equality — the
+same scenario under three different seeds publishes one byte-identical sequence
+— so the first rule that starts consuming it fails an existing check instead of
+quietly making a scenario irreproducible. The analytic paddock shapes, their
 `PaddockObstacle` identities, and the collision/sight-line queries over them live
 in a neutral `paddock_collision` boundary, so sheep rules never depend on a
 dog-named header and dog collision, sheep collision, occlusion, and the
@@ -301,8 +307,17 @@ meshes; the same game-owned field answers the sheep sight-line query. Version 1,
 `sheep-combined-influence-on`, `sheep-motion-limit-off`, `sheep-motion-limit-on`,
 `sheep-avoidance-off`, `sheep-avoidance-on`,
 `sheep-behavior-transitions-off`, `sheep-behavior-transitions-on`,
-`wall-contact`, `closed-gate`, and `open-gate` gameplay definitions provide
-deterministic initialization and exact restart. The
+`sheep-all-influences-diagnostic`, `wall-contact`, `closed-gate`, and
+`open-gate` gameplay definitions provide deterministic initialization and exact
+restart. `sheep-all-influences-diagnostic` is the one deliberately maximal
+fixture — every steering term, both motion limits, temperament, line of sight,
+the combined bound, and the behavior transitions switched on together against a
+dog that drives the flock into the closed wall line and releases it. It exists
+for the properties that only appear when everything runs at once: that the
+applied acceleration is always exactly the published terms, that no term
+oscillates, and that the whole published sequence is reproducible. **It is a
+diagnostic, not accepted tuned gameplay**, and no owner has reviewed the motion
+it produces. The
 gameplay camera owns orbit yaw/pitch independently of dog facing; orchestration
 applies look first, resolves camera-yaw-relative movement on the ground plane,
 then advances the dog. The free-debug camera retains independent position/look

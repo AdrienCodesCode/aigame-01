@@ -309,3 +309,29 @@ Not covered: this is a WSL run, not native Windows or native Linux OpenGL 4.6
 evidence; none is needed, because nothing in this fix touches a render path. The
 root cause named above — `sizeof(GameplaySimulation)` being dominated by the
 spatial grid — is unchanged and remains a candidate for its own outcome.
+
+## Post-fix measurement — 2026-08-22, randomness and steering stability
+
+Observed result (same host, build, and method), recorded because this is the
+first outcome to add fixtures since the guard existed and the point of the guard
+is that the number stays visible. The randomness-and-steering-stability oracle
+adds one named scenario, one oracle function holding six more simulations on the
+heap, and about 8 KiB of its own frame (a 600-entry digest array plus per-sheep
+counters). It publishes **no new per-sheep state**, so `GameplaySnapshot` is
+unchanged.
+
+| build | before (`eb1d1f0`) | after |
+| --- | --- | --- |
+| `dev` | `185 KiB` | `190 KiB` |
+| `release` | `160 KiB` | `160 KiB` |
+| `dev-sanitized` | `220 KiB` | `225 KiB` |
+
+Measured on a 5 KiB grid with
+`for kb in ...; do (ulimit -s $kb; ./build/Linux/<preset>/wide_eye_gameplay_simulation_tests >/dev/null 2>&1); echo "$kb -> $?"; done`.
+`wide_eye.gameplay_simulation_stack_budget` passes against its unchanged
+`512 KiB` budget, which is still more than twice the largest requirement.
+
+Inference: the fix held. One grid step of growth for an outcome that adds a
+scenario and an oracle is the behaviour the resolution predicted — fixtures now
+cost heap rather than frame — and the remaining growth lever is still
+`sizeof(GameplaySnapshot)`, which this outcome did not touch.

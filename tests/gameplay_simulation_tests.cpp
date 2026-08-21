@@ -7,6 +7,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -14,7 +15,9 @@
 #include <new>
 #include <span>
 #include <string>
+#include <string_view>
 #include <type_traits>
+#include <vector>
 
 std::size_t g_allocation_count = 0;
 
@@ -2325,6 +2328,699 @@ BehaviorTransitionOracle run_behavior_transition_oracle() {
     return result;
 }
 
+// The seven published steering terms plus the applied acceleration they are
+// summed and bounded into. Every stability measure below is taken per sheep and
+// per entry of this list, because "steering is stable" is a claim about each
+// influence as well as about the total.
+inline constexpr std::size_t kSteeringTermCount = 8;
+
+constexpr std::array<const char*, kSteeringTermCount> kSteeringTermNames{
+    "separation",   "attraction", "alignment", "dog_pressure",
+    "dog_approach", "dog_facing", "avoidance", "applied"};
+
+// One tick of scripted dog input for the stability run. The dog walks north into
+// the flock, holds, and retreats, so every dog term rises and is released inside
+// one run instead of being sampled at one fixed geometry, and the arousal ladder
+// is walked in both directions.
+wide_eye::game::GameplayTickInput stability_input_for_tick(std::uint64_t tick) {
+    constexpr std::uint64_t kPressTicks = 250;
+    constexpr std::uint64_t kHoldTicks = 350;
+    if (tick < kPressTicks) {
+        return {.dog_move = wide_eye::game::DogMoveInput{.world_z = -1.0}};
+    }
+    if (tick < kHoldTicks) {
+        // A zero move is not an absent one: the dog motor still runs and
+        // decelerates, where an absent input would suspend it and freeze a
+        // velocity the approach term would keep reading.
+        return {.dog_move = wide_eye::game::DogMoveInput{}};
+    }
+    return {.dog_move = wide_eye::game::DogMoveInput{.world_z = 1.0}};
+}
+
+// A 64-bit FNV-1a digest of one canonical state dump. Recording one digest per
+// tick lets a later run be compared against the *whole* published sequence
+// rather than against its last tick, without keeping six hundred
+// two-kilobyte snapshots alive. `0` means the writer refused the state, which
+// the caller checks rather than silently comparing two failures.
+std::uint64_t state_digest(const wide_eye::game::GameplaySimulation& simulation) {
+    const auto dump = wide_eye::game::gameplay_state_dump_json(simulation);
+    if (!dump) {
+        return 0;
+    }
+    std::uint64_t digest = 14695981039346656037ULL;
+    for (const char character : dump.text) {
+        digest ^= static_cast<std::uint64_t>(static_cast<unsigned char>(character));
+        digest *= 1099511628211ULL;
+    }
+    return digest;
+}
+
+// What the randomness-and-stability oracle observed, returned so the run report
+// can name the numbers without keeping the fixtures alive in `main`.
+struct SteeringStabilityOracle {
+    bool passed = false;
+    std::size_t scenarios = 0;
+    std::uint64_t determinism_ticks = 0;
+    std::uint64_t determinism_comparisons = 0;
+    std::uint64_t seeds = 0;
+    std::uint64_t stability_ticks = 0;
+    std::uint64_t sheep_samples = 0;
+    std::array<std::uint64_t, kSteeringTermCount> term_active_samples{};
+    std::array<std::uint64_t, kSteeringTermCount> term_flaps{};
+    std::array<std::uint64_t, kSteeringTermCount> term_flap_runs{};
+    std::array<std::uint64_t, kSteeringTermCount> term_flap_allowance{};
+    std::uint64_t unexplained_acceleration_samples = 0;
+    std::uint64_t unexplained_scale_samples = 0;
+    std::uint64_t unexplained_velocity_samples = 0;
+    std::uint64_t unexplained_position_samples = 0;
+    std::uint64_t combined_bound_breaches = 0;
+    std::uint64_t term_bound_breaches = 0;
+    std::uint64_t speed_breaches = 0;
+    std::uint64_t turn_breaches = 0;
+    std::uint64_t arousal_breaches = 0;
+    std::uint64_t non_finite_samples = 0;
+    std::uint64_t clipped_samples = 0;
+    std::uint64_t drop_ahead_samples = 0;
+    std::uint64_t occluded_samples = 0;
+    std::uint64_t label_changes = 0;
+    std::uint64_t minimum_label_dwell = 0;
+    std::uint64_t label_round_trips = 0;
+    std::uint64_t fast_label_round_trips = 0;
+    std::uint64_t label_change_allowance_per_hundred = 0;
+    double closest_wall_gap = 0.0;
+    double peak_summed_magnitude = 0.0;
+    double peak_applied_magnitude = 0.0;
+    double peak_speed = 0.0;
+    double peak_turn = 0.0;
+    double peak_arousal = 0.0;
+    std::size_t allocations = 0;
+};
+
+SteeringStabilityOracle run_steering_stability_oracle() {
+    SteeringStabilityOracle result;
+    // Randomness, stability, and attribution. The roadmap item asks for evidence
+    // that randomness never masks unstable or unexplained steering. The honest
+    // first half of that is that **there is no randomness**: the scenario
+    // contract carries a seed, and every accepted rule is a pure function of the
+    // immutable prior state, so nothing consumes it. This oracle pins that
+    // property instead of testing a random system, and then proves the steering
+    // is stable and attributable on its own terms, so that the day a rule does
+    // start consuming the seed, an existing check fails rather than a behavior
+    // quietly becoming irreproducible.
+    //
+    // No randomness, jitter, or noise is added here. Adding one to test it would
+    // be a design decision nobody has approved.
+    using wide_eye::game::GameplayScenarioDefinition;
+    using wide_eye::game::GameplayScenarioId;
+    using wide_eye::game::GameplaySnapshot;
+    using wide_eye::game::SheepBehaviorState;
+    using wide_eye::game::Vec3;
+    constexpr double kFixedDelta = wide_eye::game::GameplaySimulation::kFixedDeltaSeconds;
+    constexpr std::uint64_t kDeterminismTicks = 300;
+    constexpr std::uint64_t kStabilityTicks = 600;
+    // Accelerations here are of order one, so a term below this magnitude is
+    // rounding residue rather than an influence, and asking whether it "reversed"
+    // would be asking about noise.
+    constexpr double kLiveTermMagnitude = 1.0e-6;
+    // Every bound below is exact arithmetic on the fixture's own values, but a
+    // magnitude recovered with `hypot` from a vector that was scaled to that
+    // magnitude can land one unit in the last place above it.
+    constexpr double kBoundTolerance = 1.0e-9;
+
+    // A named scenario the game already runs is the only honest determinism
+    // sample: a term that consumed hidden entropy would only have to do it in
+    // one of them, so every scenario in the table is swept rather than only the
+    // fixture this outcome adds.
+    const auto diagnostic =
+        wide_eye::game::find_gameplay_scenario("sheep-all-influences-diagnostic");
+    if (!check(diagnostic.has_value(), "all_influences_diagnostic_scenario_exists")) {
+        return result;
+    }
+    if (!check(diagnostic->version == 1 && diagnostic->seed == 0,
+               "all_influences_diagnostic_is_version_one_seed_zero") ||
+        !check(diagnostic->sheep_separation.enabled && diagnostic->sheep_attraction.enabled &&
+                   diagnostic->sheep_alignment.enabled && diagnostic->sheep_dog_pressure.enabled &&
+                   diagnostic->sheep_dog_approach.enabled && diagnostic->sheep_dog_facing.enabled &&
+                   diagnostic->sheep_dog_line_of_sight.enabled &&
+                   diagnostic->sheep_temperament.enabled && diagnostic->sheep_avoidance.enabled &&
+                   diagnostic->sheep_combined_influence.enabled &&
+                   diagnostic->sheep_motion_limit.enabled && diagnostic->sheep_behavior.enabled,
+               "all_influences_diagnostic_enables_every_rule")) {
+        return result;
+    }
+
+    result.determinism_ticks = kDeterminismTicks;
+    constexpr std::uint16_t kScenarioIdCeiling = 64;
+    for (std::uint16_t raw = 0; raw < kScenarioIdCeiling; ++raw) {
+        const auto id = static_cast<GameplayScenarioId>(raw);
+        const std::string_view name = wide_eye::game::gameplay_scenario_name(id);
+        if (name == "unknown") {
+            continue;
+        }
+        const auto definition = wide_eye::game::find_gameplay_scenario(name);
+        if (!check(definition.has_value(), "every_named_scenario_resolves")) {
+            return result;
+        }
+        ++result.scenarios;
+
+        // Two simulations of one scenario, advanced tick by tick in lockstep so
+        // they are interleaved in time rather than run one after the other, and
+        // compared on every tick rather than at the end: a divergence that
+        // cancelled itself would otherwise be invisible.
+        const SimulationHandle left = make_simulation(*definition);
+        const SimulationHandle right = make_simulation(*definition);
+        for (std::uint64_t tick = 0; tick < kDeterminismTicks; ++tick) {
+            const auto input = input_for_tick(left->current_snapshot().tick);
+            left->fixed_update(input);
+            right->fixed_update(input);
+            ++result.determinism_comparisons;
+            if (!check(left->current_snapshot() == right->current_snapshot() &&
+                           left->previous_snapshot() == right->previous_snapshot(),
+                       "two_simulations_of_one_scenario_publish_one_sequence")) {
+                return result;
+            }
+        }
+
+        // The canonical dump as well as the snapshot: `operator==` on a double
+        // cannot see the sign bit of a zero, and the dump is the text a reviewer
+        // actually compares.
+        const auto left_text = wide_eye::game::gameplay_state_dump_json(*left);
+        const auto right_text = wide_eye::game::gameplay_state_dump_json(*right);
+        if (!check(left_text && right_text && left_text.text == right_text.text,
+                   "repeated_scenario_state_dumps_are_byte_identical")) {
+            return result;
+        }
+
+        // A restarted simulation is the same starting contract in an object that
+        // has already run, which is the case a fresh construction cannot cover.
+        left->restart();
+        for (std::uint64_t tick = 0; tick < kDeterminismTicks; ++tick) {
+            left->fixed_update(input_for_tick(left->current_snapshot().tick));
+        }
+        if (!check(left->current_snapshot() == right->current_snapshot(),
+                   "restarted_simulation_reproduces_the_same_sequence")) {
+            return result;
+        }
+    }
+    // The sweep enumerates the ID space rather than a list, so it covers every
+    // named scenario by construction; this floor only guards against the ceiling
+    // above being outgrown or a scenario disappearing, and a new scenario is
+    // expected to raise it rather than to fail it.
+    if (!check(result.scenarios >= 30, "every_named_scenario_was_swept")) {
+        return result;
+    }
+
+    // The seed is carried by the scenario contract and consumed by nothing. That
+    // is today's truth, and it is recorded as an equality so it cannot change
+    // silently: the first rule that reads the seed makes this check fail. When
+    // that day comes the answer is to replace this with a statistical check on
+    // the seeded distribution, not to delete it.
+    result.seeds = 3;
+    constexpr std::array<std::uint64_t, 3> kSeeds{0, 1, 0x9E3779B97F4A7C15ULL};
+    GameplayScenarioDefinition seed_variant = *diagnostic;
+    seed_variant.seed = kSeeds[1];
+    GameplayScenarioDefinition other_seed_variant = *diagnostic;
+    other_seed_variant.seed = kSeeds[2];
+    {
+        const SimulationHandle zero_seed = make_simulation(*diagnostic);
+        const SimulationHandle one_seed = make_simulation(seed_variant);
+        const SimulationHandle far_seed = make_simulation(other_seed_variant);
+        if (!check(zero_seed->scenario().seed == kSeeds[0] &&
+                       one_seed->scenario().seed == kSeeds[1] &&
+                       far_seed->scenario().seed == kSeeds[2],
+                   "seed_variants_really_carry_different_seeds")) {
+            return result;
+        }
+        for (std::uint64_t tick = 0; tick < kStabilityTicks; ++tick) {
+            const auto input = stability_input_for_tick(tick);
+            zero_seed->fixed_update(input);
+            one_seed->fixed_update(input);
+            far_seed->fixed_update(input);
+            if (!check(zero_seed->current_snapshot() == one_seed->current_snapshot() &&
+                           zero_seed->current_snapshot() == far_seed->current_snapshot(),
+                       "no_accepted_rule_consumes_the_scenario_seed")) {
+                return result;
+            }
+        }
+    }
+
+    // Authoritative state cannot depend on render cadence, which is the only
+    // wall-clock quantity anywhere near the fixed tick: the same authoritative
+    // ticks scheduled from a hundred 10 ms frames and from ten 100 ms frames
+    // must publish one state.
+    {
+        using namespace std::chrono_literals;
+        std::array<std::chrono::nanoseconds, 100> fine_frames{};
+        fine_frames.fill(10ms);
+        std::array<std::chrono::nanoseconds, 10> coarse_frames{};
+        coarse_frames.fill(100ms);
+        const CadenceResult fine = run_cadence(*diagnostic, fine_frames);
+        const CadenceResult coarse = run_cadence(*diagnostic, coarse_frames);
+        if (!check(fine.scheduled_ticks == 60 && fine.snapshot.tick == 60 &&
+                       fine.snapshot == coarse.snapshot,
+                   "all_influences_state_ignores_render_cadence")) {
+            return result;
+        }
+    }
+
+    // The stability and attribution run. One long run of the maximal fixture,
+    // measured on every tick and for every sheep.
+    result.stability_ticks = kStabilityTicks;
+    const auto& separation = diagnostic->sheep_separation;
+    const auto& attraction = diagnostic->sheep_attraction;
+    const auto& alignment = diagnostic->sheep_alignment;
+    const auto& dog_pressure = diagnostic->sheep_dog_pressure;
+    const auto& dog_approach = diagnostic->sheep_dog_approach;
+    const auto& dog_facing = diagnostic->sheep_dog_facing;
+    const auto& avoidance = diagnostic->sheep_avoidance;
+    const auto& combined = diagnostic->sheep_combined_influence;
+    const auto& motion_limit = diagnostic->sheep_motion_limit;
+    const auto& behavior = diagnostic->sheep_behavior;
+    const double turn_budget = motion_limit.maximum_turn_rate_radians_per_second * kFixedDelta;
+    const double arousal_step =
+        std::max(behavior.rise_rate_per_second, behavior.recovery_rate_per_second) * kFixedDelta;
+
+    std::array<std::array<Vec3, kSteeringTermCount>, wide_eye::game::kGameplaySheepCount>
+        previous_terms{};
+    std::array<std::array<bool, kSteeringTermCount>, wide_eye::game::kGameplaySheepCount>
+        previous_term_live{};
+    std::array<std::array<std::uint64_t, kSteeringTermCount>, wide_eye::game::kGameplaySheepCount>
+        flaps{};
+    std::array<std::array<std::uint64_t, kSteeringTermCount>, wide_eye::game::kGameplaySheepCount>
+        flap_run{};
+    std::array<std::array<std::uint64_t, kSteeringTermCount>, wide_eye::game::kGameplaySheepCount>
+        longest_flap_run{};
+    std::array<std::uint64_t, wide_eye::game::kGameplaySheepCount> last_label_change{};
+    std::array<SheepBehaviorState, wide_eye::game::kGameplaySheepCount> label_before_change{};
+    std::array<std::uint64_t, wide_eye::game::kGameplaySheepCount> sheep_label_changes{};
+    std::array<double, wide_eye::game::kGameplaySheepCount> minimum_z{};
+    std::array<std::uint64_t, kStabilityTicks> digests{};
+    result.minimum_label_dwell = kStabilityTicks;
+    result.closest_wall_gap = std::numeric_limits<double>::infinity();
+
+    const SimulationHandle stability = make_simulation(*diagnostic);
+    for (std::size_t index = 0; index < wide_eye::game::kGameplaySheepCount; ++index) {
+        minimum_z[index] = diagnostic->initial_sheep[index].position.z;
+    }
+
+    for (std::uint64_t tick = 1; tick <= kStabilityTicks; ++tick) {
+        stability->fixed_update(stability_input_for_tick(tick - 1));
+        digests[tick - 1] = state_digest(*stability);
+        if (!check(digests[tick - 1] != 0, "every_stability_tick_publishes_a_valid_state")) {
+            return result;
+        }
+        const GameplaySnapshot& previous = stability->previous_snapshot();
+        const GameplaySnapshot& current = stability->current_snapshot();
+        for (std::size_t index = 0; index < current.sheep.size(); ++index) {
+            const auto& prior = previous.sheep[index];
+            const auto& next = current.sheep[index];
+            const auto& social = current.sheep_social_evidence[index];
+            const auto& dog = current.sheep_dog_pressure_evidence[index];
+            const auto& avoid = current.sheep_avoidance_evidence[index];
+            const auto& bound = current.sheep_combined_influence_evidence[index];
+            const auto& motion = current.sheep_motion_limit_evidence[index];
+            const auto& collision = current.sheep_collision_evidence[index];
+            ++result.sheep_samples;
+
+            // Attribution: every applied acceleration is exactly the published
+            // per-term vectors, summed in the published order and scaled by the
+            // published factor. This is the check that makes unexplained
+            // steering detectable at all — an influence that acted without
+            // publishing itself would break this equality on the tick it acted.
+            const Vec3 summed = summed_steering_terms(social, dog, avoid);
+            const Vec3 expected_applied = bounded_terms(summed, bound);
+            const double summed_magnitude = std::hypot(summed.x, summed.z);
+            const double expected_scale =
+                combined.enabled && summed_magnitude > combined.maximum_acceleration
+                    ? combined.maximum_acceleration / summed_magnitude
+                    : 1.0;
+            if (!bound.bound_evaluated || bound.applied_acceleration.x != expected_applied.x ||
+                bound.applied_acceleration.z != expected_applied.z) {
+                ++result.unexplained_acceleration_samples;
+            }
+            if (bound.summed_acceleration_magnitude != summed_magnitude ||
+                bound.applied_scale != expected_scale) {
+                ++result.unexplained_scale_samples;
+            }
+
+            // Attribution of the motion itself: the published velocity is the
+            // prior velocity plus the applied acceleration, scaled by the
+            // published speed factor, with a refused axis cleared. Nothing else
+            // may move a sheep.
+            const double speed_scale = motion.limit_evaluated ? motion.applied_speed_scale : 1.0;
+            const double expected_velocity_x =
+                collision.clipped_x
+                    ? 0.0
+                    : (prior.velocity.x + bound.applied_acceleration.x * kFixedDelta) * speed_scale;
+            const double expected_velocity_z =
+                collision.clipped_z
+                    ? 0.0
+                    : (prior.velocity.z + bound.applied_acceleration.z * kFixedDelta) * speed_scale;
+            if (next.velocity.x != expected_velocity_x || next.velocity.z != expected_velocity_z) {
+                ++result.unexplained_velocity_samples;
+            }
+            if (!collision.clipped_x &&
+                next.position.x != prior.position.x + next.velocity.x * kFixedDelta) {
+                ++result.unexplained_position_samples;
+            }
+            if (!collision.clipped_z &&
+                next.position.z != prior.position.z + next.velocity.z * kFixedDelta) {
+                ++result.unexplained_position_samples;
+            }
+
+            const std::array<Vec3, kSteeringTermCount> terms{
+                social.separation_acceleration, social.attraction_acceleration,
+                social.alignment_acceleration,  dog.pressure_acceleration,
+                dog.approach_acceleration,      dog.facing_acceleration,
+                avoid.avoidance_acceleration,   bound.applied_acceleration};
+            // The dog terms are scaled by the sheep's own temperament, so the
+            // maximum each one may reach is the configured maximum times the
+            // factor the sheep published this tick.
+            const double response = dog.temperament_response_scale;
+            const std::array<double, kSteeringTermCount> maxima{
+                separation.maximum_acceleration,
+                attraction.maximum_acceleration,
+                alignment.maximum_acceleration,
+                dog_pressure.maximum_acceleration * response,
+                dog_approach.maximum_acceleration * response,
+                dog_facing.maximum_acceleration * response,
+                avoidance.maximum_acceleration,
+                combined.maximum_acceleration};
+
+            for (std::size_t term = 0; term < kSteeringTermCount; ++term) {
+                const double magnitude = std::hypot(terms[term].x, terms[term].z);
+                if (!std::isfinite(magnitude)) {
+                    ++result.non_finite_samples;
+                    continue;
+                }
+                if (magnitude > maxima[term] + kBoundTolerance) {
+                    if (term + 1 == kSteeringTermCount) {
+                        ++result.combined_bound_breaches;
+                    } else {
+                        ++result.term_bound_breaches;
+                    }
+                }
+                const bool live = magnitude > kLiveTermMagnitude;
+                if (live) {
+                    ++result.term_active_samples[term];
+                }
+                // A **flap** is one tick on which a term did not settle against
+                // the tick before it: either it switched itself on or off, or it
+                // reversed direction while both ticks were real influences. Both
+                // halves matter, because a term that alternates between its
+                // maximum and exactly nothing never reverses a direction and
+                // would otherwise be invisible. A term that alternated on every
+                // tick scores one hundred flaps per hundred ticks; a term that
+                // changed sides once as the dog crossed it scores one. The
+                // longest run of consecutive flaps separates the two even more
+                // sharply than the count does.
+                bool unsettled = false;
+                if (tick > 1) {
+                    if (live != previous_term_live[index][term]) {
+                        unsettled = true;
+                    } else if (live) {
+                        const double dot = terms[term].x * previous_terms[index][term].x +
+                                           terms[term].z * previous_terms[index][term].z;
+                        unsettled = dot < 0.0;
+                    }
+                }
+                if (unsettled) {
+                    ++flaps[index][term];
+                    ++flap_run[index][term];
+                    longest_flap_run[index][term] =
+                        std::max(longest_flap_run[index][term], flap_run[index][term]);
+                } else {
+                    flap_run[index][term] = 0;
+                }
+                previous_terms[index][term] = terms[term];
+                previous_term_live[index][term] = live;
+            }
+
+            const double speed = std::hypot(next.velocity.x, next.velocity.z);
+            if (!std::isfinite(next.position.x) || !std::isfinite(next.position.z) ||
+                !std::isfinite(speed) || !std::isfinite(next.arousal) ||
+                !std::isfinite(next.heading_radians)) {
+                ++result.non_finite_samples;
+            }
+            if (motion.limit_evaluated &&
+                motion.applied_speed > motion_limit.maximum_speed + kBoundTolerance) {
+                ++result.speed_breaches;
+            }
+            if (speed > motion_limit.maximum_speed + kBoundTolerance) {
+                ++result.speed_breaches;
+            }
+            if (std::abs(motion.heading_change_radians) > turn_budget + kBoundTolerance) {
+                ++result.turn_breaches;
+            }
+            if (next.arousal < wide_eye::game::kSheepMinimumArousal ||
+                next.arousal > wide_eye::game::kSheepMaximumArousal ||
+                std::abs(next.arousal - prior.arousal) > arousal_step + kBoundTolerance ||
+                !wide_eye::game::is_known_sheep_behavior(next.behavior)) {
+                ++result.arousal_breaches;
+            }
+            if (collision.clipped_x || collision.clipped_z) {
+                ++result.clipped_samples;
+            }
+            if (avoid.drop_ahead) {
+                ++result.drop_ahead_samples;
+            }
+            if (dog.dog_line_of_sight_blocked) {
+                ++result.occluded_samples;
+            }
+            if (next.behavior != prior.behavior) {
+                // A **round trip** is the label going back to the one it held
+                // before its last change, which is what oscillation looks like.
+                // Two changes on consecutive ticks are not: walking down the
+                // ladder from alert through recovering to settled is a monotone
+                // descent, and calling that a flap would make the measure fire
+                // on the rule working. A round trip inside the window below is
+                // faster than the recovery rate can carry arousal across the
+                // narrowest band, so it cannot be a genuine second response.
+                constexpr std::uint64_t kLabelRoundTripWindow = 32;
+                if (sheep_label_changes[index] > 0 && next.behavior == label_before_change[index]) {
+                    ++result.label_round_trips;
+                    if (tick - last_label_change[index] < kLabelRoundTripWindow) {
+                        ++result.fast_label_round_trips;
+                    }
+                }
+                ++result.label_changes;
+                ++sheep_label_changes[index];
+                result.minimum_label_dwell =
+                    std::min(result.minimum_label_dwell, tick - last_label_change[index]);
+                label_before_change[index] = prior.behavior;
+                last_label_change[index] = tick;
+            }
+
+            minimum_z[index] = std::min(minimum_z[index], next.position.z);
+            result.peak_summed_magnitude = std::max(result.peak_summed_magnitude, summed_magnitude);
+            result.peak_applied_magnitude =
+                std::max(result.peak_applied_magnitude,
+                         std::hypot(bound.applied_acceleration.x, bound.applied_acceleration.z));
+            result.peak_speed = std::max(result.peak_speed, speed);
+            result.peak_turn = std::max(result.peak_turn, std::abs(motion.heading_change_radians));
+            result.peak_arousal = std::max(result.peak_arousal, next.arousal);
+        }
+    }
+
+    for (std::size_t index = 0; index < wide_eye::game::kGameplaySheepCount; ++index) {
+        for (std::size_t term = 0; term < kSteeringTermCount; ++term) {
+            result.term_flaps[term] = std::max(result.term_flaps[term], flaps[index][term]);
+            result.term_flap_runs[term] =
+                std::max(result.term_flap_runs[term], longest_flap_run[index][term]);
+        }
+        // The closed wall line plus one sheep body radius is where the analytic
+        // paddock stops a sheep that arrives from open ground. A sheep north of
+        // it would mean the barrier passed a body, which is the QA-001 failure
+        // mode rather than a steering result.
+        result.closest_wall_gap = std::min(result.closest_wall_gap, minimum_z[index] - 16.0);
+    }
+
+    // Stability bounds. A term that alternated on every tick would score one
+    // hundred flaps per hundred ticks, so the first allowance below — a
+    // twentieth of that, with the longest run of consecutive flaps held to two —
+    // separates "changed sides as the dog crossed" from "flapping".
+    //
+    // The second allowance is a **defect record, not a design choice**. Six of
+    // the seven terms are continuous functions of the geometry and settle.
+    // Obstacle avoidance does not: two of its answers are binary — a body
+    // touching the swept obstacle rectangle contacts it at distance zero, which
+    // the linear falloff turns into the full maximum, and the ground under the
+    // look-ahead point either exists or does not — so a sheep held against a
+    // wall face, or sitting on the drop boundary, alternates between the maximum
+    // and exactly nothing, and the applied sum inherits it. QA-003 records the
+    // reproduction and these measured values; when it closes, the two allowances
+    // become one.
+    //
+    // Each allowance is the worst value this run actually measured, rounded up:
+    // the continuous terms peak at `2.67` flaps per hundred ticks with a longest
+    // run of `3` consecutive ticks, and avoidance peaks at `15.0` per hundred
+    // with a run of `23`. Rounding up rather than pinning the exact measurement
+    // keeps the check from failing on an unrelated fixture change while still
+    // failing on a term that started alternating.
+    constexpr std::uint64_t kContinuousFlapAllowance = 5;
+    constexpr std::uint64_t kContinuousFlapRunAllowance = 4;
+    constexpr std::uint64_t kBinaryFlapAllowance = 20;
+    constexpr std::uint64_t kBinaryFlapRunAllowance = 25;
+    result.term_flap_allowance = {kContinuousFlapAllowance, kContinuousFlapAllowance,
+                                  kContinuousFlapAllowance, kContinuousFlapAllowance,
+                                  kContinuousFlapAllowance, kContinuousFlapAllowance,
+                                  kBinaryFlapAllowance,     kBinaryFlapAllowance};
+    result.label_change_allowance_per_hundred = 5;
+    bool flaps_bounded = true;
+    for (std::size_t term = 0; term < kSteeringTermCount; ++term) {
+        const std::uint64_t run_allowance =
+            result.term_flap_allowance[term] == kContinuousFlapAllowance
+                ? kContinuousFlapRunAllowance
+                : kBinaryFlapRunAllowance;
+        flaps_bounded =
+            flaps_bounded &&
+            result.term_flaps[term] * 100 <= result.term_flap_allowance[term] * kStabilityTicks &&
+            result.term_flap_runs[term] <= run_allowance;
+    }
+
+    if (!check(result.unexplained_acceleration_samples == 0,
+               "every_applied_acceleration_is_exactly_the_published_terms") ||
+        !check(result.unexplained_scale_samples == 0,
+               "every_published_bound_scale_explains_its_own_arithmetic") ||
+        !check(result.unexplained_velocity_samples == 0,
+               "every_published_velocity_is_explained_by_published_evidence") ||
+        !check(result.unexplained_position_samples == 0,
+               "every_unrefused_position_is_the_integrated_one") ||
+        !check(result.combined_bound_breaches == 0, "the_combined_bound_holds_on_every_tick") ||
+        !check(result.term_bound_breaches == 0, "every_term_holds_its_own_maximum_every_tick") ||
+        !check(result.speed_breaches == 0, "the_speed_limit_holds_on_every_tick") ||
+        !check(result.turn_breaches == 0, "the_turn_budget_holds_on_every_tick") ||
+        !check(result.arousal_breaches == 0, "arousal_stays_bounded_and_rate_limited") ||
+        !check(result.non_finite_samples == 0, "no_published_steering_value_is_non_finite")) {
+        return result;
+    }
+    if (!check(flaps_bounded, "no_steering_term_flaps_beyond_its_recorded_allowance") ||
+        !check(result.label_changes * 100 <=
+                   result.label_change_allowance_per_hundred * kStabilityTicks,
+               "the_behavior_label_does_not_oscillate") ||
+        !check(result.fast_label_round_trips == 0,
+               "no_behavior_label_returns_inside_its_hysteresis_dwell")) {
+        return result;
+    }
+    bool every_term_acted = true;
+    for (std::size_t term = 0; term < kSteeringTermCount; ++term) {
+        every_term_acted = every_term_acted && result.term_active_samples[term] > 0;
+    }
+    if (!check(every_term_acted, "every_steering_term_acted_during_the_run") ||
+        !check(result.clipped_samples > 0, "the_run_pressed_the_flock_into_the_wall_line") ||
+        !check(result.closest_wall_gap >= 0.5 - 1.0e-12, "no_sheep_crossed_the_closed_wall_line")) {
+        return result;
+    }
+
+    // The same published sequence from an object constructed later, in memory
+    // filled with a poison pattern rather than zeroes, and at a different
+    // address. Nothing outside the scenario contract — construction time, object
+    // identity, or whatever the allocator left in the storage — may reach the
+    // published state.
+    {
+        // The storage is a byte vector rather than an array `new` so that the
+        // allocation and the deallocation both go through this file's own scalar
+        // `operator new`/`operator delete`, and it is filled with a pattern
+        // rather than left zeroed so that an uninitialized read would produce a
+        // different answer here than in an ordinary heap fixture.
+        static_assert(alignof(wide_eye::game::GameplaySimulation) <= alignof(std::max_align_t),
+                      "the poisoned arena must be aligned for the simulation it holds");
+        std::vector<std::byte> arena(sizeof(wide_eye::game::GameplaySimulation), std::byte{0xAB});
+        auto* poisoned = new (arena.data()) wide_eye::game::GameplaySimulation{*diagnostic};
+        bool poisoned_matches = true;
+        for (std::uint64_t tick = 1; tick <= kStabilityTicks; ++tick) {
+            poisoned->fixed_update(stability_input_for_tick(tick - 1));
+            poisoned_matches = poisoned_matches && state_digest(*poisoned) == digests[tick - 1];
+        }
+        const bool poisoned_final = poisoned->current_snapshot() == stability->current_snapshot();
+        poisoned->~GameplaySimulation();
+        if (!check(poisoned_matches && poisoned_final,
+                   "a_later_simulation_in_poisoned_storage_publishes_the_same_sequence")) {
+            return result;
+        }
+    }
+
+    // The same published sequence after a restart, compared on every tick rather
+    // than only at the last one. The canonical dump is deliberately *not* the
+    // comparison here: it reports `restart_count`, which is the one thing a
+    // restarted object is supposed to publish differently, so the restarted run
+    // is compared against a fresh simulation's snapshots instead.
+    {
+        stability->restart();
+        const SimulationHandle restart_reference = make_simulation(*diagnostic);
+        bool restart_matches =
+            stability->current_snapshot() == restart_reference->current_snapshot();
+        for (std::uint64_t tick = 1; tick <= kStabilityTicks; ++tick) {
+            const auto input = stability_input_for_tick(tick - 1);
+            stability->fixed_update(input);
+            restart_reference->fixed_update(input);
+            restart_matches = restart_matches && stability->current_snapshot() ==
+                                                     restart_reference->current_snapshot();
+        }
+        if (!check(restart_matches && stability->restart_count() == 1 &&
+                       restart_reference->restart_count() == 0,
+                   "a_restarted_run_publishes_the_same_sequence")) {
+            return result;
+        }
+    }
+
+    // Storage order is not state. The reversed fixture carries the same five
+    // sheep in the opposite buffer order, so a rule that depended on iteration
+    // order — or on one sheep's address relative to another's — would publish a
+    // different result for the same ID.
+    {
+        GameplayScenarioDefinition reversed_scenario = *diagnostic;
+        std::reverse(reversed_scenario.initial_sheep.begin(),
+                     reversed_scenario.initial_sheep.end());
+        const SimulationHandle forward = make_simulation(*diagnostic);
+        const SimulationHandle reversed = make_simulation(reversed_scenario);
+        bool reversed_matches = true;
+        for (std::uint64_t tick = 1; tick <= kStabilityTicks && reversed_matches; ++tick) {
+            const auto input = stability_input_for_tick(tick - 1);
+            forward->fixed_update(input);
+            reversed->fixed_update(input);
+            const auto& forward_snapshot = forward->current_snapshot();
+            const auto& reversed_snapshot = reversed->current_snapshot();
+            reversed_matches = reversed_matches && forward_snapshot.dog == reversed_snapshot.dog;
+            for (const auto& member : forward_snapshot.sheep) {
+                reversed_matches =
+                    reversed_matches &&
+                    sheep_with_id(reversed_snapshot.sheep, member.id) == member &&
+                    evidence_with_id(reversed_snapshot.sheep_social_evidence, member.id) ==
+                        evidence_with_id(forward_snapshot.sheep_social_evidence, member.id) &&
+                    evidence_with_id(reversed_snapshot.sheep_dog_pressure_evidence, member.id) ==
+                        evidence_with_id(forward_snapshot.sheep_dog_pressure_evidence, member.id) &&
+                    evidence_with_id(reversed_snapshot.sheep_collision_evidence, member.id) ==
+                        evidence_with_id(forward_snapshot.sheep_collision_evidence, member.id) &&
+                    evidence_with_id(reversed_snapshot.sheep_avoidance_evidence, member.id) ==
+                        evidence_with_id(forward_snapshot.sheep_avoidance_evidence, member.id) &&
+                    evidence_with_id(reversed_snapshot.sheep_combined_influence_evidence,
+                                     member.id) ==
+                        evidence_with_id(forward_snapshot.sheep_combined_influence_evidence,
+                                         member.id) &&
+                    evidence_with_id(reversed_snapshot.sheep_motion_limit_evidence, member.id) ==
+                        evidence_with_id(forward_snapshot.sheep_motion_limit_evidence, member.id);
+            }
+        }
+        if (!check(reversed_matches, "reversed_storage_publishes_the_same_result_per_id")) {
+            return result;
+        }
+    }
+
+    const SimulationHandle allocation_probe = make_simulation(*diagnostic);
+    const std::size_t allocations_before = g_allocation_count;
+    for (std::uint32_t tick = 0; tick < 600; ++tick) {
+        allocation_probe->fixed_update({});
+    }
+    result.allocations = g_allocation_count - allocations_before;
+    if (!check(result.allocations == 0, "all_influences_fixed_updates_do_not_allocate")) {
+        return result;
+    }
+
+    result.passed = true;
+    return result;
+}
+
 } // namespace
 
 int main() {
@@ -4359,6 +5055,14 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // The randomness-and-stability oracle owns its own frame for the same
+    // reason, and it sweeps every named scenario, so it holds more fixtures than
+    // any other single check in this file.
+    const SteeringStabilityOracle stability = run_steering_stability_oracle();
+    if (!stability.passed) {
+        return EXIT_FAILURE;
+    }
+
     const SimulationHandle replay_a = make_simulation(*scenario);
     const SimulationHandle replay_b = make_simulation(*scenario);
     const wide_eye::game::GameplayReplay replay = sample_replay(*replay_a);
@@ -4752,7 +5456,63 @@ int main() {
         << "sheep_behavior_scripted_dog_peak_arousal=" << behavior.scripted_peak_arousal << '\n'
         << "sheep_behavior_feeds_back_into_steering=no\n"
         << "sheep_behavior_steady_state_allocations=" << behavior.allocations << '\n'
-        << "repeated_local_replay_equal=yes\n"
-        << "gameplay_simulation_result=pass\n";
+        << "sheep_steering_stability_fixture=all_influences_diagnostic\n"
+        << "sheep_steering_stability_is_tuned_gameplay=no\n"
+        << "sheep_steering_stability_simulation_contains_randomness=no\n"
+        << "sheep_steering_stability_scenarios_swept=" << stability.scenarios << '\n'
+        << "sheep_steering_stability_determinism_ticks_per_scenario=" << stability.determinism_ticks
+        << '\n'
+        << "sheep_steering_stability_tick_comparisons=" << stability.determinism_comparisons << '\n'
+        << "sheep_steering_stability_seeds_compared=" << stability.seeds << '\n'
+        << "sheep_steering_stability_run_ticks=" << stability.stability_ticks << '\n'
+        << "sheep_steering_stability_sheep_samples=" << stability.sheep_samples << '\n'
+        << "sheep_steering_stability_unexplained_acceleration_samples="
+        << stability.unexplained_acceleration_samples << '\n'
+        << "sheep_steering_stability_unexplained_scale_samples="
+        << stability.unexplained_scale_samples << '\n'
+        << "sheep_steering_stability_unexplained_velocity_samples="
+        << stability.unexplained_velocity_samples << '\n'
+        << "sheep_steering_stability_unexplained_position_samples="
+        << stability.unexplained_position_samples << '\n'
+        << "sheep_steering_stability_combined_bound_breaches=" << stability.combined_bound_breaches
+        << '\n'
+        << "sheep_steering_stability_term_bound_breaches=" << stability.term_bound_breaches << '\n'
+        << "sheep_steering_stability_speed_breaches=" << stability.speed_breaches << '\n'
+        << "sheep_steering_stability_turn_breaches=" << stability.turn_breaches << '\n'
+        << "sheep_steering_stability_arousal_breaches=" << stability.arousal_breaches << '\n'
+        << "sheep_steering_stability_non_finite_samples=" << stability.non_finite_samples << '\n'
+        << "sheep_steering_stability_label_changes=" << stability.label_changes << '\n'
+        << "sheep_steering_stability_label_change_allowance_per_hundred_ticks="
+        << stability.label_change_allowance_per_hundred << '\n'
+        << "sheep_steering_stability_minimum_label_dwell_ticks=" << stability.minimum_label_dwell
+        << '\n'
+        << "sheep_steering_stability_label_round_trips=" << stability.label_round_trips << '\n'
+        << "sheep_steering_stability_fast_label_round_trips=" << stability.fast_label_round_trips
+        << '\n'
+        << "sheep_steering_stability_clipped_samples=" << stability.clipped_samples << '\n'
+        << "sheep_steering_stability_drop_ahead_samples=" << stability.drop_ahead_samples << '\n'
+        << "sheep_steering_stability_occluded_samples=" << stability.occluded_samples << '\n'
+        << "sheep_steering_stability_closest_wall_gap=" << stability.closest_wall_gap << '\n'
+        << "sheep_steering_stability_peak_summed_magnitude=" << stability.peak_summed_magnitude
+        << '\n'
+        << "sheep_steering_stability_peak_applied_magnitude=" << stability.peak_applied_magnitude
+        << '\n'
+        << "sheep_steering_stability_peak_speed=" << stability.peak_speed << '\n'
+        << "sheep_steering_stability_peak_turn_radians=" << stability.peak_turn << '\n'
+        << "sheep_steering_stability_peak_arousal=" << stability.peak_arousal << '\n'
+        << "sheep_steering_stability_steady_state_allocations=" << stability.allocations << '\n'
+        << "repeated_local_replay_equal=yes\n";
+    for (std::size_t term = 0; term < kSteeringTermCount; ++term) {
+        std::cout << "sheep_steering_stability_" << kSteeringTermNames[term]
+                  << "_active_samples=" << stability.term_active_samples[term] << '\n'
+                  << "sheep_steering_stability_" << kSteeringTermNames[term]
+                  << "_worst_sheep_flaps=" << stability.term_flaps[term] << '\n'
+                  << "sheep_steering_stability_" << kSteeringTermNames[term]
+                  << "_worst_sheep_flap_run=" << stability.term_flap_runs[term] << '\n'
+                  << "sheep_steering_stability_" << kSteeringTermNames[term]
+                  << "_flap_allowance_per_hundred_ticks=" << stability.term_flap_allowance[term]
+                  << '\n';
+    }
+    std::cout << "gameplay_simulation_result=pass\n";
     return EXIT_SUCCESS;
 }

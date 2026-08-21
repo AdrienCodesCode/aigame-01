@@ -59,7 +59,16 @@
     recovering behavior states driven by an explicitly non-physiological arousal
     parameter that follows the published dog stimulus at named rise and recovery
     rates and selects a state under explicit hysteresis, published per sheep and
-    deliberately read by no steering term.
+    deliberately read by no steering term; and
+  - standing automated evidence that the simulation contains **no randomness** —
+    the scenario seed is carried by the contract and consumed by no rule — and
+    that steering is reproducible and attributable: every named scenario
+    republishes its whole sequence under repetition, restart, reversed storage,
+    later construction in pattern-filled memory, and any render cadence, and on
+    every tick of a maximal all-terms diagnostic fixture the applied acceleration
+    is exactly the published per-term vectors summed and scaled, with every
+    accepted bound holding on every tick and every term's flap rate measured
+    against a recorded allowance.
 
   Detailed evidence remains with the checked Phase 3 items and their owning
   source, decision, format, test, and artifact records; completed Phase 0–2
@@ -103,7 +112,48 @@
   executables plus CTest remain the accepted Tracer 2 harness under
   [ADR 0003](docs/decisions/0003-project-owned-test-harness.md); framework
   adoption is deferred until a concrete maintenance cost justifies it.
-- **Verification run (2026-08-21, behavior transitions and arousal):** on WSL
+- **Verification run (2026-08-22, randomness and steering stability):** on WSL
+  Ubuntu 24.04.4, the development and ASan/UBSan configurations (Clang 18.1.3)
+  and the Release configuration (GNU 13) each built and passed 25/25 CTests;
+  project formatting and bounded clang-tidy passed, the QA tracker check passed,
+  and `git diff --check` reported nothing. This outcome is tests, one new
+  fixture, and documentation: no steering rule, bound, limit, or published field
+  changed, and the canonical state dumps of all 29 pre-existing scenarios are
+  byte-identical to a pre-change (`eb1d1f0`) build over 240 scripted ticks each.
+  The harness's 182 pre-existing stdout lines are unchanged
+  (`sha256 3d8a88cbd23cfbfb6392b405d4e878623d67ff13214a462ab5c783133f871f75`),
+  and its full output — new stability measurements included — is byte-identical
+  across the `dev`, `release`, and `dev-sanitized` binaries
+  (`sha256 d93e520d610080b987d492ffba72fb7bfb1fa967e171347b49cd656d61e1aff8`),
+  which is one host and one architecture rather than a cross-platform claim. The
+  new oracle swept all 30 named scenarios twice in lockstep for 300 ticks each
+  (9,000 tick comparisons, equal snapshots and byte-identical dumps, each
+  restarted and re-run), proved three different seeds publish one byte-identical
+  600-tick sequence, and over 600 ticks of the new
+  `sheep-all-influences-diagnostic` fixture observed zero unexplained
+  accelerations, bound scales, velocities, or positions across 3,000 sheep-ticks,
+  zero bound/speed/turn/arousal breaches, zero non-finite values, no behavior
+  round trip, a closest approach to the closed wall line of exactly one body
+  radius, and zero allocations. It also found and filed
+  [QA-003](docs/qa/open/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md)
+  (S2, confirmed): obstacle avoidance alternates between its full maximum and
+  exactly zero for a sheep held in contact with a wall face, 90 flaps in 600
+  ticks with a run of 23 consecutive ticks, against 16 and 3 for the worst
+  continuous term. The stack-budget guard stays green — the smallest `ulimit -s`
+  at which the binary exits 0 moved from `185` to `190` KiB (`dev`), stayed at
+  `160` KiB (`release`), and moved from `220` to `225` KiB (`dev-sanitized`),
+  against the named 512 KiB budget. Native Windows/Linux graphics and the
+  presentation performance scenarios were not rerun because no presentation path
+  changed and this host exposes only OpenGL 4.5. Evidence:
+  [`gameplay_scenario.cpp`](src/game/gameplay_scenario.cpp),
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp), and the
+  ignored
+  [oracle output](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/gameplay-simulation-oracle.txt),
+  [accepted-scenario comparison](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/accepted-scenario-state-diff.txt),
+  [stack headroom measurement](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/stack-headroom.txt),
+  and
+  [verification gates](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/verification-gates.txt).
+- **Prior verification run (2026-08-21, behavior transitions and arousal):** on WSL
   Ubuntu 24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan
   configurations each built and passed 24/24 CTests; project formatting and
   bounded clang-tidy passed, the QA tracker check passed, and `git diff --check`
@@ -490,7 +540,8 @@
   KiB — the smallest passing step on the 100 KiB grid, below which it segfaulted
   with no output — to `185` KiB, with `release` at `160` KiB and `dev-sanitized`
   at `220` KiB, and the issue's reporting grid now exits 0 at every step down to
-  `1000` KiB. A
+  `1000` KiB. (The same 5 KiB sweep after the randomness-and-stability outcome
+  later the same day reports `190`, `160`, and `225` KiB.) A
   new `wide_eye.gameplay_simulation_stack_budget` CTest runs the binary under
   `ulimit -s 512` and fails by name if it does not finish — the missing signal
   QA-002 asked for, because the original failure was a SIGSEGV that printed
@@ -506,11 +557,36 @@
   `sheep-dog-facing-on`) after the tick at which a sheep first touches a wall;
   their accepted 60-tick and first-tick measurements are unaffected, but any
   later comparison against those fixtures must be re-derived.
-- **Next action:** add debug arrows and labels for every influence, chosen
-  neighbour, arousal, target, state, and balance point. This is the first Phase 3
-  sheep-behavior outcome that requires human visual review: every rule so far has
-  been accepted on headless evidence alone, and the behavior states in particular
-  are currently invisible to anyone who is not reading a state dump.
+  The steering rules are now known to be reproducible and attributable, and the
+  limits of that evidence are narrow enough to name. There is **no
+  MemorySanitizer build in this toolchain**, so uninitialized reads are not
+  proven absent: what exists is an ASan/UBSan suite plus one simulation
+  constructed in `0xAB`-filled storage that reproduced a zero-filled one tick for
+  tick, which covers the simulation object's own storage and nothing else.
+  **There is no randomness to test**, so the seed equality is a tripwire rather
+  than a property of a random system, and the correct response to a future
+  seeded rule is to replace it with a statistical check rather than to delete it.
+  Determinism is proven on one host and one architecture — WSL Ubuntu 24.04.4 on
+  x86-64, under Clang 18.1.3 and GNU 13 — which is not the cross-platform
+  determinism claim the format contract already declines to make. The maximal
+  `sheep-all-influences-diagnostic` fixture is **a diagnostic rather than
+  accepted tuned gameplay**: it is synthetic causal evidence, no owner has seen
+  the motion it produces, and it never occludes the dog, so line of sight remains
+  evidenced only by its own paired fixture. And the stability measure it stands
+  on currently *accepts* one real oscillation rather than forbidding it: obstacle
+  avoidance alternates between its full `4.0` maximum and exactly zero for a
+  sheep held in contact with a wall face, filed as
+  [QA-003](docs/qa/open/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md),
+  and the flap allowance for avoidance and for the applied sum is deliberately
+  four times the one every continuous term is held to, naming that issue as its
+  reason until it closes.
+- **Next action:** add dog bearing/distance, response latency, split/rejoin
+  time, and settle time to the flock observables, now that behavior transitions
+  exist to measure latency against. The debug arrows and labels for every
+  influence, chosen neighbour, arousal, target, state, and balance point remain
+  unchecked and still ahead of the Phase 3 visual gate: every sheep rule so far
+  has been accepted on headless evidence alone, and nobody has yet watched a
+  sheep change state.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
@@ -1510,7 +1586,101 @@ scope. Evidence: the archived
   [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp).
 - [ ] Add debug arrows/labels for every influence, chosen neighbor, arousal,
   target, state, and balance point.
-- [ ] Test that randomness never masks unstable or unexplained steering.
+- [x] Test that randomness never masks unstable or unexplained steering.
+  Observed result (2026-08-22): the honest first half of this item is that
+  **the authoritative simulation contains no randomness at all.** The scenario
+  contract carries a `seed` and every accepted rule is a function of the
+  immutable prior state, so nothing consumes it. That is now pinned as an
+  equality rather than assumed: `sheep-all-influences-diagnostic` run under
+  seeds `0`, `1`, and `0x9E3779B97F4A7C15` published one byte-identical 600-tick
+  sequence. No randomness, jitter, or noise was added in order to test it — that
+  would be a design decision nobody has approved — so this half of the item is a
+  **tripwire**, not a test of a random system: the first rule that reads the seed
+  fails an existing check. The second half proves the steering is stable and
+  attributable on its own terms. All 30 named scenarios were advanced twice in
+  lockstep for 300 ticks each — 9,000 tick comparisons — with equal published
+  snapshots on every tick, byte-identical canonical dumps at the end, and a
+  restarted run of each reproducing the same sequence. For the maximal fixture,
+  a simulation constructed after all of that, in storage filled with `0xAB`
+  rather than zeroes and at a different address, reproduced the recorded per-tick
+  state digest of all 600 ticks and the final snapshot; a restart reproduced a
+  fresh simulation's snapshot on every tick while still publishing its own
+  `restart_count`; reversed storage published identical state and identical
+  social, dog-stimulus, collision, avoidance, combined-influence, and
+  motion-limit records per ID on every tick; and a hundred 10 ms and ten 100 ms
+  render partitions produced one authoritative state. **Attribution is the
+  strongest assertion here:** over 600 ticks and 3,000 sheep-ticks with every
+  term enabled, the applied acceleration equalled the seven published per-term
+  vectors summed in the published order and multiplied by the published scale
+  **exactly**, on every sample, with zero unexplained accelerations, zero
+  unexplained bound scales, zero unexplained velocities, and zero unexplained
+  positions — the published velocity is the prior velocity plus that
+  acceleration times the tick, scaled by the published speed factor, with a
+  refused axis cleared, and an unrefused position is exactly the integrated one.
+  All seven terms really acted: of the 3,000 sheep-ticks, separation was live on
+  `1586`, attraction and alignment on all `3000`, dog pressure on `1166`,
+  approach on `714`, facing on `719`, and avoidance on `908`. Every bound held on
+  every tick rather than on average: the summed terms peaked at `7.04065` against
+  the `4.0` combined bound and the applied acceleration peaked at exactly `4`,
+  speed at exactly `5`, one tick's heading change at exactly `0.0625` — the
+  `1/16` radian budget — and arousal at exactly `1`, with no non-finite value
+  published anywhere. The flock was pressed into the closed wall line on `75`
+  sheep-ticks and no sheep ever came closer than exactly `0.5` — one body radius
+  — to the wall face. Behavior labels changed 17 times across five sheep in 600
+  ticks with **no round trip at all**; the only two changes on consecutive ticks
+  were one sheep walking monotonically down the ladder from `alert` through
+  `recovering` to `settled`. 600 fixed updates allocated nothing. The
+  measurements are identical in all three configurations: the harness's stdout is
+  byte-identical between the Clang 18.1.3 `dev`, GNU 13 `release`, and ASan/UBSan
+  builds (`sha256 d93e520d…`), and its 182 pre-existing lines are unchanged from
+  the pre-change binary (`sha256 3d8a88cb…`).
+  **The oracle found a real defect.** The flap measure — one tick on which a term
+  switched itself on or off, or reversed direction while both ticks were live —
+  separates cleanly into two populations. The six continuous terms peak at `16`
+  flaps in 600 ticks (`2.67` per hundred) with a longest run of `3` consecutive
+  ticks. Obstacle avoidance flaps `90` times (`15.0` per hundred) with a run of
+  `23`, and the applied sum inherits `77` (`12.83` per hundred) with a run of
+  `17`: a sheep held on a wall face by dog pressure alternates between the term's
+  full `4.0` maximum — directed *backwards* along its own travel — and exactly
+  zero, because a body touching the swept obstacle rectangle contacts it at
+  distance zero and the linear falloff turns that into maximum urgency, while a
+  billionth of a unit of separation reports nothing ahead. Filed as
+  [QA-003](docs/qa/open/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md)
+  (S2, confirmed) rather than fixed, because changing it changes an accepted
+  rule. The standing check therefore holds the six continuous terms to `5` flaps
+  per hundred ticks with a run of `4`, and holds avoidance and the applied sum to
+  a **deliberately looser recorded allowance** of `20` per hundred with a run of
+  `25` that names QA-003 as its reason; closing the issue should tighten both to
+  the continuous values. One new fixture was added:
+  `sheep-all-influences-diagnostic`, version 1, seed 0, the only fixture that
+  enables every rule at once. **It is a diagnostic, not accepted tuned
+  gameplay** — no owner has reviewed the motion it produces, its numbers are not
+  the exact fixture arithmetic every paired fixture is built for, and it is not
+  evidence that these five sheep move well. Adding it changed nothing else: the
+  canonical dumps of all 29 pre-existing scenarios are byte-identical to a
+  pre-change build over 240 scripted ticks each.
+  **What this evidence does not cover:** there is no MemorySanitizer build in
+  this toolchain, so uninitialized reads are not proven absent — the poisoned
+  arena is a substitute that covers only the simulation object's own storage, and
+  ASan/UBSan cover what they cover; no randomness exists yet, so the seed check
+  is a tripwire whose correct response to a future seeded rule is to be
+  *replaced* by a statistical check, not deleted; the diagnostic fixture is
+  synthetic causal evidence rather than player-facing motion acceptance; the dog
+  is never occluded in it (`0` occluded sheep-ticks), so line of sight is still
+  evidenced only by its own paired fixture; the flap allowance for avoidance and
+  the applied sum currently *accepts* the QA-003 oscillation rather than
+  forbidding it; and determinism is proven on one host and one architecture —
+  WSL Ubuntu 24.04.4 on x86-64, Clang 18.1.3 and GNU 13 — which is not a
+  cross-platform determinism claim. Evidence:
+  [`gameplay_scenario.cpp`](src/game/gameplay_scenario.cpp),
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp),
+  [QA-003](docs/qa/open/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md),
+  and the ignored
+  [oracle output](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/gameplay-simulation-oracle.txt),
+  [accepted-scenario comparison](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/accepted-scenario-state-diff.txt),
+  [stack headroom measurement](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/stack-headroom.txt),
+  and
+  [verification gates](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/verification-gates.txt).
 
 ### Behavior observability and early scale hygiene
 

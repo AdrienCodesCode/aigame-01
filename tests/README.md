@@ -122,7 +122,25 @@ on nearly every tick, a scripted dog that approaches, holds, and leaves walks th
 same four states, the same tick's dog move cannot alter a transition, an unknown
 behavior state and an out-of-range arousal are both rejected by the writer, and
 reversed-storage identity, restart of a non-zero starting arousal and label, and
-zero allocations across 600 fixed updates all hold;
+zero allocations across 600 fixed updates all hold; a randomness-and-stability
+oracle over the unpaired, deliberately maximal `sheep-all-influences-diagnostic`
+fixture in which every named scenario is advanced twice in lockstep for 300
+ticks with equal snapshots and byte-identical canonical dumps on every tick, a
+restarted run reproduces its own sequence, three different scenario seeds
+publish one byte-identical 600-tick sequence because no rule consumes the seed,
+a simulation constructed later in pattern-filled storage reproduces the recorded
+per-tick state digests, reversed storage publishes the same result per ID on
+every tick, a hundred 10 ms and ten 100 ms render partitions publish one
+authoritative state, and over 600 ticks of the maximal fixture every applied
+acceleration equals its published per-term vectors summed and scaled exactly,
+every published velocity and unrefused position follows from that acceleration
+exactly, the combined bound, each term's own maximum, the speed limit, the turn
+budget, and the arousal range hold on all 3,000 sheep-ticks, no behavior label
+returns inside its hysteresis dwell, no continuous steering term flaps beyond
+five per hundred ticks, the closed wall line stops every sheep at exactly the
+face plus one body radius, and the run allocates nothing — with obstacle
+avoidance and the applied sum held to a deliberately looser recorded allowance
+that names QA-003;
 repeated scripted `presentation-motion` state, all-five
 translation, midpoint turn interpolation, immutable-prior publication, exact
 restart, and one-to-one moving proxy poses without claiming flock behavior;

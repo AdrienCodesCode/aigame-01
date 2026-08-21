@@ -520,7 +520,77 @@ constexpr SheepStateBuffer kBehaviorTransitionSheepStates{{
 constexpr DogState kBehaviorTransitionDogState{
     .position = {.x = 22.0, .y = 1.0, .z = 20.0}, .heading_radians = 0.0, .grounded = true};
 
-constexpr std::array<NamedGameplayScenario, 29> kGameplayScenarios{{
+// The one deliberately maximal fixture: every steering term, the combined bound,
+// both motion limits, temperament, line of sight, and the behavior transitions
+// switched on together against a dog that is actually driving the flock.
+//
+// **This is a diagnostic, not accepted tuned gameplay.** Every other sheep
+// fixture isolates one variable so its arithmetic can be pinned exactly; this one
+// exists for the opposite reason — the properties that only appear when
+// everything runs at once. It answers "is the applied acceleration always exactly
+// the published terms", "does any term flip sign every tick", and "is the whole
+// published sequence reproducible", none of which an isolated fixture can be
+// asked. Nothing here is a claim that these five sheep move well, that these
+// starting positions are a designed encounter, or that the accepted magnitudes
+// have been tuned against each other; no owner has reviewed this motion.
+//
+// The geometry is chosen so that all seven steering terms have something to do
+// from the first tick rather than only after the flock has drifted. Sheep 1 and
+// sheep 2 start `0.901…` apart, inside the `1.0` separation radius; every pair is
+// inside the `4.0` attraction radius and every sheep has a neighbour inside the
+// `3.0` alignment radius; every sheep starts with a different velocity, so
+// alignment has a disagreement to resolve and avoidance has a direction to probe;
+// the dog stands between `3.04` and `5.0` south of them, inside the `6.0`
+// pressure radius and looking north straight at the flock, so distance,
+// approach, and facing all respond; and every sheep is moving north toward the
+// closed wall line, so avoidance meets a face inside its `6.25` look-ahead as
+// the dog presses the flock into it. Two
+// sheep are `nervous` and one is `stubborn`, so the published temperament scale
+// varies within one run.
+//
+// Every sheep starts at least `0.5` — one sheep body radius — clear of every
+// obstacle face, which QA-001 requires until the analytic field stops bodies that
+// begin inside their own radius band. The gate is closed, so the wall line is a
+// continuous barrier the flock is pressed against and released from; the dog's
+// sight line is therefore never occluded here, and the paired
+// `sheep-dog-line-of-sight-off`/`-on` fixtures remain the evidence for that rule.
+constexpr SheepStateBuffer kAllInfluencesSheepStates{{
+    {.id = 1,
+     .position = {.x = 16.0, .y = 1.0, .z = 22.0},
+     .velocity = {.z = -1.0},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::ordinary,
+     .grounded = true},
+    {.id = 2,
+     .position = {.x = 16.75, .y = 1.0, .z = 22.5},
+     .velocity = {.x = 0.5, .z = -1.0},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::nervous,
+     .grounded = true},
+    {.id = 3,
+     .position = {.x = 14.5, .y = 1.0, .z = 22.75},
+     .velocity = {.x = -0.75, .z = -0.25},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::stubborn,
+     .grounded = true},
+    {.id = 4,
+     .position = {.x = 18.0, .y = 1.0, .z = 23.5},
+     .velocity = {.z = -0.5},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::ordinary,
+     .grounded = true},
+    {.id = 5,
+     .position = {.x = 15.5, .y = 1.0, .z = 24.0},
+     .velocity = {.x = 0.25, .z = -1.25},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::nervous,
+     .grounded = true},
+}};
+
+constexpr DogState kAllInfluencesDogState{
+    .position = {.x = 16.0, .y = 1.0, .z = 27.0}, .heading_radians = 0.0, .grounded = true};
+
+constexpr std::array<NamedGameplayScenario, 30> kGameplayScenarios{{
     {
         .name = "paddock-start",
         .definition = {.id = GameplayScenarioId::paddock_start,
@@ -773,6 +843,25 @@ constexpr std::array<NamedGameplayScenario, 29> kGameplayScenarios{{
                        .initial_sheep = kBehaviorTransitionSheepStates,
                        .sheep_dog_pressure = {.radius = kBehaviorStimulusRadius},
                        .sheep_temperament = {.enabled = true},
+                       .sheep_behavior = {.enabled = true}},
+    },
+    {
+        .name = "sheep-all-influences-diagnostic",
+        .definition = {.id = GameplayScenarioId::sheep_all_influences_diagnostic,
+                       .dog = {.initial_state = kAllInfluencesDogState},
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kAllInfluencesSheepStates,
+                       .sheep_separation = {.enabled = true},
+                       .sheep_attraction = {.enabled = true},
+                       .sheep_alignment = {.enabled = true},
+                       .sheep_dog_pressure = {.enabled = true},
+                       .sheep_dog_approach = {.enabled = true},
+                       .sheep_dog_facing = {.enabled = true},
+                       .sheep_dog_line_of_sight = {.enabled = true},
+                       .sheep_temperament = {.enabled = true},
+                       .sheep_avoidance = {.enabled = true},
+                       .sheep_combined_influence = {.enabled = true},
+                       .sheep_motion_limit = {.enabled = true},
                        .sheep_behavior = {.enabled = true}},
     },
 }};

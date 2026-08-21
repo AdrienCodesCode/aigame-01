@@ -39,6 +39,7 @@ enum class GameplayScenarioId : std::uint8_t {
     sheep_avoidance_on,
     sheep_behavior_transitions_off,
     sheep_behavior_transitions_on,
+    sheep_all_influences_diagnostic,
 };
 
 enum class SheepFixture : std::uint8_t {
