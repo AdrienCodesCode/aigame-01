@@ -155,8 +155,9 @@ using SheepSocialEvidenceBuffer = std::array<SheepSocialEvidence, kGameplaySheep
 // falloff, released by an occluded sight line and scaled by the same
 // temperament factor as every dog term. It lives here rather than in a parallel
 // per-sheep array because it *is* dog-stimulus evidence — the dog is the only
-// cause that drives arousal in this outcome — and because a new array would cost
-// stack the harness does not have (QA-002). It is published whenever the
+// cause that drives arousal in this outcome. A new array also used to cost stack
+// the harness did not have; that constraint was retired with QA-002, so the
+// ownership argument is now the whole reason. It is published whenever the
 // stimulus was evaluated, in a scenario with the behavior transitions switched
 // off as well as on, so a paired control publishes an identical cause and only
 // the applied arousal differs.

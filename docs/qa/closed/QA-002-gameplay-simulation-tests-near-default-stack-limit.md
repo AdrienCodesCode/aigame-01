@@ -1,17 +1,20 @@
 ---
 id: QA-002
 title: wide_eye.gameplay_simulation is within 800 KiB of the default 8 MiB stack and segfaults when a fixture is added
-status: open
+status: fixed
 severity: S2
 confidence: confirmed
 area: tests
 reporter: agent
 reported: 2026-08-21
+closed: 2026-08-22
+fix: 4945b9b
 phase: 3
 platform: wsl-ubuntu-24.04
 rule: tests/README.md
 verify:
   - wide_eye.gameplay_simulation
+  - wide_eye.gameplay_simulation_stack_budget
   - label:unit
   - label:sanitizer
 ---
@@ -225,3 +228,84 @@ direction that addresses it. What this outcome adds is a second mitigation worth
 naming: **publish new per-sheep state on `SheepState` or on an existing evidence
 record rather than as a new array**, which cost 20 KiB here against the previous
 two outcomes' 40 KiB each. Roughly `810 KiB` remains.
+
+## Resolution
+
+Fixed on 2026-08-22 by taking candidate direction 1 and holding **every**
+`GameplaySimulation` fixture in
+[`gameplay_simulation_tests.cpp`](../../../tests/gameplay_simulation_tests.cpp)
+on the heap — the sixty-one that `main` declared by value, plus the two transient
+ones in `run_cadence` and `run_paddock_collision` — using the `SimulationHandle`
+/ `make_simulation` helpers the newer oracles already used. Every handle is
+constructed before the window that counts allocations, so every zero-allocation
+oracle still covers exactly the 600 fixed updates it claims to.
+Direction 3 was deliberately **not** taken: `SheepSpatialGrid`'s 1,000-member
+ceiling and its zero-allocation guarantee are an accepted capacity experiment and
+need their own outcome and ADR.
+
+The missing signal the closing note asked for is now a CTest.
+`wide_eye.gameplay_simulation_stack_budget` (labels `unit`, `headless`, plus
+`sanitizer` in the sanitized preset) runs the harness through
+[`tests/assert-stack-budget.cmake`](../../../tests/assert-stack-budget.cmake)
+under `ulimit -s`, against the named budget
+`WIDE_EYE_GAMEPLAY_SIMULATION_STACK_BUDGET_KIB` in `CMakeLists.txt`. It is
+registered on Unix hosts only and probes `ulimit -s` before trusting it, so a
+host that cannot set the limit reports the check skipped instead of failing.
+
+### Evidence
+
+Observed result, 2026-08-22, WSL Ubuntu 24.04.4, Clang 18.1.3.
+
+Minimum stack on the issue's reporting grid,
+`for kb in 8192 7600 7400 7300 7200 7000 6000 4000 2000 1000; do (ulimit -s $kb; ./build/Linux/dev/wide_eye_gameplay_simulation_tests >/dev/null 2>&1); echo "$kb -> $?"; done`:
+
+| grid step | before | after |
+| --- | --- | --- |
+| `8192` … `7400` | `0` | `0` |
+| `7300` … `1000` | `139` (SIGSEGV, no output) | `0` |
+
+Finer sweeps of the same trees put the actual requirement at:
+
+| build | before | after |
+| --- | --- | --- |
+| `dev` | `> 7300 KiB` (`7400` was the smallest passing grid step) | `185 KiB` (`180` segfaults) |
+| `release` | not swept before | `160 KiB` (`155` segfaults) |
+| `dev-sanitized` | not swept before | `220 KiB` (`215` fails with an ASan stack-overflow report, exit `1`) |
+
+The harness's reported observations are unchanged. Its 182 lines of stdout are
+byte-identical before and after — `sha256 3d8a88cbd23cfbfb6392b405d4e878623d67ff13214a462ab5c783133f871f75`
+for the `HEAD` (`42c3fec`) `dev` binary and for the fixed `dev`, `release`, and
+`dev-sanitized` binaries alike — and stderr is empty in both. A separate
+whitespace-insensitive normalization of the whole file showed that the only
+textual differences are the relocated helper comment, the declaration form, and
+`.` becoming `->` at the use sites: no assertion, name, or printed line changed.
+
+The budget is `512 KiB`, more than twice the largest measured requirement and a
+sixteenth of the usual 8,192 KiB default. It was proved to bite: tightening it to
+`128` made `wide_eye.gameplay_simulation_stack_budget` fail with
+`failure_stage=stack_budget ... did not complete within 128 KiB of stack (result
+'Segmentation fault')`, and restoring `512` made it pass again. The skip path was
+exercised with `prlimit --stack=4194304:4194304` and a `8192` KiB budget, which
+printed `'ulimit -s 8192' is unavailable on this host (reported ''); stack-budget
+check skipped` and exited `0`.
+
+Suites, all on the same host and date:
+
+| check | result |
+| --- | --- |
+| `cmake --build --preset dev && ctest --preset dev` | 25/25 passed |
+| `cmake --build --preset release && ctest --preset release` | 25/25 passed |
+| `cmake --build --preset dev-sanitized && ctest --preset dev-sanitized` | 25/25 passed |
+| `cmake --build --preset dev --target format-check` | passed |
+| `cmake --build --preset dev --target clang-tidy-check` | passed, no diagnostics in the changed files |
+| `cmake -DMODE=check -P tools/qa/qa-tracker.cmake` | passed |
+| `git diff --check` | no output |
+
+The suite count moves from 24 to 25 because of the new test. Raw output is kept
+under the ignored
+`artifacts/phase3/2026-08-21/qa-002-stack-headroom/`.
+
+Not covered: this is a WSL run, not native Windows or native Linux OpenGL 4.6
+evidence; none is needed, because nothing in this fix touches a render path. The
+root cause named above — `sizeof(GameplaySimulation)` being dominated by the
+spatial grid — is unchanged and remains a candidate for its own outcome.

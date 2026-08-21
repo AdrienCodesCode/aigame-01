@@ -146,7 +146,7 @@
   `7380` KiB — one grid step rather than the previous two outcomes' two, because
   the new state went onto `SheepState` and an existing evidence record instead of
   into a new per-sheep array; recorded as a dated update on
-  [QA-002](docs/qa/open/QA-002-gameplay-simulation-tests-near-default-stack-limit.md).
+  [QA-002](docs/qa/closed/QA-002-gameplay-simulation-tests-near-default-stack-limit.md).
   Native Windows/Linux graphics and the presentation performance scenarios were
   not rerun because no presentation path changed and this host exposes only
   OpenGL 4.5. Evidence:
@@ -479,25 +479,28 @@
   reproduced in the `sheep-dog-facing-off/on` fixtures, and required before the
   Phase 3 exit-gate replay can claim the closed gate is the only way through.
   Sheep-versus-sheep and sheep-versus-dog body collision do not exist: only the
-  paddock boundary is authoritative. The gameplay-simulation oracle itself is
-  near a hard limit: `GameplaySimulation` is about 115 KiB because the spatial
-  grid carries its 1,000-member capacity-experiment ceiling, and its `main` holds
-  roughly seventy of them by value. On the 200 KiB reporting grid the `dev`
-  binary still exits 0 at `ulimit -s 7400` and segfaults with no output at
-  `7300`, unchanged by this outcome; a finer 20 KiB sweep of two comparable
-  standalone builds puts the minimum at `7320` KiB before this outcome and
-  `7360` KiB after it, roughly 40 KiB worse again, because `GameplaySnapshot`
-  grew from 2,152 to 2,352 bytes with the new avoidance record. The new oracle
-  itself adds no `main` frame — it lives in its own function and holds all
-  thirteen of its fixtures by `std::unique_ptr` — and publishing the avoidance
-  evidence as its own record cost nothing over folding the same fields into the
-  existing paddock-contact record: both shapes measure exactly 48 bytes per
-  sheep, because padding absorbs the duplicated subject ID either way. Holding
-  new fixtures by
-  pointer in their own function is a mitigation, not a fix — about 830 KiB of
-  headroom is left and the growth rate is dominated by snapshot size rather
-  than by fixture count — and it is filed as
-  [QA-002](docs/qa/open/QA-002-gameplay-simulation-tests-near-default-stack-limit.md). Adding
+  paddock boundary is authoritative. The gameplay-simulation oracle's stack
+  headroom is no longer a live constraint: every fixture in
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp) — the
+  ones in `main` as well as the ones the per-outcome oracles already held that
+  way — is now owned by `std::unique_ptr`, so the roughly seventy
+  `GameplaySimulation` objects the file keeps alive live on the heap instead of
+  in one frame. Observed result (2026-08-22, WSL Ubuntu 24.04.4, Clang 18.1.3):
+  the smallest `ulimit -s` at which the `dev` binary exits 0 moved from `7400`
+  KiB — the smallest passing step on the 100 KiB grid, below which it segfaulted
+  with no output — to `185` KiB, with `release` at `160` KiB and `dev-sanitized`
+  at `220` KiB, and the issue's reporting grid now exits 0 at every step down to
+  `1000` KiB. A
+  new `wide_eye.gameplay_simulation_stack_budget` CTest runs the binary under
+  `ulimit -s 512` and fails by name if it does not finish — the missing signal
+  QA-002 asked for, because the original failure was a SIGSEGV that printed
+  nothing at all. What is *not* fixed is the root cause: `GameplaySimulation` is
+  still about 115 KiB because the spatial grid carries its 1,000-member
+  capacity-experiment ceiling, and every byte added to `GameplaySnapshot` is
+  still multiplied by however many fixtures are alive; that cost is now heap
+  rather than stack, and shrinking the grid is deliberately left to its own
+  outcome and its own ADR. Closed as
+  [QA-002](docs/qa/closed/QA-002-gameplay-simulation-tests-near-default-stack-limit.md). Adding
   that boundary changed four pre-existing headless fixtures
   (`sheep-alignment-off`, `sheep-alignment-on`, `sheep-dog-facing-off`,
   `sheep-dog-facing-on`) after the tick at which a sheep first touches a wall;
@@ -1137,7 +1140,7 @@ scope. Evidence: the archived
   The new oracle was therefore moved into its own function with its fixtures held
   by pointer, which is a mitigation rather than a fix; the underlying fragility is
   filed as
-  [QA-002](docs/qa/open/QA-002-gameplay-simulation-tests-near-default-stack-limit.md).
+  [QA-002](docs/qa/closed/QA-002-gameplay-simulation-tests-near-default-stack-limit.md).
   What remains on this item:
   bounded sheep speed, bounded turning with the sheep heading following its
   motion, and obstacle/drop avoidance. The bound limits how hard a sheep can be

@@ -237,6 +237,20 @@ if(WIN32 AND TARGET SDL3::SDL3-shared)
 endif()
 
 if(BUILD_TESTING)
+    # Stack the gameplay-simulation harness must finish inside, checked by
+    # wide_eye.gameplay_simulation_stack_budget. It protects against the defect
+    # recorded in QA-002: fixtures held by value in one `main` grew the frame to
+    # 7,400 KiB against the usual 8,192 KiB default, and the next fixture killed
+    # the process with SIGSEGV and no output at all. Holding every fixture on the
+    # heap took the requirement to 185 KiB (`dev`), 160 KiB (`release`) and
+    # 220 KiB (`dev-sanitized`), measured on WSL Ubuntu 24.04.4 with Clang 18.1.3
+    # on 2026-08-22. The budget is more than twice the largest of those, so
+    # ordinary toolchain differences cannot make it flaky, and it is a sixteenth
+    # of the usual default, so a fixture that moves back into a stack frame —
+    # about 115 KiB each — fails here by name within two or three additions
+    # instead of crashing silently much later.
+    set(WIDE_EYE_GAMEPLAY_SIMULATION_STACK_BUDGET_KIB 512)
+
     add_executable(wide_eye_png_writer_tests ${wide_eye_test_sources})
     target_compile_features(wide_eye_png_writer_tests PRIVATE cxx_std_23)
     set_target_properties(
@@ -413,6 +427,18 @@ if(BUILD_TESTING)
     add_test(NAME wide_eye.window_state COMMAND wide_eye --window-state-smoke)
     add_test(NAME wide_eye.dog_controller COMMAND wide_eye_dog_controller_tests)
     add_test(NAME wide_eye.gameplay_simulation COMMAND wide_eye_gameplay_simulation_tests)
+    if(UNIX)
+        add_test(
+            NAME wide_eye.gameplay_simulation_stack_budget
+            COMMAND
+                ${CMAKE_COMMAND}
+                "-DWIDE_EYE_TEST_EXECUTABLE=$<TARGET_FILE:wide_eye_gameplay_simulation_tests>"
+                "-DWIDE_EYE_STACK_BUDGET_KIB=${WIDE_EYE_GAMEPLAY_SIMULATION_STACK_BUDGET_KIB}"
+                "-DWIDE_EYE_PASS_EXPRESSION=gameplay_simulation_result=pass"
+                -P
+                "${PROJECT_SOURCE_DIR}/tests/assert-stack-budget.cmake"
+        )
+    endif()
     add_test(NAME wide_eye.flock_observables COMMAND wide_eye_flock_observables_tests)
     add_test(NAME wide_eye.sheep_spatial_grid COMMAND wide_eye_sheep_spatial_grid_tests)
     add_test(NAME wide_eye.input_actions COMMAND wide_eye_input_tests)
@@ -564,6 +590,7 @@ if(BUILD_TESTING)
     set(wide_eye_window_state_labels unit)
     set(wide_eye_dog_controller_labels unit scenario headless)
     set(wide_eye_gameplay_simulation_labels unit scenario headless)
+    set(wide_eye_gameplay_simulation_stack_budget_labels unit headless)
     set(wide_eye_flock_observables_labels unit headless)
     set(wide_eye_sheep_spatial_grid_labels unit headless)
     set(wide_eye_input_labels unit headless)
@@ -598,6 +625,7 @@ if(BUILD_TESTING)
         list(APPEND wide_eye_window_state_labels sanitizer)
         list(APPEND wide_eye_dog_controller_labels sanitizer)
         list(APPEND wide_eye_gameplay_simulation_labels sanitizer)
+        list(APPEND wide_eye_gameplay_simulation_stack_budget_labels sanitizer)
         list(APPEND wide_eye_flock_observables_labels sanitizer)
         list(APPEND wide_eye_sheep_spatial_grid_labels sanitizer)
         list(APPEND wide_eye_input_labels sanitizer)
@@ -686,6 +714,13 @@ if(BUILD_TESTING)
                    PASS_REGULAR_EXPRESSION "gameplay_simulation_result=pass"
                    TIMEOUT 5
     )
+    if(UNIX)
+        set_tests_properties(
+            wide_eye.gameplay_simulation_stack_budget
+            PROPERTIES LABELS "${wide_eye_gameplay_simulation_stack_budget_labels}"
+                       TIMEOUT 30
+        )
+    endif()
     set_tests_properties(
         wide_eye.flock_observables
         PROPERTIES LABELS "${wide_eye_flock_observables_labels}"
@@ -866,6 +901,9 @@ if(BUILD_TESTING)
         wide_eye.accepted_tracer0_baseline
         wide_eye.accepted_tracer1_paddock_baseline
     )
+    if(UNIX)
+        list(APPEND wide_eye_registered_tests wide_eye.gameplay_simulation_stack_budget)
+    endif()
     if(WIDE_EYE_ENABLE_OPENGL_CONTEXT_TEST)
         list(
             APPEND

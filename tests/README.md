@@ -172,4 +172,11 @@ regression proves that the common failure regex rejects
 project failure markers and ASan, LSan, and UBSan diagnostics even when output
 also contains a configured pass marker. The same nested fixture proves that the
 exact performance pass expression rejects `within_provisional_low_budget=no`
-and accepts only `within_provisional_low_budget=yes`.
+and accepts only `within_provisional_low_budget=yes`. A stack-budget wrapper
+runs the gameplay-simulation harness under a reduced `ulimit -s` and fails by
+name if the process does not finish inside it; the budget is
+`WIDE_EYE_GAMEPLAY_SIMULATION_STACK_BUDGET_KIB` in `CMakeLists.txt`, the check
+is registered on Unix hosts only, and it reports itself skipped rather than
+failing where the limit cannot be set. It is why that harness holds every
+`GameplaySimulation` fixture by `std::unique_ptr` instead of by value: QA-002
+records the silent SIGSEGV the by-value version eventually produced.

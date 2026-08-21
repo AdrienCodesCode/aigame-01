@@ -4,7 +4,7 @@
      in open/ and closed/ are the source of truth. Regenerate with the
      qa-index target, or `cmake -DMODE=index -P tools/qa/qa-tracker.cmake`. -->
 
-**2 open** · 0 closed · convention in [README.md](README.md)
+**1 open** · 1 closed · convention in [README.md](README.md)
 
 > No tracer-gate blockers open.
 
@@ -13,15 +13,14 @@
 ### S2 — major
 
 - [ ] [QA-001](open/QA-001-paddock-collision-radius-band-passthrough.md) Analytic paddock collision passes a body that starts within its own radius of an obstacle face — _game · confirmed_
-- [ ] [QA-002](open/QA-002-gameplay-simulation-tests-near-default-stack-limit.md) wide_eye.gameplay_simulation is within 800 KiB of the default 8 MiB stack and segfaults when a fixture is added — _tests · confirmed_
 
 ## By area
 
 | Area | Open | Closed |
 | --- | --- | --- |
 | game | 1 | 0 |
-| tests | 1 | 0 |
+| tests | 0 | 1 |
 
 ## Closed
 
-_Nothing closed yet._
+- [x] [QA-002](closed/QA-002-gameplay-simulation-tests-near-default-stack-limit.md) wide_eye.gameplay_simulation is within 800 KiB of the default 8 MiB stack and segfaults when a fixture is added — _fixed 2026-08-22_
