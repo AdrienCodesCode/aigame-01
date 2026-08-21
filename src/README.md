@@ -329,7 +329,23 @@ for the properties that only appear when everything runs at once: that the
 applied acceleration is always exactly the published terms, that no term
 oscillates, and that the whole published sequence is reproducible. **It is a
 diagnostic, not accepted tuned gameplay**, and no owner has reviewed the motion
-it produces. The
+it produces. Every one of those per-sheep rules — the paddock resolve, the dog
+stimulus, the behavior transition, neighbour selection, the three social terms,
+avoidance, the combined bound and its integration, and the two motion limits —
+is declared in `game/sheep_rules.hpp` and defined in `sheep_rules.cpp` as a
+function over immutable prior state and a `std::span<const SheepState>`.
+`GameplaySimulation` remains the sole authoritative caller and still owns tick
+order, the fixed five-member buffers, snapshot publication, scenario validation,
+and the replay contract; what it no longer owns is a private monopoly on the
+arithmetic, because a rule only one caller can reach can only be measured
+through that caller. The member count reaches the rules only as an index, so a
+non-player diagnostic can drive the same functions over a longer caller-owned
+span **without any published contract growing a member**: `kGameplaySheepCount`
+is still `5`, every evidence buffer is still a five-member array, and
+`GameplaySnapshot` is still a fixed-size value.
+[`ADR 0010`](../docs/decisions/0010-diagnostic-flock-scale-over-shared-sheep-rules.md)
+records that decision, the three widenings it rejected, and why the diagnostic
+lives in `tests/` and is never linked into `wide_eye`. The
 gameplay camera owns orbit yaw/pitch independently of dog facing; orchestration
 applies look first, resolves camera-yaw-relative movement on the ground plane,
 then advances the dog. The free-debug camera retains independent position/look

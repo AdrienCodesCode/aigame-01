@@ -73,7 +73,14 @@
     every tick of a maximal all-terms diagnostic fixture the applied acceleration
     is exactly the published per-term vectors summed and scaled, with every
     accepted bound holding on every tick and every term's flap rate measured
-    against a recorded allowance.
+    against a recorded allowance; and
+  - the accepted per-sheep rules reachable by name as functions over immutable
+    prior state, and a non-player 5/14/25/100-member diagnostic that drives those
+    same functions and records spatial-grid build, neighbour selection, behavior,
+    both terrain queries, snapshot publication, allocation, and total cost
+    separately — **without any published contract, buffer, or format version
+    growing a member**, and with the authoritative five-sheep path reproduced
+    exactly by the diagnostic on every tick of its registered check.
 
   Detailed evidence remains with the checked Phase 3 items and their owning
   source, decision, format, test, and artifact records; completed Phase 0–2
@@ -117,7 +124,39 @@
   executables plus CTest remain the accepted Tracer 2 harness under
   [ADR 0003](docs/decisions/0003-project-owned-test-harness.md); framework
   adoption is deferred until a concrete maintenance cost justifies it.
-- **Verification run (2026-08-22, flock dog geometry and response timing):** on
+- **Verification run (2026-08-22, diagnostic flock scale and per-stage costs):**
+  on WSL Ubuntu 24.04.4, the development and ASan/UBSan configurations (Clang
+  18.1.3) and the Release configuration (GNU 13.3.0) each built and passed 26/26
+  CTests; project formatting and bounded clang-tidy passed, the QA tracker check
+  passed, `git diff --check` reported nothing, and
+  `wide_eye.gameplay_simulation_stack_budget` passed. The outcome is one
+  ownership correction, one new diagnostic, one ADR, and documentation: **no
+  steering rule, bound, limit, published field, state-dump key, or format version
+  changed**, and the canonical 240-tick state dumps of all 30 named scenarios are
+  byte-identical to a pre-change (`2a4344c`) standalone `clang++-18 -std=c++23 -I
+  src` build, scenario by scenario, with no normalization applied because nothing
+  was added to normalize
+  (`sha256 a71fd26d07a37b74a763803bc6f6150fa6563812c92d7250f0e7136456924ff7` over
+  the whole 7,200-line sweep, identical before and after). The accepted per-sheep
+  rules moved verbatim into [`sheep_rules.hpp`](src/game/sheep_rules.hpp)/`.cpp`
+  so that a diagnostic can drive them at 14, 25, and 100 members without the
+  five-sheep contract growing; `GameplaySimulation` remains the sole
+  authoritative caller. One new `performance`/`headless` CTest,
+  `wide_eye.flock_scale_diagnostic`, asserts only deterministic results — chiefly
+  that at five members the diagnostic reproduces the published snapshot, dog, and
+  all six evidence records exactly on 240 consecutive ticks — and the per-stage
+  timings are a separate `--benchmark` path that is deliberately **not** a CTest,
+  because no accepted budget exists above five sheep. Measured values and their
+  limits are recorded with the two roadmap items themselves. Native
+  Windows/Linux graphics and the presentation performance scenarios were not
+  rerun because no presentation path changed and this host exposes only OpenGL
+  4.5. Evidence:
+  [ADR 0010](docs/decisions/0010-diagnostic-flock-scale-over-shared-sheep-rules.md),
+  [`sheep_rules.hpp`](src/game/sheep_rules.hpp),
+  [`flock_scale_diagnostic.cpp`](tests/flock_scale_diagnostic.cpp), and the
+  ignored
+  [evidence set](artifacts/phase3/2026-08-22/diagnostic-flock-scale-and-costs/).
+- **Prior verification run (2026-08-22, flock dog geometry and response timing):** on
   WSL Ubuntu 24.04.4, the development and ASan/UBSan configurations (Clang
   18.1.3) and the Release configuration (GNU 13.3.0) each built and passed 25/25
   CTests; project formatting and bounded clang-tidy passed, the QA tracker check
@@ -688,6 +727,25 @@
   avoidance and for the applied sum is therefore still above the one every
   continuous term is held to — `8` flaps per hundred ticks with a run of `20`
   against `5` and `4` — and now names QA-005 as its reason until that closes.
+  The flock now has a **cost** diagnostic, and its limits are as narrow as its
+  numbers. It measures the *rules* and not the shipping path: no scheduler, no
+  render interpolation, no replay or state-dump writer, and no presentation are
+  in it, so its per-tick totals are not frame costs. Its timings come from one
+  shared WSL development host on one architecture, with `dev`/`dev-sanitized` on
+  Clang 18.1.3 and `release` on GNU 13.3.0, and their p95/p99 move by two to
+  three times between runs while the minima and medians do not. **There is no
+  accepted performance budget above five sheep**, nothing in this outcome created
+  one, and no timing gate was registered, so the 14/25/100-member numbers are
+  indicative diagnostic costs and nothing stronger. Neighbour selection is
+  measurably super-linear over 5 to 100 members while every other stage is
+  linear, but the reading that this is a small-flock transient — the flock is
+  still smaller than one attraction query window, so the uniform grid has almost
+  nothing to prune — is an inference and not a measurement: no member count large
+  enough to reach the asymptotic regime has been run, and the square lattice caps
+  this fixture at 100. Nothing was optimized in response, deliberately. The
+  14/25/100-member fixtures are **diagnostics, not content**: no owner has
+  watched them, none of them is tuned, they never occlude the dog, and the first
+  playable still owes an audience exactly five sheep.
 - **Toolchain correction (observed result, 2026-08-22):** the checked-in presets
   do not pin a compiler. On this host `dev` and `dev-sanitized` are configured
   with Clang 18.1.3 while `release` is configured with the default `c++`, GNU
@@ -702,22 +760,23 @@
   [QA-004](docs/qa/open/QA-004-presets-do-not-pin-the-compiler.md); whether to
   pin every preset to Clang or to make the GCC build a stated second preset is an
   owner decision.
-- **Next action:** add the non-player diagnostic fixtures for 5, 14, 25, and 100
-  sheep. This needs a deliberate decision before any code: `SheepStateBuffer` is
-  a fixed five-member `std::array` and `kGameplaySheepCount` is `5`, so every
-  published snapshot, every evidence buffer, the state-dump writer, and the
-  pure observable pass are all shaped by that five. Larger non-player fixtures
-  therefore need an explicit representation decision — a compile-time capacity, a
-  runtime span, a separate diagnostic-only buffer, or something else — and the
-  point of the item is that it must not make large flocks a Tracer 2 *content*
-  requirement: these are diagnostics for scale hygiene, not gameplay the first
-  playable owes anyone. The spatial grid's 1,000-member capacity ceiling and the
-  roughly 115 KiB `GameplaySimulation` it produces are the existing cost that
-  decision has to answer to. The debug arrows and labels for every
-  influence, chosen neighbour, arousal, target, state, and balance point remain
-  unchecked and still ahead of the Phase 3 visual gate: every sheep rule so far
-  has been accepted on headless evidence alone, and nobody has yet watched a
-  sheep change state, split, or settle.
+- **Next action:** add the debug arrows and labels for every influence, chosen
+  neighbour, arousal, target, state, and balance point. This is the **first
+  Phase 3 sheep-behavior outcome that needs human visual review**: every sheep
+  rule so far has been accepted on headless evidence alone, and nobody has yet
+  watched a sheep change state, split, or settle. The owner has asked not to be
+  blocked on that review, so the work should produce **candidate** evidence — the
+  debug views, the deterministic captures, and a
+  [human visual-review packet](docs/review/HUMAN_VISUAL_REVIEW.md) — and leave
+  the item **unticked pending the owner's verdict**, rather than waiting for the
+  verdict before starting or ticking the box without one. Every value the views
+  need is already published per sheep in the authoritative snapshot — the
+  per-term vectors, the chosen neighbour IDs, the arousal, the behavior label,
+  the pre-bound summed magnitude, the applied scale, and the applied
+  acceleration — so this is a presentation-side reader of existing evidence and
+  must not add a field to, or feed back into, any rule. This host exposes only
+  OpenGL 4.5, so the accepted capture has to come from a native Windows or native
+  Linux 4.6 run.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
@@ -729,6 +788,7 @@
   [ADR 0007](docs/decisions/0007-bounded-sheep-speed-and-turning.md),
   [ADR 0008](docs/decisions/0008-obstacle-and-drop-avoidance.md),
   [ADR 0009](docs/decisions/0009-behavior-transitions-and-arousal.md),
+  [ADR 0010](docs/decisions/0010-diagnostic-flock-scale-over-shared-sheep-rules.md),
   [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
   [`math.hpp`](src/game/math.hpp),
   [`paddock_collision.hpp`](src/game/paddock_collision.hpp),
@@ -737,6 +797,7 @@
   [`gameplay_replay.hpp`](src/game/gameplay_replay.hpp),
   [`flock_observables.hpp`](src/game/flock_observables.hpp),
   [`sheep_state.hpp`](src/game/sheep_state.hpp),
+  [`sheep_rules.hpp`](src/game/sheep_rules.hpp),
   [`sheep_spatial_grid.hpp`](src/game/sheep_spatial_grid.hpp),
   [replay/state contract](docs/formats/GAMEPLAY_REPLAY_AND_STATE.md), and their
   focused tests.
@@ -1929,10 +1990,161 @@ scope. Evidence: the archived
   rejoins, a deeper split before the first rejoin, and a cause that reappears
   during recovery — plus rejection of an out-of-range stimulus or rest threshold,
   an impossible component count, and a repeated or rewound tick.
-- [ ] Add non-player diagnostic fixtures for 5, 14, 25, and 100 sheep without
+- [x] Add non-player diagnostic fixtures for 5, 14, 25, and 100 sheep without
   making large flocks a Tracer 2 content requirement.
-- [ ] Record spatial-grid build, neighbor selection, behavior, terrain query,
+  **Observed result (2026-08-22):** the representation decision came first and is
+  recorded as
+  [ADR 0010](docs/decisions/0010-diagnostic-flock-scale-over-shared-sheep-rules.md).
+  Nothing authoritative grew a member. `kGameplaySheepCount` is still `5`,
+  `SheepStateBuffer` is still a five-member `std::array`, all six evidence
+  buffers are still five-member arrays, `GameplaySnapshot` is still a fixed-size
+  value, and the replay/state contract and its version numbers are untouched.
+  What changed is that the accepted per-sheep rules — the paddock resolve, the
+  dog stimulus, the behavior transition, neighbour selection, the three social
+  terms, avoidance, the combined bound and its integration, and the two motion
+  limits — moved verbatim out of the simulation's anonymous namespace into
+  [`sheep_rules.hpp`](src/game/sheep_rules.hpp)/[`.cpp`](src/game/sheep_rules.cpp)
+  as functions over immutable prior state, with the three social terms taking
+  `std::span<const SheepState>` where they took `const SheepStateBuffer&`. A rule
+  only one caller can reach can only be measured through that caller; the member
+  count now reaches the rules only as an index. `GameplaySimulation` remains the
+  sole authoritative caller and still owns tick order, the five-member buffers,
+  snapshot publication, scenario validation, and the replay contract. Templating
+  the simulation on flock size, making the published snapshot variable-length,
+  and raising `kGameplaySheepCount` were all considered and rejected in the ADR
+  for the same reason: each would have pushed a diagnostic's shape into the
+  shipping contract. The diagnostic itself is
+  [`tests/flock_scale_diagnostic.cpp`](tests/flock_scale_diagnostic.cpp), is
+  never linked into `wide_eye`, publishes no snapshot, and has no replay
+  contract; the fixture is a `1.25`-spaced square lattice with round-robin
+  temperaments whose origin sits `2.0` north of the nearest obstacle face — four
+  times the clearance
+  [QA-001](docs/qa/open/QA-001-paddock-collision-radius-band-passthrough.md)
+  requires — re-checked at every member count by probing the accepted collision
+  field itself rather than by trusting the constants quoted beside it. The
+  oracle that makes the larger runs credible is the five-member comparison: at
+  the authoritative member count the diagnostic reproduces
+  `GameplaySimulation`'s published sheep, dog, and all six evidence records
+  **exactly on every one of 240 ticks**, and that comparison is the registered
+  CTest rather than a note. Its deterministic output — fixture, work, event,
+  allocation, and reference lines — is byte-identical across the `dev` (Clang
+  18.1.3), `release` (GNU 13.3.0), and `dev-sanitized` binaries
+  (`sha256 6ffffbc895042a04a021c59a579e6f39985f0a17ad67336f07039df7c3e0d13f`),
+  and a second independent flock reproduces every record and every work counter
+  at every member count. All 30 named scenarios are byte-identical to a
+  pre-change (`2a4344c`) standalone `clang++-18 -std=c++23 -I src` build over 240
+  scripted ticks each, scenario by scenario, with no normalization applied
+  because nothing was added to normalize.
+  **What this evidence does not cover:** the diagnostic exercises the **rules**,
+  not the whole shipping path — there is no platform scheduler, no render
+  interpolation, no replay or state-dump writer, and no presentation in it, so
+  its costs are not a frame cost. It is a **diagnostic, not content**: no owner
+  has watched 14, 25, or 100 sheep move, none of these fixtures is tuned
+  gameplay, and the first playable still owes an audience exactly five sheep. The
+  fixture never occludes the dog (`sight_line_blocked=0` at every member count),
+  so the sight-line query is measured but its blocked branch is not exercised
+  here. Determinism is proven on one host and one architecture. The square
+  lattice, not the paddock, is what caps the fixture at 100: a rectangle in the
+  same clear region would hold roughly 335 members at this spacing.
+- [x] Record spatial-grid build, neighbor selection, behavior, terrain query,
   snapshot, allocation, and total simulation costs separately.
+  **Observed result (2026-08-22):** the seven costs are recorded separately
+  because the tick is swept stage by stage rather than sheep by sheep — an order
+  that produces identical state, because every rule reads only the immutable
+  prior buffer and the prior dog and writes only its own member's records, and
+  which the five-member reference equality above proves rather than assumes.
+  Sweeping by stage is what makes six clock reads per tick enough; timing each
+  stage per sheep would have added more measurement than the stage being
+  measured. Neighbour selection is separated from the term that consumes it:
+  `select_sheep_neighbors` runs the grid queries into caller-owned scratch and
+  the three `apply_sheep_*` terms consume the result, with the arithmetic and its
+  order unchanged.
+  The **deterministic** half needs no host at all. Over 240 ticks the grid
+  inspects, per sheep-tick, `8.80` candidates at 5 members, `26.07` at 14,
+  `36.23` at 25, and `107.04` at 100 — total inspected candidates `10,566`,
+  `87,599`, `217,388`, and `2,568,913`, an implied exponent of `1.78` over the
+  25-to-100 step. **Allocations are zero on every measured tick at every member
+  count** (22 allocations at setup, all of them the caller-owned buffers), which
+  is the invariant the authoritative path also holds.
+  The **timing** half was measured in `release` (GNU 13.3.0) on WSL Ubuntu
+  24.04.4, Intel Core i9-8950HK, over 3 independent runs of 600 ticks per member
+  count, one sample per tick per stage; each figure below is the median across
+  the 3 runs of that run's own median over its 600 samples, in nanoseconds.
+  **These are indicative diagnostic costs on a shared development host, not a
+  measured budget result on a named target, and no accepted performance budget
+  exists above five sheep.**
+
+  | stage | 5 | 14 | 25 | 100 | growth 5 -> 100 |
+  | --- | --- | --- | --- | --- | --- |
+  | snapshot | 99 | 199 | 397 | 1,885 | 19.0x |
+  | spatial-grid build | 198 | 397 | 794 | 6,451 | 32.6x |
+  | neighbour selection | 992 | 4,665 | 11,612 | 210,420 | 212.1x |
+  | terrain query (avoidance) | 397 | 993 | 1,886 | 8,437 | 21.3x |
+  | behavior | 1,092 | 3,176 | 5,856 | 27,690 | 25.4x |
+  | terrain query (collision) | 100 | 397 | 596 | 2,779 | 27.8x |
+  | total | 2,977 | 9,925 | 21,340 | 257,764 | 86.6x |
+
+  The named stages account for the whole tick to within about `100` ns; the
+  residual is the single dog motor update, the loop scaffolding, and the six
+  clock reads themselves.
+  **The scaling finding is that neighbour selection is super-linear over the
+  measured range and everything else is not.** For a 20-fold increase in members,
+  snapshot publication, both terrain queries, and behavior grow `19x` to `28x` —
+  linear within the noise of this host — while neighbour selection grows `212x`,
+  an implied exponent of `2.09` over the 25-to-100 step. The deterministic
+  candidate counts corroborate it without any host dependence. The cause is
+  visible in the fixture geometry rather than in the algorithm: the grid cell
+  size is the **largest** enabled radius (attraction's `4.0`), so an attraction
+  query scans a 3x3-cell window up to `12x12` world units, and the 100-member
+  lattice is `11.25x11.25` — the whole flock fits inside one query window, and a
+  uniform grid cannot prune what fits inside one query. The same cell size makes
+  the separation query, whose own radius is `1.0`, inspect `18.36` candidates per
+  sheep-tick to keep `1.65`, an 11-to-1 inspect-to-keep ratio. Inference, stated
+  as such: this is a small-flock transient rather than a defect in the uniform
+  grid. Per-sheep candidate count is bounded above by density times window area —
+  about `92` for the attraction window at the fixture's starting density — and at
+  100 members it stands at `50.1`, roughly half-way, so the whole measured range
+  sits inside the regime where the grid has little to prune. **Nothing was
+  optimized**: the roadmap's own rule is to tune only against a failing named
+  budget, and there is no budget here to fail.
+  Spatial-grid build is the second finding. It grows `32.6x` for `20x` members,
+  and its `14/5` and `25/14` steps are exactly `2.0x` rather than the `2.8x` and
+  `1.8x` the member counts imply, because `SheepSpatialGrid::rebuild`
+  value-initializes a 1,000-entry ID array on every call: at small flocks the
+  rebuild is dominated by a fixed 4 KiB zero-fill that the flock size does not
+  touch. That is the same 1,000-member capacity-experiment ceiling QA-002 left
+  standing, now measured rather than merely inherited.
+  The stack question the 100-member flock raised is answered: the diagnostic
+  binary finishes under a `ulimit -s` of `24` KiB (`dev` and `dev-sanitized`) and
+  `16` KiB (`release`), because every buffer it owns is heap storage. The
+  gameplay-simulation harness's own requirement moved by one 5 KiB grid step in
+  `dev` (`190` to `195` KiB) and did not move in `release` (`160`) or
+  `dev-sanitized` (`225`), against the named `512` KiB budget, and
+  `wide_eye.gameplay_simulation_stack_budget` passes.
+  **What this evidence does not cover:** the timings are one shared WSL
+  development host, one architecture, and one compiler per configuration; the
+  p95 and p99 columns of the raw output move by two to three times run to run
+  while the minima and medians do not, which is why percentiles rather than a
+  mean are reported and why the minimum is quoted beside the median in the
+  artifact. **No budget for 14, 25, or 100 sheep exists or is implied by these
+  numbers**, and no failing-on-timing CTest was registered, because a timing gate
+  needs an accepted budget on named hardware. The measurement covers the rules
+  only, not a frame. The dog line-of-sight query is a terrain query that cannot
+  be separated from the dog stimulus it releases, so it is counted in the
+  behavior stage rather than in either terrain-query stage; the artifact says so.
+  Evidence:
+  [ADR 0010](docs/decisions/0010-diagnostic-flock-scale-over-shared-sheep-rules.md),
+  [`sheep_rules.hpp`](src/game/sheep_rules.hpp),
+  [`flock_scale_diagnostic.cpp`](tests/flock_scale_diagnostic.cpp), and the
+  ignored
+  [validate-only output](artifacts/phase3/2026-08-22/diagnostic-flock-scale-and-costs/flock-scale-validate.txt),
+  [benchmark output](artifacts/phase3/2026-08-22/diagnostic-flock-scale-and-costs/flock-scale-benchmark-release.txt),
+  [per-stage cost table](artifacts/phase3/2026-08-22/diagnostic-flock-scale-and-costs/per-stage-cost-table.txt),
+  [neighbour-selection work table](artifacts/phase3/2026-08-22/diagnostic-flock-scale-and-costs/neighbour-selection-work.txt),
+  [accepted-scenario comparison](artifacts/phase3/2026-08-22/diagnostic-flock-scale-and-costs/accepted-scenario-state-diff.txt),
+  [stack headroom measurement](artifacts/phase3/2026-08-22/diagnostic-flock-scale-and-costs/stack-headroom.txt),
+  and
+  [verification gates](artifacts/phase3/2026-08-22/diagnostic-flock-scale-and-costs/verification-gates.txt).
 - [x] Compare alignment-on and alignment-off fixtures; retain explicit alignment
   only when measured behavior and legibility justify it. Observed result: the
   paired 60-tick metric and exact selected-ID/vector state evidence above

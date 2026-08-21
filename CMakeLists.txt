@@ -29,6 +29,7 @@ set(
     "${PROJECT_SOURCE_DIR}/src/game/gameplay_scenario.cpp"
     "${PROJECT_SOURCE_DIR}/src/game/gameplay_simulation.cpp"
     "${PROJECT_SOURCE_DIR}/src/game/paddock_collision.cpp"
+    "${PROJECT_SOURCE_DIR}/src/game/sheep_rules.cpp"
     "${PROJECT_SOURCE_DIR}/src/game/sheep_spatial_grid.cpp"
 )
 set(
@@ -41,6 +42,7 @@ set(
     "${PROJECT_SOURCE_DIR}/src/game/gameplay_simulation.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/math.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/paddock_collision.hpp"
+    "${PROJECT_SOURCE_DIR}/src/game/sheep_rules.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/sheep_spatial_grid.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/sheep_state.hpp"
 )
@@ -73,6 +75,10 @@ set(
 )
 set(wide_eye_flock_observables_test_sources "${PROJECT_SOURCE_DIR}/tests/flock_observables_tests.cpp")
 set(wide_eye_sheep_spatial_grid_test_sources "${PROJECT_SOURCE_DIR}/tests/sheep_spatial_grid_tests.cpp")
+set(
+    wide_eye_flock_scale_diagnostic_sources
+    "${PROJECT_SOURCE_DIR}/tests/flock_scale_diagnostic.cpp"
+)
 set(wide_eye_input_test_sources "${PROJECT_SOURCE_DIR}/tests/input_tests.cpp")
 set(wide_eye_performance_test_sources "${PROJECT_SOURCE_DIR}/tests/performance_tests.cpp")
 set(wide_eye_sheep_proxy_test_sources "${PROJECT_SOURCE_DIR}/tests/sheep_proxy_tests.cpp")
@@ -199,6 +205,7 @@ wide_eye_add_developer_checks(
             ${wide_eye_dog_test_sources} ${wide_eye_gameplay_simulation_test_sources}
             ${wide_eye_flock_observables_test_sources}
             ${wide_eye_sheep_spatial_grid_test_sources}
+            ${wide_eye_flock_scale_diagnostic_sources}
             ${wide_eye_input_test_sources}
             ${wide_eye_performance_test_sources}
             ${wide_eye_sheep_proxy_test_sources}
@@ -373,6 +380,23 @@ if(BUILD_TESTING)
     wide_eye_set_project_options(wide_eye_sheep_spatial_grid_tests)
     target_link_libraries(wide_eye_sheep_spatial_grid_tests PRIVATE wide_eye_game)
 
+    add_executable(
+        wide_eye_flock_scale_diagnostic
+        ${wide_eye_flock_scale_diagnostic_sources}
+    )
+    target_compile_features(wide_eye_flock_scale_diagnostic PRIVATE cxx_std_23)
+    set_target_properties(
+        wide_eye_flock_scale_diagnostic
+        PROPERTIES CXX_EXTENSIONS OFF
+                   CXX_SCAN_FOR_MODULES OFF
+                   CXX_STANDARD_REQUIRED ON
+    )
+    wide_eye_set_project_options(wide_eye_flock_scale_diagnostic)
+    target_link_libraries(
+        wide_eye_flock_scale_diagnostic
+        PRIVATE wide_eye_core_performance wide_eye_game
+    )
+
     add_executable(wide_eye_input_tests ${wide_eye_input_test_sources})
     target_compile_features(wide_eye_input_tests PRIVATE cxx_std_23)
     set_target_properties(
@@ -441,6 +465,16 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME wide_eye.flock_observables COMMAND wide_eye_flock_observables_tests)
     add_test(NAME wide_eye.sheep_spatial_grid COMMAND wide_eye_sheep_spatial_grid_tests)
+    # Registered with --validate-only, the half that asserts only deterministic
+    # results: the five-member reference equality, zero allocation on the
+    # measured ticks, repeated-run equality, and the exact grid work counts.
+    # Host timings are the separate --benchmark path and are deliberately not a
+    # CTest: no accepted budget exists above five sheep, so there is nothing for
+    # a timing gate to fail against.
+    add_test(
+        NAME wide_eye.flock_scale_diagnostic
+        COMMAND wide_eye_flock_scale_diagnostic --validate-only
+    )
     add_test(NAME wide_eye.input_actions COMMAND wide_eye_input_tests)
     add_test(NAME wide_eye.performance_utilities COMMAND wide_eye_performance_tests)
     add_test(NAME wide_eye.sheep_proxy COMMAND wide_eye_sheep_proxy_tests)
@@ -593,6 +627,7 @@ if(BUILD_TESTING)
     set(wide_eye_gameplay_simulation_stack_budget_labels unit headless)
     set(wide_eye_flock_observables_labels unit headless)
     set(wide_eye_sheep_spatial_grid_labels unit headless)
+    set(wide_eye_flock_scale_diagnostic_labels performance headless)
     set(wide_eye_input_labels unit headless)
     set(wide_eye_performance_utilities_labels unit performance headless)
     set(wide_eye_sheep_proxy_labels unit scenario headless)
@@ -628,6 +663,7 @@ if(BUILD_TESTING)
         list(APPEND wide_eye_gameplay_simulation_stack_budget_labels sanitizer)
         list(APPEND wide_eye_flock_observables_labels sanitizer)
         list(APPEND wide_eye_sheep_spatial_grid_labels sanitizer)
+        list(APPEND wide_eye_flock_scale_diagnostic_labels sanitizer)
         list(APPEND wide_eye_input_labels sanitizer)
         list(APPEND wide_eye_performance_utilities_labels sanitizer)
         list(APPEND wide_eye_sheep_proxy_labels sanitizer)
@@ -732,6 +768,12 @@ if(BUILD_TESTING)
         PROPERTIES LABELS "${wide_eye_sheep_spatial_grid_labels}"
                    PASS_REGULAR_EXPRESSION "sheep_spatial_grid_result=pass"
                    TIMEOUT 5
+    )
+    set_tests_properties(
+        wide_eye.flock_scale_diagnostic
+        PROPERTIES LABELS "${wide_eye_flock_scale_diagnostic_labels}"
+                   PASS_REGULAR_EXPRESSION "flock_scale_result=pass"
+                   TIMEOUT 60
     )
     set_tests_properties(
         wide_eye.input_actions
@@ -889,6 +931,7 @@ if(BUILD_TESTING)
         wide_eye.gameplay_simulation
         wide_eye.flock_observables
         wide_eye.sheep_spatial_grid
+        wide_eye.flock_scale_diagnostic
         wide_eye.input_actions
         wide_eye.performance_utilities
         wide_eye.sheep_proxy

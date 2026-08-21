@@ -161,7 +161,21 @@ named scenarios; giant and fixed-tick wall/gate non-tunneling; open-gate
 passage; and isolated gameplay/free-camera state. The
 chunk comparison is labeled `performance` but asserts only exact work
 and equivalence invariants; release timing is an explicit `--benchmark`
-observation, not a machine-dependent CTest threshold. On a
+observation, not a machine-dependent CTest threshold. The flock-scale diagnostic
+follows the same split for the same reason: it drives the shared
+`game/sheep_rules.hpp` functions over caller-owned flocks of 5, 14, 25, and 100
+members, and its registered `--validate-only` half asserts only what is
+deterministic — that at the authoritative five it reproduces
+`GameplaySimulation`'s published snapshot, dog, and all six evidence records
+exactly on every one of 240 ticks; that the measured ticks allocate nothing at
+any member count; that a second independent flock reproduces every record and
+every grid work counter; that state stays finite inside the paddock; and that
+separation selects every neighbour within its radius instead of truncating. Its
+per-stage timings are the `--benchmark` half and are deliberately not a CTest,
+because no accepted performance budget exists above five sheep and a timing gate
+needs one. The fixture is a fixed-spacing lattice placed `2.0` clear of the
+nearest obstacle face, re-checked against the collision field itself rather than
+against quoted constants, which is the clearance QA-001 requires. On a
 capable OpenGL 4.6 target it also covers context validation, triangle and depth-
 tested cube framebuffer oracles, byte-identical repeated normal and wireframe
 cube captures, the paddock center/depth oracle, byte-identical repeated 960×540
