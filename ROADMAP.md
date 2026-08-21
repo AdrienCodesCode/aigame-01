@@ -60,6 +60,11 @@
     parameter that follows the published dog stimulus at named rise and recovery
     rates and selects a state under explicit hysteresis, published per sheep and
     deliberately read by no steering term; and
+  - flock-level dog bearing/distance with a named nearest and rear-most member in
+    the same pure snapshot pass, plus response latency, split and rejoin time,
+    and settle time as a second pure fold whose elapsed-tick state is a plain
+    caller-owned value rather than a tracker holding a clock, every definition
+    reusing an accepted rule and read by no steering term; and
   - standing automated evidence that the simulation contains **no randomness** —
     the scenario seed is carried by the contract and consumed by no rule — and
     that steering is reproducible and attributable: every named scenario
@@ -112,7 +117,38 @@
   executables plus CTest remain the accepted Tracer 2 harness under
   [ADR 0003](docs/decisions/0003-project-owned-test-harness.md); framework
   adoption is deferred until a concrete maintenance cost justifies it.
-- **Verification run (2026-08-22, randomness and steering stability):** on WSL
+- **Verification run (2026-08-22, flock dog geometry and response timing):** on
+  WSL Ubuntu 24.04.4, the development and ASan/UBSan configurations (Clang
+  18.1.3) and the Release configuration (GNU 13.3.0) each built and passed 25/25
+  CTests; project formatting and bounded clang-tidy passed, the QA tracker check
+  passed, `git diff --check` reported nothing, and
+  `wide_eye.gameplay_simulation_stack_budget` passed. This outcome is one
+  observable header and its implementation, its unit tests, one new scenario
+  oracle, and documentation: **no steering rule, bound, limit, published field,
+  state-dump key, or format version changed**, and the canonical 240-tick state
+  dumps of all 30 named scenarios are byte-identical to a pre-change (`3dce883`)
+  standalone `clang++-18 -std=c++23 -I src` build, scenario by scenario, with no
+  normalization applied because nothing was added to normalize. The harness's 265
+  pre-existing stdout lines are unchanged
+  (`sha256 ac98afa16954c187c0f51d17e9bcbd0ab7ab5266c5584c77dfec8ae23cc906d6`)
+  and 48 `flock_response_*` lines were added; the whole new output is
+  byte-identical across the `dev`, `release`, and `dev-sanitized` binaries
+  (`sha256 418f9b8d55bb1c3ecdb35978c44737bb0872a3c9840995912411ae3d0ce72cac`),
+  which is one host and one architecture rather than a cross-platform claim. The
+  measured values and what they do and do not cover are recorded with the roadmap
+  item itself. Native Windows/Linux graphics and the presentation performance
+  scenarios were not rerun because no presentation path changed and this host
+  exposes only OpenGL 4.5. Evidence:
+  [`flock_observables.hpp`](src/game/flock_observables.hpp),
+  [`flock_observables_tests.cpp`](tests/flock_observables_tests.cpp),
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp), and the
+  ignored
+  [oracle output](artifacts/phase3/2026-08-22/flock-observables-dog-and-timing/gameplay-simulation-oracle.txt),
+  [accepted-scenario comparison](artifacts/phase3/2026-08-22/flock-observables-dog-and-timing/accepted-scenario-state-diff.txt),
+  [harness stdout comparison](artifacts/phase3/2026-08-22/flock-observables-dog-and-timing/harness-stdout-diff.txt),
+  and
+  [verification gates](artifacts/phase3/2026-08-22/flock-observables-dog-and-timing/verification-gates.txt).
+- **Prior verification run (2026-08-22, randomness and steering stability):** on WSL
   Ubuntu 24.04.4, the development and ASan/UBSan configurations (Clang 18.1.3)
   and the Release configuration (GNU 13) each built and passed 25/25 CTests;
   project formatting and bounded clang-tidy passed, the QA tracker check passed,
@@ -560,6 +596,24 @@
   this is visible: with no debug arrow or label a state change can only be read
   out of the state dump, and no player or reviewer has ever seen a sheep change
   state.
+  The flock's response to the dog is now measurable, so the earlier limit that
+  flock/rear-sheep summaries and every timing measure were absent is resolved —
+  again narrowly. **The observables are computed by tests only**: nothing in the
+  engine calls them, no state-dump key or format version changed, and no steering
+  rule reads them, so they describe the simulation without being part of it. The
+  connectivity distance that decides what counts as one flock is a caller-owned
+  parameter with **no accepted value**; the scenario oracle names `5.0` because it
+  makes its own fixture's split and rejoin land on exact ticks, and a different
+  distance would report different split numbers for the same motion. The
+  flock-level bearing is a world bearing rather than a flock-relative one, on
+  purpose and at a cost: it says which side of the flock the dog is on, and it
+  says nothing about where the flock is heading. The split and rejoin evidence
+  comes from a fixture with every steering term switched off, so it shows the
+  measurement working rather than that the accepted rules produce good splits or
+  recoveries. Latency and settle time are flock-level only — there is no
+  per-sheep latency, no per-sheep settle time, and no weighting of any summary by
+  temperament or arousal — and, like the states they are built on, none of it has
+  been seen by a player or a reviewer.
   Temperament is a persistent per-sheep response scale on the dog
   stimulus only: it does not modulate the social terms and does not change the
   shared pressure radius or falloff. It now also scales the arousal stimulus,
@@ -648,13 +702,22 @@
   [QA-004](docs/qa/open/QA-004-presets-do-not-pin-the-compiler.md); whether to
   pin every preset to Clang or to make the GCC build a stated second preset is an
   owner decision.
-- **Next action:** add dog bearing/distance, response latency, split/rejoin
-  time, and settle time to the flock observables, now that behavior transitions
-  exist to measure latency against. The debug arrows and labels for every
+- **Next action:** add the non-player diagnostic fixtures for 5, 14, 25, and 100
+  sheep. This needs a deliberate decision before any code: `SheepStateBuffer` is
+  a fixed five-member `std::array` and `kGameplaySheepCount` is `5`, so every
+  published snapshot, every evidence buffer, the state-dump writer, and the
+  pure observable pass are all shaped by that five. Larger non-player fixtures
+  therefore need an explicit representation decision — a compile-time capacity, a
+  runtime span, a separate diagnostic-only buffer, or something else — and the
+  point of the item is that it must not make large flocks a Tracer 2 *content*
+  requirement: these are diagnostics for scale hygiene, not gameplay the first
+  playable owes anyone. The spatial grid's 1,000-member capacity ceiling and the
+  roughly 115 KiB `GameplaySimulation` it produces are the existing cost that
+  decision has to answer to. The debug arrows and labels for every
   influence, chosen neighbour, arousal, target, state, and balance point remain
   unchecked and still ahead of the Phase 3 visual gate: every sheep rule so far
   has been accepted on headless evidence alone, and nobody has yet watched a
-  sheep change state.
+  sheep change state, split, or settle.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
@@ -677,7 +740,7 @@
   [`sheep_spatial_grid.hpp`](src/game/sheep_spatial_grid.hpp),
   [replay/state contract](docs/formats/GAMEPLAY_REPLAY_AND_STATE.md), and their
   focused tests.
-- **Last reviewed:** 2026-08-21.
+- **Last reviewed:** 2026-08-22.
 - **Primary playtest question:** Can a first-time player intentionally steer five
   mixed-temperament sheep through one gate using only the dog's movement,
   facing, pressure, and release?
@@ -1764,7 +1827,7 @@ scope. Evidence: the archived
   ground-plane distances/velocities, reports per-member spacing plus aggregate
   values, and takes connectivity distance and precomputed chosen-neighbor counts
   explicitly without selecting neighbors or mutating simulation state.
-- [ ] Add dog bearing/distance, response latency, split/rejoin time, and settle
+- [x] Add dog bearing/distance, response latency, split/rejoin time, and settle
   time when the required named behavior scenarios and transitions exist.
   Partial observed result (2026-08-16): the distance-only pressure pair now
   publishes per-sheep causal dog distance and relative bearing in state-dump
@@ -1775,6 +1838,81 @@ scope. Evidence: the archived
   and published per sheep, so the named transition scenarios these timings need
   exist and the blocker is removed. Response latency, split/rejoin time, and
   settle time are still not computed anywhere, so the item stays unchecked.
+  **Observed result (2026-08-22):** all four now exist, with every definition
+  stated in [`flock_observables.hpp`](src/game/flock_observables.hpp) rather than
+  only here. The snapshot pass gained the flock-level dog geometry — planar
+  centroid distance, the *world* bearing of the dog seen from the centroid in the
+  same `atan2(x, -z)` convention as every other heading, and the nearest and
+  rear-most members with their IDs and distances, the rear-most being the member
+  whose offset from the centroid projects least far along the dog-to-centroid
+  push axis. The bearing is a world bearing on purpose: the flock has no single
+  heading, so a flock-relative one would be undefined for a standing flock. The
+  three temporal measures could not live in a pure snapshot pass, so they are a
+  second, equally pure fold — `advance_flock_response_timing` takes the previous
+  `FlockResponseTiming` value and returns the next one, exactly the way each tick
+  derives the next sheep buffer from the immutable prior buffer. The caller owns
+  and threads that value; there is no clock, mutable static, or hidden singleton,
+  and the record is fixed-size, allocation-free, comparable, and reproducible by
+  folding it over the same published snapshots again. Each definition reuses a
+  rule that already exists: pressure is ADR 0009's own `stimulus > rest_arousal`
+  test, a response is a sheep publishing `alert` or `driven` (never `recovering`,
+  so an earlier press cannot be counted as an answer to a new one), a split is
+  the accepted connected-component count leaving one, and settled is the Schmitt
+  trigger's own bottom label. A split episode ends only at a return to one
+  component, so a count climbing again deepens it rather than restarting rejoin
+  time; settle time is measured from the *last* release, so a cause that returns
+  during recovery discards the pending measurement and counts an interrupted
+  settle. On WSL Ubuntu 24.04.4 the `dev` and `dev-sanitized` (Clang 18.1.3) and
+  `release` (GNU 13.3.0) configurations each built and passed 25/25 CTests;
+  formatting, bounded clang-tidy, the QA tracker check, `git diff --check`, and
+  `wide_eye.gameplay_simulation_stack_budget` all passed, and the harness's whole
+  stdout is byte-identical across the three binaries. The scenario oracle
+  measures both halves of `sheep-behavior-transitions-on`, which enables no
+  steering term, at a caller-chosen connectivity distance of `5.0`. With the dog
+  scripted to start west of every sheep's stimulus radius, walk in, hold, and
+  leave: pressure onset at tick `94`, first `alert`/`driven` sheep at tick `126`
+  — a response latency of `32` ticks — release at tick `431`, the whole flock
+  `settled` again at tick `506`, a settle time of `75` ticks against a peak
+  arousal of `0.412317` carried at release, which is at least what the accepted
+  `1/256`-per-tick recovery rate needs. Nothing moves in that half, so its four
+  standing sheep and one stopped sheep are `1` split episode with `0` rejoins for
+  all `1000` ticks. Its dog geometry names sheep `5` as both nearest and rear-most
+  while the dog is still outside the group and, at the closest approach on tick
+  `208` (centroid distance `3.86823`), sheep `3` as nearest at `3.12547` and
+  sheep `1` as rear-most at `7.12333` — the two selections answering different
+  questions, which is why both exist. The other half leaves the fixture's own
+  moving sheep alone: it is under pressure from tick `1` because a nervous sheep
+  sits five units from the stationary dog, so it deliberately measures no settle
+  time, and its moving sheep closes the flock into one component at tick `32`
+  (rejoin time `31` ticks) and opens it again at tick `225` (`224` ticks after
+  the press began), for `207` of `400` ticks split. Folding the same scenario
+  twice, and folding a storage-reversed fixture, produce identical records, and
+  600 ticks of observation allocate nothing.
+  **What this evidence does not cover:** these are synthetic headless fixtures,
+  not player-facing acceptance — no owner has watched a flock respond, split, or
+  settle, and no threshold here is tuned. The connectivity distance is a
+  caller-owned parameter with no accepted value; `5.0` was chosen because it
+  makes this fixture's split and rejoin land on exact ticks, and a different
+  distance would report different split numbers for the same motion. The
+  definitions deliberately exclude several things: a flock-relative bearing, any
+  cause other than the dog (ADR 0009's limit still holds), any per-sheep latency
+  or per-sheep settle time, and any weighting of the flock summaries by
+  temperament or arousal. The observables are computed by tests only — nothing
+  in the engine calls them, no state-dump key or format version changed, and no
+  steering rule reads them. The split/rejoin evidence comes from a fixture with
+  every steering term switched off, so it shows the *measurement* working, not
+  that the accepted steering rules produce good splits. Determinism is proven on
+  one host and one architecture. Evidence:
+  [`flock_observables.hpp`](src/game/flock_observables.hpp),
+  [`flock_observables.cpp`](src/game/flock_observables.cpp),
+  [`flock_observables_tests.cpp`](tests/flock_observables_tests.cpp),
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp), and the
+  ignored
+  [oracle output](artifacts/phase3/2026-08-22/flock-observables-dog-and-timing/gameplay-simulation-oracle.txt),
+  [accepted-scenario comparison](artifacts/phase3/2026-08-22/flock-observables-dog-and-timing/accepted-scenario-state-diff.txt),
+  [harness stdout comparison](artifacts/phase3/2026-08-22/flock-observables-dog-and-timing/harness-stdout-diff.txt),
+  and
+  [verification gates](artifacts/phase3/2026-08-22/flock-observables-dog-and-timing/verification-gates.txt).
 - [x] Unit-test the implemented observable definitions on hand-authored positions
   and velocities. Observed result: exact symmetric-cross and separated-line
   fixtures cover isotropic/collinear shape, aligned/opposed/zero motion,
@@ -1782,7 +1920,15 @@ scope. Evidence: the archived
   identity, finite-value, threshold, and count inputs are rejected. WSL
   development and ASan/UBSan suites each passed 23/23 CTests, and formatting
   plus bounded static analysis passed. Native Windows was not rerun because the
-  outcome is headless and platform-independent.
+  outcome is headless and platform-independent. Observed result (2026-08-22): the
+  same file now also covers the dog geometry on exact axis-aligned fixtures
+  (including the `+pi` versus `-pi` south bearing and a dog standing exactly on
+  the centroid), a fixture whose rear-most and nearest members are different
+  sheep, an exact tie broken on the lower ID, and every temporal boundary case —
+  a press nothing answers, a flock already settled at release, a split that never
+  rejoins, a deeper split before the first rejoin, and a cause that reappears
+  during recovery — plus rejection of an out-of-range stimulus or rest threshold,
+  an impossible component count, and a repeated or rewound tick.
 - [ ] Add non-player diagnostic fixtures for 5, 14, 25, and 100 sheep without
   making large flocks a Tracer 2 content requirement.
 - [ ] Record spatial-grid build, neighbor selection, behavior, terrain query,

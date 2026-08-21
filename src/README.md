@@ -144,10 +144,19 @@ compact JSON writers expose replay plus published state. The bounded
 presentation capture path can write the latter beside a frame; file decoding
 and general replay/seed CLI integration remain tooling work. A pure fixed-size
 observable pass reads the published five-sheep buffer and explicit connectivity/
-chosen-neighbor inputs to compute centroid, ground-plane radius, polarization,
-elongation, group speed, nearest-neighbor spacing, connected components, and
-neighbor-count summaries without mutating simulation state or selecting social
-neighbors. A fixed-capacity ground-plane spatial grid copies published sheep ID
+chosen-neighbor/dog-position inputs to compute centroid, ground-plane radius,
+polarization, elongation, group speed, nearest-neighbor spacing, connected
+components, neighbor-count summaries, and the flock-level dog geometry —
+centroid distance, the world bearing of the dog from the centroid, and the
+nearest and rear-most members with their distances — without mutating simulation
+state or selecting social neighbors. The temporal measurements that pass cannot
+make are a second, equally pure fold: `advance_flock_response_timing` takes the
+previous timing record and returns the next one from one published snapshot, so
+the caller owns the elapsed-tick state as a plain comparable value rather than a
+tracker holding a clock. It measures response latency against the accepted
+"is a cause acting" stimulus test and the `alert`/`driven` labels, split and
+rejoin time against the connected-component count, and settle time from the last
+release to a wholly `settled` flock. A fixed-capacity ground-plane spatial grid copies published sheep ID
 and position into deterministic sorted cell/row ranges. Caller-owned output
 spans bound nearest-neighbor selection, with exact-distance filtering and stable
 distance/ID/source-index ordering; rebuild and query use no heap allocation.
@@ -293,10 +302,7 @@ the non-physiological framing, the rates and thresholds, why hysteresis is
 separate thresholds rather than a dwell timer, and what is deliberately left out.
 Damping, terrain, avoidance against an interior ledge, the
 terrain pressure factor, arousal causes other than the dog, and any effect of
-behavior on steering remain deferred. Flock-level
-dog-relative and response-timing observables also remain deferred until the
-required named behavior
-scenarios exist. The dog is a kinematic upright
+behavior on steering remain deferred. The dog is a kinematic upright
 cylinder whose world-space
 planar motor bounds vector acceleration/deceleration, rotates facing toward
 movement by the shortest path, and slows during large heading changes. It

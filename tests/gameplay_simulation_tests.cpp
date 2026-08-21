@@ -2619,6 +2619,362 @@ BehaviorTransitionOracle run_behavior_transition_oracle() {
     return result;
 }
 
+struct FlockResponseOracle {
+    bool passed = false;
+    double connectivity_distance = 0.0;
+    double rest_arousal = 0.0;
+    std::uint64_t scripted_ticks = 0;
+    std::uint64_t pressure_onset_tick = 0;
+    std::uint64_t response_tick = 0;
+    std::uint64_t response_latency_ticks = 0;
+    std::uint64_t release_tick = 0;
+    std::uint64_t settle_tick = 0;
+    std::uint64_t settle_ticks = 0;
+    std::uint32_t pressure_episodes = 0;
+    std::uint32_t releases = 0;
+    std::uint32_t unanswered_pressure_episodes = 0;
+    std::uint32_t interrupted_settles = 0;
+    std::uint32_t scripted_split_episodes = 0;
+    std::uint32_t scripted_rejoins = 0;
+    std::uint64_t scripted_ticks_split = 0;
+    wide_eye::game::FlockDogObservables onset_dog{};
+    wide_eye::game::FlockDogObservables closest_dog{};
+    std::uint64_t closest_tick = 0;
+    wide_eye::game::FlockDogObservables release_dog{};
+    double release_peak_arousal = 0.0;
+    std::uint64_t passing_ticks = 0;
+    std::uint64_t passing_pressure_onset_tick = 0;
+    std::uint64_t passing_response_latency_ticks = 0;
+    std::uint64_t passing_rejoin_tick = 0;
+    std::uint64_t passing_rejoin_ticks = 0;
+    std::uint64_t passing_second_split_tick = 0;
+    std::uint64_t passing_time_to_split_ticks = 0;
+    std::uint32_t passing_split_episodes = 0;
+    std::uint32_t passing_rejoins = 0;
+    std::uint64_t passing_ticks_split = 0;
+    std::size_t allocations = 0;
+};
+
+// One tick of the published cause, taken by ID rather than by buffer index so
+// the fold cannot silently depend on storage order.
+std::array<double, wide_eye::game::kGameplaySheepCount>
+published_arousal_stimulus(const wide_eye::game::GameplaySnapshot& snapshot) {
+    std::array<double, wide_eye::game::kGameplaySheepCount> stimulus{};
+    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+        stimulus[index] =
+            evidence_with_id(snapshot.sheep_dog_pressure_evidence, snapshot.sheep[index].id)
+                .arousal_stimulus;
+    }
+    return stimulus;
+}
+
+// The scenario-level measurement of the four new timing definitions and the
+// flock-level dog geometry, on published state rather than on hand-authored
+// values. Both fixtures are `sheep-behavior-transitions-on`, which enables no
+// steering term at all, so every number below is a consequence of the fixture's
+// own geometry and the accepted arousal rule and of nothing else.
+//
+// The two halves exist because one fixture cannot show both. With no steering
+// term enabled nothing accelerates a sheep, so the *scripted* half — where the
+// dog walks in, holds, and leaves under scripted input while every sheep stands
+// still — is the one that releases the whole flock and therefore the only one
+// that can measure a settle time; its component count never changes. The
+// *passing* half leaves the fixture's own moving sheep alone, and that sheep
+// carries the flock in and out of one connected component, which is what a
+// split and a rejoin are.
+FlockResponseOracle run_flock_response_oracle() {
+    FlockResponseOracle result;
+    using wide_eye::game::SheepBehaviorState;
+    // The connectivity distance is a caller-owned parameter of the observable
+    // pass, not an accepted game rule, so this oracle names its own and says
+    // why: at `5.0` the fixture's four standing sheep are exactly one component
+    // and its moving sheep joins and leaves that component on exact ticks, which
+    // is what makes the split and rejoin measurements below arithmetic rather
+    // than approximate.
+    constexpr double kConnectivityDistance = 5.0;
+    constexpr std::uint64_t kScriptedApproachTicks = 200;
+    constexpr std::uint64_t kScriptedHoldTicks = 300;
+    constexpr std::uint64_t kScriptedTicks = 1000;
+    constexpr std::uint64_t kPassingTicks = 400;
+    // The fixture's dog starts five units from a nervous sheep, which is a cause
+    // acting from the first tick and therefore a press with no rising edge to
+    // measure. This half moves the dog's start west of every sheep's stimulus
+    // radius so the approach itself is what opens the episode: "the dog arrives"
+    // has to be an event before "how long did the flock take to answer it" can
+    // be a duration.
+    constexpr wide_eye::game::Vec3 kScriptedDogStart{.x = 8.0, .y = 1.0, .z = 20.0};
+    const auto scenario = wide_eye::game::find_gameplay_scenario("sheep-behavior-transitions-on");
+    if (!check(scenario.has_value() && scenario->sheep_behavior.enabled,
+               "the_flock_response_fixture_is_the_named_behavior_transition_scenario")) {
+        return result;
+    }
+    result.connectivity_distance = kConnectivityDistance;
+    result.rest_arousal = scenario->sheep_behavior.rest_arousal;
+    result.scripted_ticks = kScriptedTicks;
+    result.passing_ticks = kPassingTicks;
+
+    auto scripted_scenario = *scenario;
+    scripted_scenario.initial_sheep[0].velocity = {};
+    scripted_scenario.dog.initial_state.position = kScriptedDogStart;
+    const SimulationHandle scripted = make_simulation(scripted_scenario);
+    wide_eye::game::FlockResponseTiming timing{};
+    bool folded = true;
+    bool observables_valid = true;
+    double closest_distance = std::numeric_limits<double>::infinity();
+    std::uint64_t previous_pressure_episodes = 0;
+    std::uint64_t previous_releases = 0;
+    for (std::uint64_t tick = 1; tick <= kScriptedTicks; ++tick) {
+        wide_eye::game::GameplayTickInput input{.dog_move = wide_eye::game::DogMoveInput{}};
+        if (tick <= kScriptedApproachTicks) {
+            input.dog_move = wide_eye::game::DogMoveInput{.world_x = 1.0};
+        } else if (tick > kScriptedHoldTicks) {
+            input.dog_move = wide_eye::game::DogMoveInput{.world_x = -1.0};
+        }
+        scripted->fixed_update(input);
+        const auto& snapshot = scripted->current_snapshot();
+        const auto observables = wide_eye::game::compute_five_sheep_observables(
+            snapshot.sheep, std::array<std::uint32_t, wide_eye::game::kGameplaySheepCount>{},
+            kConnectivityDistance, snapshot.dog.position);
+        if (!observables.has_value()) {
+            observables_valid = false;
+            break;
+        }
+        const auto next = wide_eye::game::advance_flock_response_timing(
+            timing, tick, snapshot.sheep, published_arousal_stimulus(snapshot),
+            observables->connected_component_count, scenario->sheep_behavior.rest_arousal);
+        if (!next.has_value()) {
+            folded = false;
+            break;
+        }
+        timing = *next;
+        if (timing.pressure_episodes != previous_pressure_episodes) {
+            previous_pressure_episodes = timing.pressure_episodes;
+            result.onset_dog = observables->dog;
+        }
+        if (timing.releases != previous_releases) {
+            previous_releases = timing.releases;
+            result.release_dog = observables->dog;
+            for (const auto& member : snapshot.sheep) {
+                result.release_peak_arousal = std::max(result.release_peak_arousal, member.arousal);
+            }
+        }
+        if (observables->dog.centroid_distance < closest_distance) {
+            closest_distance = observables->dog.centroid_distance;
+            result.closest_dog = observables->dog;
+            result.closest_tick = tick;
+        }
+    }
+    result.pressure_onset_tick = timing.pressure_onset_tick;
+    result.response_latency_ticks = timing.response_latency_ticks.value_or(0);
+    result.response_tick = timing.pressure_onset_tick + result.response_latency_ticks;
+    result.release_tick = timing.release_tick;
+    result.settle_ticks = timing.settle_ticks.value_or(0);
+    result.settle_tick = timing.release_tick + result.settle_ticks;
+    result.pressure_episodes = timing.pressure_episodes;
+    result.releases = timing.releases;
+    result.unanswered_pressure_episodes = timing.unanswered_pressure_episodes;
+    result.interrupted_settles = timing.interrupted_settles;
+    result.scripted_split_episodes = timing.split_episodes;
+    result.scripted_rejoins = timing.rejoins;
+    result.scripted_ticks_split = timing.ticks_split;
+    if (!check(observables_valid, "every_published_scripted_snapshot_is_describable") ||
+        !check(folded, "every_published_scripted_snapshot_folds_into_the_timing_record") ||
+        // One press, answered, released, and settled: the whole pressure/release
+        // pair the accepted loop is built on, measured in ticks for the first
+        // time.
+        !check(timing.pressure_episodes == 1 && timing.releases == 1 &&
+                   timing.unanswered_pressure_episodes == 0 && timing.interrupted_settles == 0,
+               "the_scripted_dog_presses_the_flock_exactly_once_and_releases_it_once") ||
+        !check(timing.response_latency_ticks.has_value() && timing.settle_ticks.has_value(),
+               "the_scripted_press_measures_a_latency_and_a_settle_time") ||
+        !check(result.response_tick > result.pressure_onset_tick &&
+                   result.release_tick > result.response_tick &&
+                   result.settle_tick > result.release_tick,
+               "cause_then_response_then_release_then_settled_in_that_order") ||
+        // The measured settle time has to be consistent with the accepted
+        // recovery rate rather than merely plausible: a flock carrying this much
+        // arousal when the cause lifted cannot shed it faster than the rule
+        // allows, whatever the fixture's geometry.
+        !check(static_cast<double>(result.settle_ticks) *
+                       (scenario->sheep_behavior.recovery_rate_per_second *
+                        wide_eye::game::GameplaySimulation::kFixedDeltaSeconds) >=
+                   result.release_peak_arousal - scenario->sheep_behavior.rest_arousal,
+               "the_settle_time_is_at_least_what_the_accepted_recovery_rate_needs") ||
+        !check(timing.flock_settled && !timing.pressure_acting && !timing.flock_engaged,
+               "the_run_ends_with_the_whole_flock_settled_and_no_cause_acting") ||
+        // Nothing moves in this half, so the four standing sheep and the one
+        // stopped sheep are two components for the whole run: a split with no
+        // rejoin, on published state rather than on a hand-authored count.
+        !check(timing.split_episodes == 1 && timing.rejoins == 0 &&
+                   !timing.rejoin_ticks.has_value() && timing.ticks_split == kScriptedTicks,
+               "a_flock_that_never_closes_publishes_a_split_and_no_rejoin")) {
+        return result;
+    }
+
+    // The flock-level dog geometry. The dog walks east into a flock whose
+    // centroid is east of it, so it closes and then retreats; the rear sheep is
+    // the member it is furthest behind and is a different sheep from the nearest
+    // one once the dog is inside the group.
+    if (!check(result.onset_dog.evaluated && result.onset_dog.bearing_defined &&
+                   result.closest_dog.evaluated && result.release_dog.evaluated,
+               "the_flock_level_dog_observables_are_evaluated_at_every_sampled_tick") ||
+        !check(result.closest_dog.centroid_distance < result.onset_dog.centroid_distance &&
+                   result.release_dog.centroid_distance > result.closest_dog.centroid_distance,
+               "the_dog_closes_on_the_centroid_and_then_leaves_it") ||
+        // The two selections answer different questions, and this fixture shows
+        // it: with the dog still outside the group they name the same sheep,
+        // and with the dog inside it the member it is furthest behind is no
+        // longer the member it is closest to.
+        !check(result.onset_dog.nearest_sheep_id == result.onset_dog.rear_sheep_id &&
+                   result.closest_dog.nearest_sheep_id != result.closest_dog.rear_sheep_id,
+               "the_rear_member_and_the_nearest_member_are_not_the_same_sheep") ||
+        !check(result.onset_dog.rear_sheep_id != 0 && result.closest_dog.rear_sheep_id != 0 &&
+                   result.onset_dog.rear_offset < 0.0 && result.closest_dog.rear_offset < 0.0 &&
+                   result.closest_dog.rear_distance > result.closest_dog.nearest_distance,
+               "the_rear_member_is_named_and_lies_behind_the_centroid_on_the_push_axis")) {
+        return result;
+    }
+
+    // The passing half: the fixture's own moving sheep, left exactly as the
+    // scenario defines it, with a stationary dog. That sheep starts outside the
+    // standing group, closes into it, and leaves again, so the flock rejoins and
+    // then splits at ticks that are exact arithmetic on a constant velocity.
+    const SimulationHandle passing = make_simulation(*scenario);
+    wide_eye::game::FlockResponseTiming passing_timing{};
+    bool passing_folded = true;
+    std::uint32_t previous_rejoins = 0;
+    std::uint32_t previous_split_episodes = 0;
+    for (std::uint64_t tick = 1; tick <= kPassingTicks; ++tick) {
+        passing->fixed_update({});
+        const auto& snapshot = passing->current_snapshot();
+        const auto observables = wide_eye::game::compute_five_sheep_observables(
+            snapshot.sheep, std::array<std::uint32_t, wide_eye::game::kGameplaySheepCount>{},
+            kConnectivityDistance, snapshot.dog.position);
+        const auto next =
+            observables.has_value()
+                ? wide_eye::game::advance_flock_response_timing(
+                      passing_timing, tick, snapshot.sheep, published_arousal_stimulus(snapshot),
+                      observables->connected_component_count, scenario->sheep_behavior.rest_arousal)
+                : std::nullopt;
+        if (!next.has_value()) {
+            passing_folded = false;
+            break;
+        }
+        passing_timing = *next;
+        if (passing_timing.rejoins != previous_rejoins) {
+            previous_rejoins = passing_timing.rejoins;
+            result.passing_rejoin_tick = tick;
+            result.passing_rejoin_ticks = passing_timing.rejoin_ticks.value_or(0);
+        }
+        if (passing_timing.split_episodes != previous_split_episodes) {
+            previous_split_episodes = passing_timing.split_episodes;
+            if (passing_timing.split_episodes == 2) {
+                result.passing_second_split_tick = tick;
+            }
+        }
+    }
+    result.passing_pressure_onset_tick = passing_timing.pressure_onset_tick;
+    result.passing_response_latency_ticks = passing_timing.response_latency_ticks.value_or(0);
+    result.passing_split_episodes = passing_timing.split_episodes;
+    result.passing_rejoins = passing_timing.rejoins;
+    result.passing_ticks_split = passing_timing.ticks_split;
+    result.passing_time_to_split_ticks = passing_timing.time_to_split_ticks.value_or(0);
+    if (!check(passing_folded, "every_published_passing_snapshot_folds_into_the_timing_record") ||
+        // A nervous sheep five units from the stationary dog carries a stimulus
+        // of exactly `0.75` from the first tick, so this fixture is under
+        // pressure for its whole run and never releases: it can measure a
+        // latency and a split, and deliberately cannot measure a settle time.
+        !check(passing_timing.pressure_onset_tick == 1 && passing_timing.pressure_episode_open &&
+                   passing_timing.releases == 0 && !passing_timing.settle_ticks.has_value(),
+               "a_fixture_whose_cause_never_lifts_measures_no_settle_time") ||
+        !check(passing_timing.response_latency_ticks.has_value(),
+               "the_standing_press_still_measures_a_response_latency") ||
+        !check(passing_timing.split_episodes == 2 && passing_timing.rejoins == 1 &&
+                   result.passing_rejoin_ticks == result.passing_rejoin_tick - 1,
+               "the_passing_sheep_closes_the_flock_once_and_opens_it_once") ||
+        !check(result.passing_second_split_tick > result.passing_rejoin_tick &&
+                   result.passing_time_to_split_ticks ==
+                       result.passing_second_split_tick - passing_timing.pressure_onset_tick,
+               "time_to_split_is_measured_from_the_press_that_was_already_acting") ||
+        !check(passing_timing.ticks_split ==
+                   result.passing_rejoin_tick - 1 +
+                       (kPassingTicks - result.passing_second_split_tick + 1),
+               "the_ticks_spent_split_are_the_two_open_ended_windows")) {
+        return result;
+    }
+
+    // The record is a fold over published state, so re-running the same
+    // scenario reproduces it exactly, and reversing the storage order of the
+    // fixture cannot change it.
+    auto reversed_scenario = *scenario;
+    std::reverse(reversed_scenario.initial_sheep.begin(), reversed_scenario.initial_sheep.end());
+    const SimulationHandle repeated = make_simulation(*scenario);
+    const SimulationHandle reversed = make_simulation(reversed_scenario);
+    wide_eye::game::FlockResponseTiming repeated_timing{};
+    wide_eye::game::FlockResponseTiming reversed_timing{};
+    bool repeatable = true;
+    for (std::uint64_t tick = 1; tick <= kPassingTicks; ++tick) {
+        repeated->fixed_update({});
+        reversed->fixed_update({});
+        for (const auto* simulation : {repeated.get(), reversed.get()}) {
+            const auto& snapshot = simulation->current_snapshot();
+            const auto observables = wide_eye::game::compute_five_sheep_observables(
+                snapshot.sheep, std::array<std::uint32_t, wide_eye::game::kGameplaySheepCount>{},
+                kConnectivityDistance, snapshot.dog.position);
+            auto& target = simulation == repeated.get() ? repeated_timing : reversed_timing;
+            const auto next =
+                observables.has_value()
+                    ? wide_eye::game::advance_flock_response_timing(
+                          target, tick, snapshot.sheep, published_arousal_stimulus(snapshot),
+                          observables->connected_component_count,
+                          scenario->sheep_behavior.rest_arousal)
+                    : std::nullopt;
+            if (!next.has_value()) {
+                repeatable = false;
+                break;
+            }
+            target = *next;
+        }
+    }
+    if (!check(repeatable && repeated_timing == passing_timing,
+               "a_second_run_of_the_same_scenario_folds_to_an_identical_record") ||
+        !check(reversed_timing == passing_timing,
+               "reversing_the_fixtures_storage_order_folds_to_an_identical_record")) {
+        return result;
+    }
+
+    // Neither pass allocates on the observation path.
+    const SimulationHandle allocation_fixture = make_simulation(*scenario);
+    wide_eye::game::FlockResponseTiming allocation_timing{};
+    bool allocation_folded = true;
+    const std::size_t allocations_before = g_allocation_count;
+    for (std::uint64_t tick = 1; tick <= 600; ++tick) {
+        allocation_fixture->fixed_update({});
+        const auto& snapshot = allocation_fixture->current_snapshot();
+        const auto observables = wide_eye::game::compute_five_sheep_observables(
+            snapshot.sheep, std::array<std::uint32_t, wide_eye::game::kGameplaySheepCount>{},
+            kConnectivityDistance, snapshot.dog.position);
+        const auto next =
+            observables.has_value()
+                ? wide_eye::game::advance_flock_response_timing(
+                      allocation_timing, tick, snapshot.sheep, published_arousal_stimulus(snapshot),
+                      observables->connected_component_count, scenario->sheep_behavior.rest_arousal)
+                : std::nullopt;
+        allocation_folded = allocation_folded && next.has_value();
+        if (next.has_value()) {
+            allocation_timing = *next;
+        }
+    }
+    result.allocations = g_allocation_count - allocations_before;
+    if (!check(allocation_folded && result.allocations == 0,
+               "observing_the_flock_does_not_allocate")) {
+        return result;
+    }
+
+    result.passed = true;
+    return result;
+}
+
 // The seven published steering terms plus the applied acceleration they are
 // summed and bounded into. Every stability measure below is taken per sheep and
 // per entry of this list, because "steering is stable" is a claim about each
@@ -3791,9 +4147,11 @@ int main() {
     }
     constexpr std::array<std::uint32_t, wide_eye::game::kGameplaySheepCount> kNoNeighbors{};
     const auto alignment_off_observables = wide_eye::game::compute_five_sheep_observables(
-        alignment_off->current_snapshot().sheep, kNoNeighbors, 3.0);
+        alignment_off->current_snapshot().sheep, kNoNeighbors, 3.0,
+        alignment_off->current_snapshot().dog.position);
     const auto alignment_on_observables = wide_eye::game::compute_five_sheep_observables(
-        alignment_on->current_snapshot().sheep, kNoNeighbors, 3.0);
+        alignment_on->current_snapshot().sheep, kNoNeighbors, 3.0,
+        alignment_on->current_snapshot().dog.position);
     if (!check(alignment_off_observables.has_value() && alignment_on_observables.has_value() &&
                    alignment_on_observables->polarization >
                        alignment_off_observables->polarization + 0.05,
@@ -5356,6 +5714,12 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // The flock-response oracle owns its own frame for the same reason.
+    const FlockResponseOracle flock_response = run_flock_response_oracle();
+    if (!flock_response.passed) {
+        return EXIT_FAILURE;
+    }
+
     // The randomness-and-stability oracle owns its own frame for the same
     // reason, and it sweeps every named scenario, so it holds more fixtures than
     // any other single check in this file.
@@ -5789,6 +6153,72 @@ int main() {
         << "sheep_behavior_scripted_dog_peak_arousal=" << behavior.scripted_peak_arousal << '\n'
         << "sheep_behavior_feeds_back_into_steering=no\n"
         << "sheep_behavior_steady_state_allocations=" << behavior.allocations << '\n'
+        << "flock_response_fixture=behavior_transitions_scripted_dog_and_passing_sheep\n"
+        << "flock_response_feeds_back_into_steering=no\n"
+        << "flock_response_connectivity_distance=" << flock_response.connectivity_distance << '\n'
+        << "flock_response_rest_arousal=" << flock_response.rest_arousal << '\n'
+        << "flock_response_scripted_ticks=" << flock_response.scripted_ticks << '\n'
+        << "flock_response_pressure_onset_tick=" << flock_response.pressure_onset_tick << '\n'
+        << "flock_response_response_tick=" << flock_response.response_tick << '\n'
+        << "flock_response_latency_ticks=" << flock_response.response_latency_ticks << '\n'
+        << "flock_response_release_tick=" << flock_response.release_tick << '\n'
+        << "flock_response_settled_tick=" << flock_response.settle_tick << '\n'
+        << "flock_response_settle_ticks=" << flock_response.settle_ticks << '\n'
+        << "flock_response_release_peak_arousal=" << flock_response.release_peak_arousal << '\n'
+        << "flock_response_pressure_episodes=" << flock_response.pressure_episodes << '\n'
+        << "flock_response_releases=" << flock_response.releases << '\n'
+        << "flock_response_unanswered_pressure_episodes="
+        << flock_response.unanswered_pressure_episodes << '\n'
+        << "flock_response_interrupted_settles=" << flock_response.interrupted_settles << '\n'
+        << "flock_response_scripted_split_episodes=" << flock_response.scripted_split_episodes
+        << '\n'
+        << "flock_response_scripted_rejoins=" << flock_response.scripted_rejoins << '\n'
+        << "flock_response_scripted_ticks_split=" << flock_response.scripted_ticks_split << '\n'
+        << "flock_response_onset_centroid_distance=" << flock_response.onset_dog.centroid_distance
+        << '\n'
+        << "flock_response_onset_centroid_bearing_radians="
+        << flock_response.onset_dog.centroid_bearing_radians << '\n'
+        << "flock_response_onset_nearest_sheep=" << flock_response.onset_dog.nearest_sheep_id
+        << '\n'
+        << "flock_response_onset_nearest_distance=" << flock_response.onset_dog.nearest_distance
+        << '\n'
+        << "flock_response_onset_rear_sheep=" << flock_response.onset_dog.rear_sheep_id << '\n'
+        << "flock_response_onset_rear_distance=" << flock_response.onset_dog.rear_distance << '\n'
+        << "flock_response_onset_rear_offset=" << flock_response.onset_dog.rear_offset << '\n'
+        << "flock_response_closest_tick=" << flock_response.closest_tick << '\n'
+        << "flock_response_closest_centroid_distance="
+        << flock_response.closest_dog.centroid_distance << '\n'
+        << "flock_response_closest_centroid_bearing_radians="
+        << flock_response.closest_dog.centroid_bearing_radians << '\n'
+        << "flock_response_closest_nearest_sheep=" << flock_response.closest_dog.nearest_sheep_id
+        << '\n'
+        << "flock_response_closest_nearest_distance=" << flock_response.closest_dog.nearest_distance
+        << '\n'
+        << "flock_response_closest_rear_sheep=" << flock_response.closest_dog.rear_sheep_id << '\n'
+        << "flock_response_closest_rear_distance=" << flock_response.closest_dog.rear_distance
+        << '\n'
+        << "flock_response_closest_rear_offset=" << flock_response.closest_dog.rear_offset << '\n'
+        << "flock_response_release_centroid_distance="
+        << flock_response.release_dog.centroid_distance << '\n'
+        << "flock_response_release_centroid_bearing_radians="
+        << flock_response.release_dog.centroid_bearing_radians << '\n'
+        << "flock_response_release_nearest_distance=" << flock_response.release_dog.nearest_distance
+        << '\n'
+        << "flock_response_passing_ticks=" << flock_response.passing_ticks << '\n'
+        << "flock_response_passing_pressure_onset_tick="
+        << flock_response.passing_pressure_onset_tick << '\n'
+        << "flock_response_passing_latency_ticks=" << flock_response.passing_response_latency_ticks
+        << '\n'
+        << "flock_response_passing_rejoin_tick=" << flock_response.passing_rejoin_tick << '\n'
+        << "flock_response_passing_rejoin_ticks=" << flock_response.passing_rejoin_ticks << '\n'
+        << "flock_response_passing_second_split_tick=" << flock_response.passing_second_split_tick
+        << '\n'
+        << "flock_response_passing_time_to_split_ticks="
+        << flock_response.passing_time_to_split_ticks << '\n'
+        << "flock_response_passing_split_episodes=" << flock_response.passing_split_episodes << '\n'
+        << "flock_response_passing_rejoins=" << flock_response.passing_rejoins << '\n'
+        << "flock_response_passing_ticks_split=" << flock_response.passing_ticks_split << '\n'
+        << "flock_response_steady_state_allocations=" << flock_response.allocations << '\n'
         << "sheep_steering_stability_fixture=all_influences_diagnostic\n"
         << "sheep_steering_stability_is_tuned_gameplay=no\n"
         << "sheep_steering_stability_simulation_contains_randomness=no\n"

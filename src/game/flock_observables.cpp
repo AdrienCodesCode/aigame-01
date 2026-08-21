@@ -19,24 +19,42 @@ namespace {
            is_known_sheep_behavior(sheep.behavior) && is_known_sheep_temperament(sheep.temperament);
 }
 
+// The identity and finite-value rules a published buffer must satisfy before
+// either pass in this file will describe it. Both passes share one predicate so
+// a snapshot the spatial pass rejects can never be one the timing pass folds in.
+[[nodiscard]] bool valid_sheep_buffer(const SheepStateBuffer& sheep) noexcept {
+    for (std::size_t index = 0; index < sheep.size(); ++index) {
+        if (!valid_state(sheep[index])) {
+            return false;
+        }
+        for (std::size_t prior = 0; prior < index; ++prior) {
+            if (sheep[index].id == sheep[prior].id) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 std::optional<FiveSheepObservables> compute_five_sheep_observables(
     const SheepStateBuffer& sheep,
     const std::array<std::uint32_t, kGameplaySheepCount>& chosen_neighbor_counts,
-    double connectivity_distance) noexcept {
-    if (!std::isfinite(connectivity_distance) || connectivity_distance < 0.0) {
+    double connectivity_distance, const std::optional<Vec3>& dog_position) noexcept {
+    if (!std::isfinite(connectivity_distance) || connectivity_distance < 0.0 ||
+        !valid_sheep_buffer(sheep)) {
         return std::nullopt;
     }
-    for (std::size_t index = 0; index < sheep.size(); ++index) {
-        if (!valid_state(sheep[index]) || chosen_neighbor_counts[index] >= sheep.size()) {
+    for (const std::uint32_t count : chosen_neighbor_counts) {
+        if (count >= sheep.size()) {
             return std::nullopt;
         }
-        for (std::size_t prior = 0; prior < index; ++prior) {
-            if (sheep[index].id == sheep[prior].id) {
-                return std::nullopt;
-            }
-        }
+    }
+    if (dog_position.has_value() &&
+        !(std::isfinite(dog_position->x) && std::isfinite(dog_position->y) &&
+          std::isfinite(dog_position->z))) {
+        return std::nullopt;
     }
 
     FiveSheepObservables result;
@@ -133,7 +151,154 @@ std::optional<FiveSheepObservables> compute_five_sheep_observables(
     }
     result.chosen_neighbors.mean =
         static_cast<double>(result.chosen_neighbors.total) / member_count;
+
+    if (dog_position.has_value()) {
+        result.dog.evaluated = true;
+        for (const SheepState& member : sheep) {
+            const double distance = planar_distance(member.position, *dog_position);
+            // An exact tie is broken on the lower ID rather than on buffer
+            // order, so a symmetric flock publishes one answer.
+            if (result.dog.nearest_sheep_id == 0 || distance < result.dog.nearest_distance ||
+                (distance == result.dog.nearest_distance &&
+                 member.id < result.dog.nearest_sheep_id)) {
+                result.dog.nearest_sheep_id = member.id;
+                result.dog.nearest_distance = distance;
+            }
+        }
+
+        // The bearing is taken on the dog's offset *from* the centroid rather
+        // than on the negated push axis, because `a - a` is `+0` while `-(a - a)`
+        // is `-0`, and `atan2(-0, negative)` is `-pi` — outside the `(-pi, pi]`
+        // range every other heading in this project is normalized to. A dog due
+        // south of the flock must publish one bearing, not two.
+        const double dog_offset_x = dog_position->x - result.centroid.x;
+        const double dog_offset_z = dog_position->z - result.centroid.z;
+        result.dog.centroid_distance = std::hypot(dog_offset_x, dog_offset_z);
+        if (result.dog.centroid_distance > 0.0) {
+            result.dog.bearing_defined = true;
+            result.dog.centroid_bearing_radians = std::atan2(dog_offset_x, -dog_offset_z);
+            // The push axis points from the dog toward the centroid, because the
+            // accepted pressure term pushes a sheep directly away from the dog.
+            const double unit_x = -dog_offset_x / result.dog.centroid_distance;
+            const double unit_z = -dog_offset_z / result.dog.centroid_distance;
+            for (const SheepState& member : sheep) {
+                const double offset = (member.position.x - result.centroid.x) * unit_x +
+                                      (member.position.z - result.centroid.z) * unit_z;
+                if (result.dog.rear_sheep_id == 0 || offset < result.dog.rear_offset ||
+                    (offset == result.dog.rear_offset && member.id < result.dog.rear_sheep_id)) {
+                    result.dog.rear_sheep_id = member.id;
+                    result.dog.rear_offset = offset;
+                    result.dog.rear_distance = planar_distance(member.position, *dog_position);
+                }
+            }
+        }
+    }
+
     return result;
+}
+
+std::optional<FlockResponseTiming> advance_flock_response_timing(
+    const FlockResponseTiming& previous, std::uint64_t tick, const SheepStateBuffer& sheep,
+    const std::array<double, kGameplaySheepCount>& arousal_stimulus,
+    std::uint32_t connected_component_count, double rest_arousal) noexcept {
+    if (!std::isfinite(rest_arousal) || rest_arousal < kSheepMinimumArousal ||
+        rest_arousal > kSheepMaximumArousal || connected_component_count == 0 ||
+        connected_component_count > sheep.size() || !valid_sheep_buffer(sheep)) {
+        return std::nullopt;
+    }
+    for (const double stimulus : arousal_stimulus) {
+        if (!std::isfinite(stimulus) || stimulus < kSheepMinimumArousal ||
+            stimulus > kSheepMaximumArousal) {
+            return std::nullopt;
+        }
+    }
+    // A fold has to see each tick once and in order, so a repeated or rewound
+    // tick is an input error rather than something to average over.
+    const bool first_observation = previous.observations == 0;
+    if (!first_observation && tick <= previous.tick) {
+        return std::nullopt;
+    }
+
+    FlockResponseTiming next = previous;
+    next.observations = previous.observations + 1;
+    next.tick = tick;
+    next.connected_component_count = connected_component_count;
+    next.split = connected_component_count > 1;
+    next.pressure_acting = false;
+    next.flock_engaged = false;
+    next.flock_settled = true;
+    for (const double stimulus : arousal_stimulus) {
+        next.pressure_acting = next.pressure_acting || stimulus > rest_arousal;
+    }
+    for (const SheepState& member : sheep) {
+        next.flock_engaged = next.flock_engaged || member.behavior == SheepBehaviorState::alert ||
+                             member.behavior == SheepBehaviorState::driven;
+        next.flock_settled = next.flock_settled && member.behavior == SheepBehaviorState::settled;
+    }
+
+    // Pressure onset and release. The first observation has no earlier tick to
+    // compare against, so a press already acting on it is an onset there.
+    const bool was_acting = !first_observation && previous.pressure_acting;
+    if (next.pressure_acting && !was_acting) {
+        next.pressure_episode_open = true;
+        next.pressure_onset_tick = tick;
+        ++next.pressure_episodes;
+        next.response_latency_ticks.reset();
+        // A cause that comes back during recovery ends the settle measurement
+        // rather than lengthening it: settle time is measured from the *last*
+        // release, and this one is no longer the last.
+        if (next.settle_pending) {
+            next.settle_pending = false;
+            ++next.interrupted_settles;
+        }
+    } else if (!next.pressure_acting && was_acting) {
+        if (!next.response_latency_ticks.has_value()) {
+            ++next.unanswered_pressure_episodes;
+        }
+        next.pressure_episode_open = false;
+        next.release_tick = tick;
+        ++next.releases;
+        next.settle_pending = true;
+        next.settle_ticks.reset();
+    }
+    if (next.pressure_episode_open && !next.response_latency_ticks.has_value() &&
+        next.flock_engaged) {
+        next.response_latency_ticks = tick - next.pressure_onset_tick;
+    }
+
+    // Split and rejoin. An episode is "not one component", so a count that
+    // climbs again while the flock is already broken deepens this episode
+    // instead of restarting the clock that has to answer "how long until the
+    // flock was whole again".
+    const bool was_split = !first_observation && previous.split;
+    if (next.split && !was_split) {
+        next.split_episode_open = true;
+        next.split_onset_tick = tick;
+        ++next.split_episodes;
+        next.peak_component_count = connected_component_count;
+        next.rejoin_ticks.reset();
+        next.time_to_split_ticks.reset();
+        if (next.pressure_episode_open) {
+            next.time_to_split_ticks = tick - next.pressure_onset_tick;
+        }
+    } else if (next.split) {
+        next.peak_component_count = std::max(next.peak_component_count, connected_component_count);
+    } else if (was_split) {
+        next.split_episode_open = false;
+        next.rejoin_ticks = tick - next.split_onset_tick;
+        ++next.rejoins;
+    }
+    if (next.split) {
+        ++next.ticks_split;
+    }
+
+    // Settle. Evaluated on the release tick as well, so a flock that never left
+    // `settled` settles in zero ticks rather than in the first tick after it.
+    if (next.settle_pending && next.flock_settled) {
+        next.settle_ticks = tick - next.release_tick;
+        next.settle_pending = false;
+    }
+    return next;
 }
 
 } // namespace wide_eye::game
