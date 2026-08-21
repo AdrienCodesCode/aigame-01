@@ -105,7 +105,24 @@ sheep's published dog bearing stays relative to its prior heading while that
 heading changes, a lowered maximum clamps a speed integration accumulated where
 the control runs past it, the heading floor is observed from both sides, and
 reversed-storage identity, restart, unevaluated-limit evidence, and zero
-allocations across 600 fixed updates all hold;
+allocations across 600 fixed updates all hold; paired behavior-transition off/on
+fixtures with no steering term enabled in which every published position and every
+evidence record is identical between the two members and only arousal and
+behavior differ, the off member stays settled at exactly zero arousal, one
+deterministic run walks settled, alert, driven, recovering, and settled with each
+ladder transition produced by a prior arousal exactly on its threshold and
+`recovering` produced by release rather than by decay, arousal rises and decays at
+exactly the configured per-tick budgets, a dog exactly at the stimulus radius
+raises none at all, an exact overlap raises the maximum, temperament puts two
+sheep at the same distance at opposite ends of the ladder, a stimulus above the
+maximum is clamped, two runs holding the same arousal inside the driven
+hysteresis band publish two different stable labels, a sheep resting exactly on
+an entry threshold never flaps while an adversarial cause crosses that threshold
+on nearly every tick, a scripted dog that approaches, holds, and leaves walks the
+same four states, the same tick's dog move cannot alter a transition, an unknown
+behavior state and an out-of-range arousal are both rejected by the writer, and
+reversed-storage identity, restart of a non-zero starting arousal and label, and
+zero allocations across 600 fixed updates all hold;
 repeated scripted `presentation-motion` state, all-five
 translation, midpoint turn interpolation, immutable-prior publication, exact
 restart, and one-to-one moving proxy poses without claiming flock behavior;

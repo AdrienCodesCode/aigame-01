@@ -34,8 +34,12 @@ bool finite(const DogState& state) noexcept {
 }
 
 bool valid_state(const SheepState& state) noexcept {
+    // Arousal is a bounded design parameter rather than an unbounded
+    // accumulation, so a value outside its stated range is a broken contract
+    // rather than a stronger response.
     return finite(state.position) && finite(state.velocity) &&
            std::isfinite(state.heading_radians) && std::isfinite(state.arousal) &&
+           state.arousal >= kSheepMinimumArousal && state.arousal <= kSheepMaximumArousal &&
            is_known_sheep_behavior(state.behavior) && is_known_sheep_temperament(state.temperament);
 }
 
@@ -105,6 +109,9 @@ bool valid_dog_pressure_evidence(const GameplaySnapshot& snapshot) noexcept {
             evidence.dog_facing_alignment > 1.0 ||
             !is_known_paddock_obstacle(evidence.dog_line_of_sight_occluder) ||
             !std::isfinite(evidence.temperament_response_scale) ||
+            !std::isfinite(evidence.arousal_stimulus) ||
+            evidence.arousal_stimulus < kSheepMinimumArousal ||
+            evidence.arousal_stimulus > kSheepMaximumArousal ||
             !finite(evidence.pressure_acceleration) || !finite(evidence.approach_acceleration) ||
             !finite(evidence.facing_acceleration)) {
             return false;
@@ -126,7 +133,7 @@ bool valid_dog_pressure_evidence(const GameplaySnapshot& snapshot) noexcept {
              evidence.dog_approach_speed != 0.0 || evidence.dog_facing_alignment != 0.0 ||
              evidence.dog_line_of_sight_blocked ||
              evidence.dog_line_of_sight_occluder != PaddockObstacle::none ||
-             evidence.temperament_response_scale != 0.0 ||
+             evidence.temperament_response_scale != 0.0 || evidence.arousal_stimulus != 0.0 ||
              evidence.pressure_acceleration != Vec3{} || evidence.approach_acceleration != Vec3{} ||
              evidence.facing_acceleration != Vec3{})) {
             return false;
@@ -475,6 +482,10 @@ bool append_dog_pressure_evidence(std::string& output, const SheepDogPressureEvi
     output += paddock_obstacle_name(evidence.dog_line_of_sight_occluder);
     output += "\",\"temperament_response_scale\":";
     if (!append_double(output, evidence.temperament_response_scale)) {
+        return false;
+    }
+    output += ",\"arousal_stimulus\":";
+    if (!append_double(output, evidence.arousal_stimulus)) {
         return false;
     }
     output += ",\"pressure_acceleration\":";

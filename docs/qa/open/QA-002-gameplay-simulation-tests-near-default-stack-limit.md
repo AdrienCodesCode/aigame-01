@@ -187,3 +187,41 @@ Inference: candidate direction 3 — shrinking `SheepSpatialGrid`, whose
 only listed direction that addresses the actual growth rate. Directions 1 and 2
 move where fixtures live, and the last two outcomes have shown that fixture
 placement is no longer what consumes the headroom. Roughly `830 KiB` remains.
+
+## Update — 2026-08-21, behavior transitions and arousal
+
+Observed result (same host, build, and method): **the requirement grew again,
+but by one grid step rather than two.** Driving the four behavior states needed
+no new per-sheep array — `arousal` and `behavior` already exist on `SheepState` —
+so the only published addition was one `double` on the existing dog-stimulus
+record. That moved `sizeof(GameplaySnapshot)` from 2,352 to 2,392 bytes and
+`sizeof(GameplaySimulation)` from 117,904 to 118,040, the extra 56 bytes being
+the new scenario configuration the simulation also stores by value.
+
+| grid | before (`d5e3276`) | after |
+| --- | --- | --- |
+| 200 KiB reporting grid, `dev` binary | `7400` exits 0, `7300` segfaults | unchanged |
+| 20 KiB sweep, two comparable standalone builds | `7360 KiB` | `7380 KiB` |
+
+The record shape was measured rather than assumed again, and this time the
+answer is the opposite of the avoidance one. Measured with Clang 18
+(`clang++-18 -std=c++23 -I src`):
+
+```
+separate: head_dog_record=128 arousal_record=16 total_per_sheep=144
+folded:   136
+```
+
+Padding absorbed the duplicated `subject_id` for the 40-byte avoidance record;
+it does not absorb it for a 16-byte one. Extending the existing record therefore
+saved 8 bytes per sheep — about 5.6 KiB of `main` frame — over publishing a
+parallel array, on top of being the better ownership answer.
+
+Inference, unchanged: the growth rate is still set by
+`sizeof(GameplaySnapshot)` multiplied by the roughly seventy simulations `main`
+holds by value, and candidate direction 3 — shrinking `SheepSpatialGrid`, whose
+1,000-member ceiling is what does the multiplying — is still the only listed
+direction that addresses it. What this outcome adds is a second mitigation worth
+naming: **publish new per-sheep state on `SheepState` or on an existing evidence
+record rather than as a new array**, which cost 20 KiB here against the previous
+two outcomes' 40 KiB each. Roughly `810 KiB` remains.

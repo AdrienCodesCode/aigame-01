@@ -130,8 +130,9 @@ paddock occluder, separated pressure/approach/facing evidence, the
 combined-influence bound's pre-bound summed magnitude, applied scale, and applied
 acceleration, the motion limits' integrated speed, applied speed scale,
 applied speed, motion direction, and applied heading change, and avoidance's
-named obstacle ahead, its distance, whether a drop lies ahead, and the
-acceleration the term produced.
+named obstacle ahead, its distance, whether a drop lies ahead, the
+acceleration the term produced, and the dimensionless arousal stimulus that same
+dog geometry produces.
 Compatibility validation completes before replay mutation, and canonical
 compact JSON writers expose replay plus published state. The bounded
 presentation capture path can write the latter beside a frame; file decoding
@@ -257,10 +258,32 @@ paddock's ground is finite everywhere inside its own bounds, so the only drop
 that exists today is the paddock edge. Paired `sheep-avoidance-off` and
 `sheep-avoidance-on` fixtures enable no other steering term, start every driven
 sheep exactly half a look-ahead from the face it is heading at, and differ only by
-the avoidance switch. Damping, terrain, avoidance against an interior ledge, the
-terrain pressure factor, and behavior-state transitions remain deferred. Flock-level
-dog-relative and response-timing observables also remain deferred until their
-required behavior
+the avoidance switch. Two fields that had existed unwritten in the authoritative
+buffer since the first sheep are now driven: `arousal` and `behavior`. **Arousal
+is a named game parameter, not a claim about animal physiology** — a bounded
+`[0, 1]` design variable, not a heart rate or a stress hormone — and it follows
+the published dog stimulus, expressed as a dimensionless fraction of the same
+linear falloff over the same radius, released by the same sight line and scaled by
+the same temperament factor, at a scenario-owned rise rate upward and a slower
+recovery rate downward. It cannot overshoot, so it cannot oscillate on its own.
+Arousal plus whether a cause is acting selects `settled`, `alert`, `driven`, or
+`recovering` from the immutable prior label, prior arousal, and prior-state
+stimulus, with each band entered at its named arousal and left only at a lower
+one so a sheep resting on a threshold holds its label. `recovering` is the state
+after release and before rest, and it is the one label a sheep can never carry
+while a cause is acting on it. **No steering term reads either field**: the
+transitions are deliberately observational for now, and the paired
+`sheep-behavior-transitions-off` and `sheep-behavior-transitions-on` fixtures —
+which enable no steering term and differ only by the transition switch — prove it
+by publishing identical positions and identical evidence.
+[`ADR 0009`](../docs/decisions/0009-behavior-transitions-and-arousal.md) records
+the non-physiological framing, the rates and thresholds, why hysteresis is
+separate thresholds rather than a dwell timer, and what is deliberately left out.
+Damping, terrain, avoidance against an interior ledge, the
+terrain pressure factor, arousal causes other than the dog, and any effect of
+behavior on steering remain deferred. Flock-level
+dog-relative and response-timing observables also remain deferred until the
+required named behavior
 scenarios exist. The dog is a kinematic upright
 cylinder whose world-space
 planar motor bounds vector acceleration/deceleration, rotates facing toward
@@ -277,6 +300,7 @@ meshes; the same game-owned field answers the sheep sight-line query. Version 1,
 `sheep-temperament-varied`, `sheep-combined-influence-off`,
 `sheep-combined-influence-on`, `sheep-motion-limit-off`, `sheep-motion-limit-on`,
 `sheep-avoidance-off`, `sheep-avoidance-on`,
+`sheep-behavior-transitions-off`, `sheep-behavior-transitions-on`,
 `wall-contact`, `closed-gate`, and `open-gate` gameplay definitions provide
 deterministic initialization and exact restart. The
 gameplay camera owns orbit yaw/pitch independently of dog facing; orchestration

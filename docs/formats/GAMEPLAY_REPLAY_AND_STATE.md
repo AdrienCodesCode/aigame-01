@@ -1,10 +1,11 @@
 # Gameplay replay and state-dump contracts
 
-**Status:** Version 1 seed/action/replay and version 13 dog, five-sheep, social-
+**Status:** Version 1 seed/action/replay and version 14 dog, five-sheep, social-
 evidence, dog-stimulus-evidence, sheep-temperament, sheep-collision-evidence,
-combined-influence-bound, sheep-motion-limit, and sheep-avoidance state dump
-implemented; the presentation capture CLI can write a state dump, while JSON
-decoding and general replay/seed CLI integration remain pending
+combined-influence-bound, sheep-motion-limit, sheep-avoidance, and
+sheep-arousal-stimulus state dump implemented; the presentation capture CLI can
+write a state dump, while JSON decoding and general replay/seed CLI integration
+remain pending
 
 **Last revised:** 2026-08-21
 
@@ -39,7 +40,7 @@ The contracts use four independently named versions:
   authoritative tick;
 - replay format `1` binds the tick rate, seed contract, action-input version,
   and complete action sequence;
-- state-dump format `13` records the seed contract, tick rate, restart count, and
+- state-dump format `14` records the seed contract, tick rate, restart count, and
   published previous/current dog, five-sheep, social-evidence, dog-stimulus-
   evidence, sheep-collision-evidence, combined-influence-bound,
   sheep-motion-limit, and sheep-avoidance snapshots. Version 1 was dog-only,
@@ -93,16 +94,19 @@ decoder, replay file path, checked-in replay fixture, and executable
 `--replay`/`--seed` flags are intentionally deferred. No untrusted or external
 JSON is accepted by the engine yet.
 
-## State dump version 13
+## State dump version 14
 
 The schema name is `wide-eye.gameplay-state`. The dump contains the scenario
 seed contract, fixed rate, restart count, and complete published previous and
 current snapshots. Each snapshot contains the dog position, velocity, heading,
 and grounded state plus exactly five sheep. Every sheep record contains ID,
 position, velocity, heading, arousal, explicit behavior state, explicit
-temperament, and grounded state. Temperament is `ordinary`, `nervous`, or
-`stubborn`; it is part of the scenario's starting contract, does not change
-during a run, and an unknown value is rejected before encoding. A parallel fixed-size evidence record maps to each sheep by subject ID
+temperament, and grounded state. Behavior is `settled`, `alert`, `driven`, or
+`recovering` and arousal is a bounded `[0, 1]` value; both are described under
+"Behavior transitions and arousal" below, and an unknown behavior state or an
+out-of-range arousal is rejected before encoding. Temperament is `ordinary`,
+`nervous`, or `stubborn`; it is part of the scenario's starting contract, does
+not change during a run, and an unknown value is rejected before encoding. A parallel fixed-size evidence record maps to each sheep by subject ID
 and contains the exact attraction and alignment selected-neighbor IDs, selected
 and in-radius candidate counts, and separate separation, attraction, and
 alignment acceleration vectors. The writer validates subject mapping, bounds,
@@ -111,8 +115,8 @@ encoding. A second fixed-size record per sheep states whether dog stimulus was
 evaluated, then publishes the prior-state planar dog distance, signed bearing
 relative to sheep heading, dog approach speed, dog facing alignment, whether the
 sight line to the dog is blocked, the named paddock obstacle that blocks it, the
-temperament response scale that sheep applied, and separate pressure-,
-approach-, and facing-acceleration vectors. Approach speed
+temperament response scale that sheep applied, the arousal stimulus that scale
+produced, and separate pressure-, approach-, and facing-acceleration vectors. Approach speed
 is the component of prior dog velocity along the dog-to-sheep direction:
 positive when the dog closes, negative when it leaves. Facing alignment is the
 cosine between the prior dog forward direction and the dog-to-sheep direction:
@@ -128,10 +132,20 @@ version 9 arithmetic bit for bit while a `nervous` or `stubborn` sheep publishes
 the same stimulus and a proportionally larger or smaller response. The scale is a
 property of the prior sheep rather than of the geometry, so it is published
 whenever stimulus was evaluated, including at exact dog/sheep overlap where every
-geometric term is zero. The writer requires
+geometric term is zero. `arousal_stimulus` is the same dog stimulus expressed as a
+dimensionless `[0, 1]` fraction rather than as an acceleration: the same linear
+distance falloff over the same radius, released by the same line-of-sight rule,
+scaled by the same temperament factor, and clamped to the arousal range because a
+`nervous` scale can carry the product above one. It is the cause the behavior
+transitions read, and it is published whenever stimulus was evaluated — including
+at exact dog/sheep overlap, where the proximity is maximal and every geometric
+term is zero — in a scenario with the transitions switched off as well as on, so a
+paired control publishes an identical cause and only the applied arousal differs.
+The writer requires
 unevaluated stimulus fields to remain zero, requires a blocked flag to name an
 obstacle and a clear flag to name `none`, requires an evaluated stimulus to
-publish a finite, strictly positive response scale, and validates finite
+publish a finite, strictly positive response scale, requires the arousal stimulus
+to be finite and within `[0, 1]`, and validates finite
 distance/approach data, a bearing within `[-π, π]`, and an alignment within
 `[-1, 1]` before encoding.
 
@@ -233,6 +247,45 @@ response is binary, and the limits that are recorded rather than fixed — inclu
 that the flat paddock has no interior drop, so the drop half is verified only
 against the paddock edge until Phase 5 terrain exists.
 
+### Behavior transitions and arousal
+
+**Arousal is a named game parameter, not a claim about animal physiology.** It is
+not a heart rate, a stress hormone, or any measured animal response; nothing in
+this project has measured an animal. It is a bounded `[0, 1]` design variable
+whose only job is to select one of the four behavior labels, and the writer
+rejects a value outside that range.
+
+Arousal is a rate-limited follower of `arousal_stimulus`: it moves toward that
+value at up to a scenario-owned rise rate while the stimulus is higher and at up
+to a scenario-owned recovery rate while it is lower, and is assigned exactly when
+the stimulus is within one tick's budget. It therefore stays inside `[0, 1]`
+without a clamp and cannot overshoot, so any oscillation visible in arousal is an
+oscillation in its cause.
+
+The behavior state is selected from *prior* state only — the prior label, the
+arousal that label produced, and the prior-state stimulus — so the same tick's
+arousal update cannot change it. Reading a transition out of the dump therefore
+means reading `previous.sheep[i].arousal` together with
+`current.…dog_pressure_evidence[i].arousal_stimulus`: those two values are what
+produced `current.sheep[i].behavior`, and the arousal published beside a new
+label is already one tick past the threshold that selected it.
+
+`settled` means the sheep is not engaged: either no cause has lifted its arousal
+as far as the alert threshold, or it has already come back to rest — so a
+`settled` sheep may still carry a small arousal from a weak cause. `alert` and
+`driven` mean a cause is acting and arousal has passed the alert or driven
+threshold. `recovering` means the cause has been released and arousal has not yet
+returned to rest; it is the one label a sheep can never carry while a cause is
+acting on it. Each band is entered at its named arousal and left only at a lower
+one, so a sheep whose arousal rests on an entry threshold holds its label instead
+of alternating. No steering term reads the arousal or the label in this version:
+the transitions are observational, and a scenario with them switched off is
+arithmetically identical.
+[`ADR 0009`](../decisions/0009-behavior-transitions-and-arousal.md) records the
+non-physiological framing, the rates and thresholds, why hysteresis is separate
+thresholds rather than a dwell timer, and the limits that are recorded rather
+than fixed.
+
 IDs 1–5 initialize in a fixed contiguous buffer with `settled` behavior and zero
 arousal. The default scenarios keep them stationary. The version 1, seed-zero
 `presentation-motion` fixture moves them through a deterministic scripted path
@@ -308,10 +361,24 @@ it can see, one runs at the same wall near an end it can reach and is deflected
 along it, one runs head-on at the exact middle of the closed gate where neither
 free edge is nearer, one runs at the paddock's own outer bound — the only drop
 that exists while the ground is flat — and one runs parallel to the wall line
-closer than the look-ahead and is left exactly alone. Terrain,
-behavior-state transitions, and damping remain absent, and avoidance does not
-replace the hard collision authority: the paddock still resolves every
-displacement last. A non-finite state is rejected because JSON has no portable
+closer than the look-ahead and is left exactly alone. The paired
+`sheep-behavior-transitions-off` and `sheep-behavior-transitions-on` fixtures
+enable no steering term at all — temperament is enabled, but with every dog term
+off it produces no vector and only scales the arousal stimulus — and differ only
+by the transition switch and the required scenario ID. They widen the shared
+dog-pressure radius to exactly `8.0` so that one tick of the subject sheep's
+exact `3.75` world-units/s travel moves the stimulus by exactly one part in 128.
+One sheep is given that velocity and carried from exactly the stimulus radius,
+straight through the dog, and out to the far side, so the dog-to-sheep distance
+closes and opens exactly as it would if the dog walked in and left; one stands at
+exactly the stimulus radius, where the falloff is exactly zero; one stands where
+the stimulus is exactly `0.625`, inside the driven hysteresis band; and a
+`nervous` and a `stubborn` sheep stand at the same exact `5`-unit distance, so an
+identical cause puts one exactly on the driven entry threshold and leaves the
+other below the alert threshold entirely. Terrain and damping remain absent,
+avoidance does not replace the hard collision authority — the paddock still
+resolves every displacement last — and behavior does not feed back into
+steering. A non-finite state is rejected because JSON has no portable
 representation for NaN or infinity.
 
 The state dump is an observation, not a save format. It does not restore a
@@ -650,6 +717,48 @@ they come from. The paddock is flat, so the drop half is exercised only against
 the paddock edge and nothing here is evidence about an interior ledge. This is
 synthetic causal evidence rather than player-facing motion acceptance.
 
+**Observed result (2026-08-21):** the required per-sheep arousal stimulus
+advanced the state dump to version 14 when the four behavior transitions and the
+explicitly non-physiological arousal proxy were implemented. The paired
+transitions fixture enables no steering term, so every published position and
+every evidence record was identical between the two members over 400 ticks and
+only `arousal` and `behavior` differed; the off member stayed `settled` with an
+arousal of exactly `0` on every tick. In one deterministic run the subject sheep
+walked `settled` -> `alert` at tick `34`, `alert` -> `driven` at tick `98`,
+`driven` -> `recovering` at tick `241`, and `recovering` -> `settled` at tick
+`354`. Each ladder transition was produced by a prior arousal exactly on its
+threshold — `0.25`, `0.75`, and `0.125` — and `recovering` was produced by the
+stimulus falling to exactly the `0.125` rest threshold while the sheep still
+carried `0.56640625`, so release rather than decay is what selects it. Arousal
+rose by exactly `1/32` and decayed by exactly `1/256` per tick, and an exact
+dog/sheep overlap drove it to exactly `1`. The sheep standing at exactly the
+`8.0` stimulus radius published a stimulus of exactly `0` and never left
+`settled`. The `nervous` and `stubborn` sheep at the same exact `5`-unit distance
+published exactly `0.75` and `0.1875`, ending `driven` and `settled`
+respectively, and a derived `nervous` sheep `1.0` from the dog clamped to exactly
+`1`. Two derived runs holding exactly `0.625` — inside the `0.5`..`0.75` driven
+hysteresis band — published `alert` in one and `driven` in the other with zero
+label changes in 240 ticks each, and the `nervous` sheep sat on the exact `0.75`
+entry threshold for 376 consecutive ticks without leaving `driven`. Under an
+adversarial cause tuned so the published arousal crossed that entry threshold on
+`377` of `400` ticks — 150 ticks above and 150 below in the measured tail — the
+rule changed the published label twice in total and zero times after tick 100. A
+derived run in which the *dog* approached, held, and left under scripted input
+walked the same four states at ticks `35`, `88`, `244`, and `346`. The oracle
+also proved that the same tick's dog move cannot alter the transition, that
+reversed sheep storage preserved exact per-ID state and evidence, that restart
+restored a non-zero starting arousal and label exactly, that an unknown behavior
+state and an out-of-range arousal are both rejected by the writer, and that 600
+enabled ticks allocated no heap memory. A direct comparison against a pre-change
+build ran all twenty-seven earlier scenarios for 240 scripted ticks each and
+found every canonical dump byte-identical once the new key and the version number
+were removed, so version 14 adds a field without reinterpreting version 13
+values. On WSL Ubuntu 24.04.4 with Clang 18.1.3, development, Release, and
+ASan/UBSan configurations each passed 24/24 CTests; formatting and bounded
+clang-tidy passed. Every rate and threshold is a provisional legibility choice
+rather than a measured value, arousal is a named game parameter rather than a
+physiological measurement, and no player has seen a sheep change state.
+
 **Observed result (2026-08-16):** the earlier native Windows Release capture
 commands wrote canonical version 2 state at presentation ticks 1, 61, and 121.
 The independent normal, repeat-normal, and face-normal debug commands at tick 61
@@ -658,8 +767,9 @@ byte-identical state files with SHA-256
 `8b2921e4a87bc2e8b8b86e08f4f17d8b3a7bf7c9413293b90b03b728ec27a905`.
 This is local same-platform evidence, not a cross-platform identity claim.
 
-Native Linux graphics, a native Windows version 13 capture, JSON decoding, CLI
+Native Linux graphics, a native Windows version 14 capture, JSON decoding, CLI
 replay/seed ingestion, persistent replay files, the terrain pressure factor,
-damping, avoidance against terrain rather than against the paddock edge, behavior
-transitions, objective outcomes,
+damping, avoidance against terrain rather than against the paddock edge, arousal
+causes other than the dog, any effect of behavior state on steering, objective
+outcomes,
 and cross-platform state or text identity remain untested or unimplemented.

@@ -54,7 +54,12 @@
     the analytic paddock face it would reach and halfway toward a reachable free
     edge of that same shape, pushes back from a look-ahead point whose ground is
     not finite, and is summed and bounded with every other term while the hard
-    paddock authority stays exactly where it was.
+    paddock authority stays exactly where it was; and
+  - authoritative, paired, independently switchable settled/alert/driven/
+    recovering behavior states driven by an explicitly non-physiological arousal
+    parameter that follows the published dog stimulus at named rise and recovery
+    rates and selects a state under explicit hysteresis, published per sheep and
+    deliberately read by no steering term.
 
   Detailed evidence remains with the checked Phase 3 items and their owning
   source, decision, format, test, and artifact records; completed Phase 0–2
@@ -98,7 +103,63 @@
   executables plus CTest remain the accepted Tracer 2 harness under
   [ADR 0003](docs/decisions/0003-project-owned-test-harness.md); framework
   adoption is deferred until a concrete maintenance cost justifies it.
-- **Verification run (2026-08-21, obstacle and drop avoidance):** on WSL Ubuntu
+- **Verification run (2026-08-21, behavior transitions and arousal):** on WSL
+  Ubuntu 24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan
+  configurations each built and passed 24/24 CTests; project formatting and
+  bounded clang-tidy passed, the QA tracker check passed, and `git diff --check`
+  reported nothing. The gameplay-simulation oracle observed the paired
+  transitions fixture — which enables no steering term and moves its subject
+  sheep past a stationary dog on an exact velocity so the whole stimulus curve is
+  exact arithmetic — publish identical positions and identical social,
+  dog-stimulus, collision, avoidance, combined-influence, and motion-limit records
+  in both members over 400 ticks, differing only in `arousal` and `behavior`, with
+  the off member `settled` at exactly `0` throughout. One deterministic run walked
+  `settled` -> `alert` at tick `34`, `alert` -> `driven` at tick `98`, `driven` ->
+  `recovering` at tick `241`, and `recovering` -> `settled` at tick `354`, each
+  ladder transition produced by a prior arousal of exactly `0.25`, `0.75`, and
+  `0.125` and `recovering` produced by the stimulus falling to exactly the `0.125`
+  rest threshold while the sheep still carried `0.56640625`. Arousal rose by
+  exactly `1/32` and decayed by exactly `1/256` per tick, an exact dog/sheep
+  overlap drove it to exactly `1`, a sheep at exactly the `8.0` stimulus radius
+  stayed at exactly `0`, and `nervous` and `stubborn` sheep at the same exact
+  `5`-unit distance published exactly `0.75` and `0.1875` and ended `driven` and
+  `settled`; a derived `nervous` sheep `1.0` from the dog clamped to exactly `1`.
+  Two derived runs holding exactly `0.625` inside the `0.5`..`0.75` driven
+  hysteresis band published `alert` in one and `driven` in the other with zero
+  label changes in 240 ticks each; the `nervous` sheep sat on the exact `0.75`
+  entry threshold for 376 consecutive ticks without leaving `driven`; and under an
+  adversarial cause tuned so the published arousal crossed that entry threshold on
+  `377` of `400` ticks — 150 above and 150 below in the tail — the rule changed the
+  published label twice in total and zero times after tick 100. A derived run in
+  which the dog itself approached, held, and left under scripted input walked the
+  same four states at ticks `35`, `88`, `244`, and `346`. The same tick's dog move
+  could not alter a transition, reversed storage and restart were exact including
+  a non-zero starting arousal and label, the writer still rejected an unknown
+  behavior state and now rejects an out-of-range arousal, and 600 ticks allocated
+  no heap memory. Required evidence advanced the state dump to version 14. A
+  comparison against a `HEAD` worktree build found all 27 pre-existing scenarios
+  byte-identical over 240 scripted ticks each once the new key and the version
+  number were removed, so no accepted measurement was invalidated; the worktree
+  was removed afterwards. The `ulimit -s` sweep of the `dev` test binary was
+  unchanged on the 200 KiB reporting grid (`7400` exits 0, `7300` segfaults) and a
+  finer 20 KiB sweep of two comparable standalone builds moved from `7360` to
+  `7380` KiB — one grid step rather than the previous two outcomes' two, because
+  the new state went onto `SheepState` and an existing evidence record instead of
+  into a new per-sheep array; recorded as a dated update on
+  [QA-002](docs/qa/open/QA-002-gameplay-simulation-tests-near-default-stack-limit.md).
+  Native Windows/Linux graphics and the presentation performance scenarios were
+  not rerun because no presentation path changed and this host exposes only
+  OpenGL 4.5. Evidence:
+  [ADR 0009](docs/decisions/0009-behavior-transitions-and-arousal.md),
+  [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp), and the
+  ignored
+  [oracle output](artifacts/phase3/2026-08-21/behavior-transitions-and-arousal-headless/gameplay-simulation-oracle.txt),
+  [accepted-scenario comparison](artifacts/phase3/2026-08-21/behavior-transitions-and-arousal-headless/accepted-scenario-state-diff.txt),
+  [stack headroom measurement](artifacts/phase3/2026-08-21/behavior-transitions-and-arousal-headless/stack-headroom.txt),
+  and
+  [verification gates](artifacts/phase3/2026-08-21/behavior-transitions-and-arousal-headless/verification-gates.txt).
+- **Prior verification run (2026-08-21, obstacle and drop avoidance):** on WSL Ubuntu
   24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
   each built and passed 24/24 CTests; project formatting and bounded clang-tidy
   passed, the QA tracker check passed, and `git diff --check` reported nothing.
@@ -342,9 +403,8 @@
   scenarios, and human visual review were not rerun because this outcome changes
   authoritative headless sheep behavior rather than pixels. Native Linux
   graphics, the named Iris Xe target, and a physical controller remain
-  unverified. Damping, obstacle and drop avoidance, the terrain pressure factor,
-  behavior transitions, objectives, success/failure, HUD, and fresh-player
-  evidence remain unimplemented. The summed steering terms now have one
+  unverified. Damping, the terrain pressure factor, objectives,
+  success/failure, HUD, and fresh-player evidence remain unimplemented. The summed steering terms now have one
   combined-influence bound, so the earlier limit that a temperament could
   multiply an unbounded sum is resolved: every social and dog term is added
   exactly as before and the sum alone is scaled down to a scenario-owned
@@ -381,10 +441,31 @@
   another shape rather than at open ground, and a sheep it has brought to rest
   stops being avoided for at all because the term reads travel direction rather
   than proximity.
+  The four behavior states are now driven, so the earlier limit that `arousal`
+  and `behavior` existed unwritten is resolved — but narrowly, and the narrowness
+  matters. **Behavior is observational: no steering term reads the arousal or the
+  label**, so nothing about how a sheep moves changed and the paired fixture
+  proves it by publishing identical positions and identical per-term evidence with
+  the rule off and on. The dog is the only cause of arousal; the accepted design's
+  other named causes — excessive speed, isolation, sudden direction changes — do
+  not contribute. `1.875`/s rise, `0.234375`/s recovery, and the `0.125`/`0.25`/
+  `0.5`/`0.75` thresholds are provisional legibility choices selected for exactly
+  representable arithmetic, not measured or tuned values, and **arousal is a named
+  game parameter rather than a physiological measurement**. The hysteresis is on
+  arousal only: arousal cannot oscillate on its own, but the released/acting test
+  is instantaneous, so a cause that appears and disappears on alternating ticks
+  would still alternate the label, and a dwell timer was rejected rather than
+  overlooked ([ADR 0009](docs/decisions/0009-behavior-transitions-and-arousal.md)).
+  A `settled` sheep is not necessarily at zero arousal: a cause too weak to reach
+  the alert threshold still raises it, so `settled` means "not engaged". None of
+  this is visible: with no debug arrow or label a state change can only be read
+  out of the state dump, and no player or reviewer has ever seen a sheep change
+  state.
   Temperament is a persistent per-sheep response scale on the dog
-  stimulus only: it does not modulate the social terms, does not change the shared
-  pressure radius or falloff, and does not yet interact with arousal, behavior
-  transitions, or terrain. Its `2.0` and `0.5` factors are a provisional
+  stimulus only: it does not modulate the social terms and does not change the
+  shared pressure radius or falloff. It now also scales the arousal stimulus,
+  which is the only interaction between temperament and the behavior states;
+  terrain remains absent. Its `2.0` and `0.5` factors are a provisional
   legibility choice rather than a measured or tuned value, and the three names
   are game-readable design labels, not validated biological categories. Dog
   visibility is binary, so
@@ -422,9 +503,11 @@
   `sheep-dog-facing-on`) after the tick at which a sheep first touches a wall;
   their accepted 60-tick and first-tick measurements are unaffected, but any
   later comparison against those fixtures must be re-derived.
-- **Next action:** implement settled, alert, driven, and recovering behavior
-  transitions plus the explicitly non-physiological arousal/recovery proxy, as the
-  next isolated variable with paired fixtures and published per-sheep evidence.
+- **Next action:** add debug arrows and labels for every influence, chosen
+  neighbour, arousal, target, state, and balance point. This is the first Phase 3
+  sheep-behavior outcome that requires human visual review: every rule so far has
+  been accepted on headless evidence alone, and the behavior states in particular
+  are currently invisible to anyone who is not reading a state dump.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
@@ -435,6 +518,7 @@
   [ADR 0006](docs/decisions/0006-combined-influence-acceleration-bound.md),
   [ADR 0007](docs/decisions/0007-bounded-sheep-speed-and-turning.md),
   [ADR 0008](docs/decisions/0008-obstacle-and-drop-avoidance.md),
+  [ADR 0009](docs/decisions/0009-behavior-transitions-and-arousal.md),
   [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
   [`math.hpp`](src/game/math.hpp),
   [`paddock_collision.hpp`](src/game/paddock_collision.hpp),
@@ -1371,8 +1455,56 @@ scope. Evidence: the archived
   [oracle output](artifacts/phase3/2026-08-21/sheep-temperaments-headless/gameplay-simulation-oracle.txt)
   and
   [accepted-scenario comparison](artifacts/phase3/2026-08-21/sheep-temperaments-headless/accepted-scenario-state-diff.txt).
-- [ ] Implement settled, alert, driven, and recovering transitions plus an
-  explicitly non-physiological arousal/recovery proxy.
+- [x] Implement settled, alert, driven, and recovering transitions plus an
+  explicitly non-physiological arousal/recovery proxy. Observed result
+  (2026-08-21): `SheepState::arousal` and `SheepBehaviorState` had existed
+  unwritten since the first sheep; both are now authoritative. Arousal is a
+  **named game parameter, not a claim about animal physiology** — a bounded
+  `[0, 1]` design variable, not a heart rate or a stress hormone — that follows
+  the published dog stimulus, expressed as a dimensionless fraction of the same
+  linear falloff over the same scenario-owned radius, released by the same sight
+  line and scaled by the same temperament factor, rising at `1.875`/s and
+  recovering at `0.234375`/s, which are exactly `1/32` and `1/256` per tick at
+  60 Hz. It cannot overshoot, so it cannot oscillate on its own. Arousal plus
+  whether a cause is acting selects the four states from the immutable prior
+  label, prior arousal, and prior-state stimulus under a Schmitt trigger whose
+  bands are entered at `0.25` and `0.75` and left at `0.125` and `0.5`. The
+  paired, independently switchable `sheep-behavior-transitions-off/on` fixtures
+  enable no steering term and published identical positions and identical social,
+  dog-stimulus, collision, avoidance, combined-influence, and motion-limit records
+  over 400 ticks, differing only in `arousal` and `behavior`, with the off member
+  `settled` at exactly `0` on every tick. In one deterministic run the subject
+  walked `settled` -> `alert` at tick `34`, `alert` -> `driven` at tick `98`,
+  `driven` -> `recovering` at tick `241`, and `recovering` -> `settled` at tick
+  `354`, each ladder transition produced by a prior arousal exactly on its
+  threshold and `recovering` produced by the stimulus falling to exactly the
+  `0.125` rest threshold while the sheep still carried `0.56640625`. Arousal rose
+  by exactly `1/32` and decayed by exactly `1/256` per tick, an exact dog overlap
+  drove it to exactly `1`, the sheep at exactly the `8.0` stimulus radius stayed
+  at exactly `0`, and the `nervous` and `stubborn` sheep at the same exact
+  `5`-unit distance published exactly `0.75` and `0.1875` and ended `driven` and
+  `settled`. Two derived runs holding exactly `0.625` inside the driven
+  hysteresis band published `alert` and `driven` with zero label changes in 240
+  ticks each; the `nervous` sheep sat on the exact `0.75` entry threshold for 376
+  consecutive ticks without leaving `driven`; and under an adversarial cause that
+  crossed that threshold on `377` of `400` ticks the rule changed the label twice
+  in total and zero times after tick 100. A scripted dog that approached, held,
+  and left walked the same four states at ticks `35`, `88`, `244`, and `346`.
+  Prior-state immunity, reversed-storage identity, restart of a non-zero starting
+  arousal and label, writer rejection of an unknown behavior state and of an
+  out-of-range arousal, and 600 zero-allocation ticks all held. Required evidence
+  advanced the state dump to version 14. **What this evidence does not cover:**
+  behavior is deliberately observational — no steering term reads either field, so
+  none of this changes how a sheep moves; the dog is the only cause of arousal;
+  every rate and threshold is a provisional legibility choice rather than a
+  measured value; a cause that flickers on and off on alternating ticks would
+  still alternate the label; and no player or reviewer has seen a sheep change
+  state, because there is still no debug arrow, label, or other visible output.
+  Evidence:
+  [ADR 0009](docs/decisions/0009-behavior-transitions-and-arousal.md),
+  [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
+  [`sheep_state.hpp`](src/game/sheep_state.hpp), and
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp).
 - [ ] Add debug arrows/labels for every influence, chosen neighbor, arousal,
   target, state, and balance point.
 - [ ] Test that randomness never masks unstable or unexplained steering.
@@ -1391,7 +1523,11 @@ scope. Evidence: the archived
   publishes per-sheep causal dog distance and relative bearing in state-dump
   version 5. Flock/rear-sheep summaries, response latency, split/rejoin time, and
   settle time remain absent pending the required transition scenarios, so this
-  item remains unchecked.
+  item remains unchecked. Partial observed result (2026-08-21): the four behavior
+  states and the arousal parameter they are selected from are now authoritative
+  and published per sheep, so the named transition scenarios these timings need
+  exist and the blocker is removed. Response latency, split/rejoin time, and
+  settle time are still not computed anywhere, so the item stays unchecked.
 - [x] Unit-test the implemented observable definitions on hand-authored positions
   and velocities. Observed result: exact symmetric-cross and separated-line
   fixtures cover isotropic/collinear shape, aligned/opposed/zero motion,

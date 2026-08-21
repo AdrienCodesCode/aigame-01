@@ -103,6 +103,7 @@ void validate_social_response_configuration(const GameplayScenarioDefinition& sc
     const SheepAvoidanceConfiguration& avoidance = scenario.sheep_avoidance;
     const SheepCombinedInfluenceConfiguration& combined = scenario.sheep_combined_influence;
     const SheepMotionLimitConfiguration& motion_limit = scenario.sheep_motion_limit;
+    const SheepBehaviorConfiguration& behavior = scenario.sheep_behavior;
     if (separation.enabled) {
         WIDE_EYE_ASSERT(std::isfinite(separation.radius) && separation.radius > 0.0,
                         "sheep separation radius must be finite and positive");
@@ -133,7 +134,10 @@ void validate_social_response_configuration(const GameplayScenarioDefinition& sc
                             alignment.neighbor_limit <= kMaximumSelectedAlignmentNeighbors,
                         "sheep alignment neighbor limit must fit published evidence");
     }
-    if (dog_pressure.enabled || dog_approach.enabled || dog_facing.enabled) {
+    // Arousal reads the same radius and the same linear falloff the dog terms
+    // read, so a scenario that drives arousal needs a usable radius even when
+    // every dog term is switched off.
+    if (dog_pressure.enabled || dog_approach.enabled || dog_facing.enabled || behavior.enabled) {
         WIDE_EYE_ASSERT(std::isfinite(dog_pressure.radius) && dog_pressure.radius > 0.0,
                         "sheep dog-pressure radius must be finite and positive");
     }
@@ -198,6 +202,41 @@ void validate_social_response_configuration(const GameplayScenarioDefinition& sc
                             motion_limit.maximum_turn_rate_radians_per_second > 0.0,
                         "sheep maximum turn rate must be finite and positive");
     }
+    if (behavior.enabled) {
+        // A zero or negative rate is not a slower response: arousal would stop
+        // following its cause in one direction, which is a way of switching the
+        // proxy off rather than of tuning it.
+        WIDE_EYE_ASSERT(std::isfinite(behavior.rise_rate_per_second) &&
+                            behavior.rise_rate_per_second > 0.0,
+                        "sheep arousal rise rate must be finite and positive");
+        WIDE_EYE_ASSERT(std::isfinite(behavior.recovery_rate_per_second) &&
+                            behavior.recovery_rate_per_second > 0.0,
+                        "sheep arousal recovery rate must be finite and positive");
+        // The ladder has to be a ladder. Each band must be entered above where
+        // it is left, or the hysteresis is not hysteresis, and the bands must
+        // not cross, or two states would claim the same arousal.
+        WIDE_EYE_ASSERT(std::isfinite(behavior.rest_arousal) &&
+                            behavior.rest_arousal > kSheepMinimumArousal,
+                        "sheep rest arousal must be finite and above the arousal minimum");
+        WIDE_EYE_ASSERT(std::isfinite(behavior.alert_arousal) &&
+                            behavior.alert_arousal > behavior.rest_arousal,
+                        "sheep alert arousal must be finite and above rest arousal");
+        WIDE_EYE_ASSERT(
+            std::isfinite(behavior.driven_release_arousal) &&
+                behavior.driven_release_arousal >= behavior.alert_arousal,
+            "sheep driven release arousal must be finite and at or above alert arousal");
+        WIDE_EYE_ASSERT(std::isfinite(behavior.driven_arousal) &&
+                            behavior.driven_arousal > behavior.driven_release_arousal &&
+                            behavior.driven_arousal <= kSheepMaximumArousal,
+                        "sheep driven arousal must be finite, above its release, and within range");
+        // Arousal is bounded by design, so a starting value outside the range is
+        // a broken contract rather than a stronger sheep.
+        for (const SheepState& sheep : scenario.initial_sheep) {
+            WIDE_EYE_ASSERT(std::isfinite(sheep.arousal) && sheep.arousal >= kSheepMinimumArousal &&
+                                sheep.arousal <= kSheepMaximumArousal,
+                            "initial sheep arousal must be finite and within the arousal range");
+        }
+    }
 }
 
 // How much of the ordinary dog response this sheep produces. `ordinary` is
@@ -243,6 +282,15 @@ void evaluate_dog_stimulus(const SheepState& prior_sheep, const DogState& prior_
     const double response_scale =
         sheep_temperament_response_scale(prior_sheep.temperament, scenario.sheep_temperament);
     dog_evidence.temperament_response_scale = response_scale;
+    // The same linear distance falloff the three dog terms use, hoisted out of
+    // the branch below because an exact overlap is the *strongest* proximity
+    // rather than an absent one: there is no away direction to publish at zero
+    // distance, but there is certainly a cause. Line of sight can only release
+    // it inside the branch, where an occluder can exist at all — nothing can
+    // stand between a pair at the same point.
+    const double proximity =
+        dog_distance < dog_pressure.radius ? 1.0 - dog_distance / dog_pressure.radius : 0.0;
+    double arousal_visibility = 1.0;
     if (dog_distance > 0.0) {
         dog_evidence.dog_relative_bearing_radians = std::remainder(
             std::atan2(dog_offset_x, -dog_offset_z) - prior_sheep.heading_radians, kTwoPi);
@@ -273,6 +321,7 @@ void evaluate_dog_stimulus(const SheepState& prior_sheep, const DogState& prior_
         // leaves the accepted visible-case arithmetic unchanged.
         const double visibility =
             line_of_sight.enabled && dog_evidence.dog_line_of_sight_blocked ? 0.0 : 1.0;
+        arousal_visibility = visibility;
 
         // A fully released term keeps its zeroed default rather than a scaled
         // vector, because scaling an away direction by zero would publish a
@@ -316,6 +365,95 @@ void evaluate_dog_stimulus(const SheepState& prior_sheep, const DogState& prior_
     // Exact overlap has no geometric away direction and nothing can stand
     // between the pair. Publish the zero bearing/approach/facing/sight data
     // instead of inventing a hidden random or ID-based turn.
+
+    // How much pressure this sheep is under, as a dimensionless fraction rather
+    // than as an acceleration. It is published whether or not the behavior
+    // transitions are switched on, so a paired control publishes an identical
+    // cause and only the applied arousal differs. The clamp matters: a nervous
+    // sheep's response scale can carry the product above one, and arousal is a
+    // bounded design parameter rather than an unbounded accumulation.
+    dog_evidence.arousal_stimulus = std::clamp(arousal_visibility * proximity * response_scale,
+                                               kSheepMinimumArousal, kSheepMaximumArousal);
+}
+
+// The four behavior states, selected from the immutable prior state.
+//
+// **Arousal is a named game parameter, not a claim about animal physiology.**
+// The rule below decides which of four *labels* a sheep carries; it does not
+// model a nervous system and no part of this project has calibrated it against
+// an animal.
+//
+// Every input is prior state: the prior label, the arousal that label produced,
+// and the prior-state stimulus. Nothing here reads the state being written, so
+// the same tick's arousal update cannot change the transition and the two can be
+// read side by side in the dump.
+//
+// The rule is a Schmitt trigger on arousal, plus one release test on the cause.
+// `rest_arousal` is both the bottom of the ladder and the "is a cause acting"
+// test, because a stimulus too weak to lift a sheep out of rest is not pressure;
+// using one number for both keeps them from disagreeing.
+[[nodiscard]] SheepBehaviorState
+next_sheep_behavior(const SheepState& prior, double stimulus,
+                    const SheepBehaviorConfiguration& behavior) noexcept {
+    if (stimulus <= behavior.rest_arousal) {
+        // The cause has been released. A sheep still carrying arousal is
+        // recovering — the state that exists so that release is a verb — and one
+        // that has shed it is settled.
+        return prior.arousal > behavior.rest_arousal ? SheepBehaviorState::recovering
+                                                     : SheepBehaviorState::settled;
+    }
+    // A cause is acting. Each band is entered at its named arousal and left only
+    // at a lower one, so a sheep sitting on an entry threshold holds its label
+    // instead of alternating every tick.
+    if (prior.arousal >= behavior.driven_arousal ||
+        (prior.behavior == SheepBehaviorState::driven &&
+         prior.arousal > behavior.driven_release_arousal)) {
+        return SheepBehaviorState::driven;
+    }
+    // A sheep that is already engaged — alert, driven, or recovering from an
+    // earlier press — stays alert down to rest rather than dropping back to
+    // settled at the alert entry threshold.
+    const bool engaged = prior.behavior != SheepBehaviorState::settled;
+    if (prior.arousal >= behavior.alert_arousal ||
+        (engaged && prior.arousal > behavior.rest_arousal)) {
+        return SheepBehaviorState::alert;
+    }
+    return SheepBehaviorState::settled;
+}
+
+// The arousal proxy and the transition it selects, written into the next sheep
+// buffer from the immutable prior one.
+//
+// **Arousal is a named game parameter, not a claim about animal physiology.** It
+// is a bounded `[0, 1]` design variable that follows the published dog stimulus
+// at named rates; it is not a heart rate, a stress hormone, or a measured animal
+// response.
+//
+// The follower never overshoots: when the stimulus is within one tick's budget
+// the arousal is assigned exactly, so it settles on its cause instead of
+// oscillating around it, and it stays inside `[0, 1]` because both endpoints do.
+//
+// This is deliberately observational: neither the arousal nor the state it
+// selects is read by any steering term in this outcome. ADR 0009 records why one
+// isolated variable at a time is worth more than a feedback loop that would
+// re-derive every accepted per-term oracle.
+void apply_behavior_transition(const SheepState& prior, const SheepBehaviorConfiguration& behavior,
+                               double stimulus, SheepState& next) noexcept {
+    if (!behavior.enabled) {
+        return;
+    }
+    const double rise_step = behavior.rise_rate_per_second * GameplaySimulation::kFixedDeltaSeconds;
+    const double recovery_step =
+        behavior.recovery_rate_per_second * GameplaySimulation::kFixedDeltaSeconds;
+    const double difference = stimulus - prior.arousal;
+    if (difference > rise_step) {
+        next.arousal = prior.arousal + rise_step;
+    } else if (difference < -recovery_step) {
+        next.arousal = prior.arousal - recovery_step;
+    } else {
+        next.arousal = stimulus;
+    }
+    next.behavior = next_sheep_behavior(prior, stimulus, behavior);
 }
 
 void apply_separation(const SheepStateBuffer& prior, std::size_t index,
@@ -641,6 +779,7 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
     const SheepAvoidanceConfiguration& avoidance = scenario.sheep_avoidance;
     const SheepCombinedInfluenceConfiguration& combined = scenario.sheep_combined_influence;
     const SheepMotionLimitConfiguration& motion_limit = scenario.sheep_motion_limit;
+    const SheepBehaviorConfiguration& behavior = scenario.sheep_behavior;
 
     const double grid_cell_size = std::max({separation.enabled ? separation.radius : 0.0,
                                             attraction.enabled ? attraction.radius : 0.0,
@@ -665,6 +804,12 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
             next.sheep_combined_influence_evidence[index];
 
         evaluate_dog_stimulus(prior[index], previous.dog, scenario, paddock, dog_evidence);
+        // Behavior runs immediately after the cause that drives it and before
+        // any steering term, because it reads only prior state and contributes
+        // nothing to the sum. Its position here is legibility, not ordering: no
+        // term below reads the arousal or the label it writes.
+        apply_behavior_transition(prior[index], behavior, dog_evidence.arousal_stimulus,
+                                  next.sheep[index]);
         if (separation.enabled) {
             apply_separation(prior, index, separation, grid, separation_scratch, evidence);
         }

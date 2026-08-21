@@ -1652,6 +1652,670 @@ AvoidanceOracle run_avoidance_oracle() {
     return result;
 }
 
+// What the behavior-transition oracle observed, returned so the run report can
+// name the numbers without keeping the fixtures alive in `main`.
+struct BehaviorTransitionOracle {
+    bool passed = false;
+    double rise_rate = 0.0;
+    double recovery_rate = 0.0;
+    double rise_step = 0.0;
+    double recovery_step = 0.0;
+    double rest_arousal = 0.0;
+    double alert_arousal = 0.0;
+    double driven_release_arousal = 0.0;
+    double driven_arousal = 0.0;
+    double stimulus_radius = 0.0;
+    std::uint64_t cycle_ticks = 0;
+    std::uint64_t alert_tick = 0;
+    std::uint64_t driven_tick = 0;
+    std::uint64_t recovering_tick = 0;
+    std::uint64_t settled_tick = 0;
+    double alert_prior_arousal = 0.0;
+    double driven_prior_arousal = 0.0;
+    double recovering_prior_arousal = 0.0;
+    double recovering_release_stimulus = 0.0;
+    double settled_prior_arousal = 0.0;
+    double peak_arousal = 0.0;
+    double control_arousal = 0.0;
+    double band_stimulus = 0.0;
+    double band_arousal = 0.0;
+    std::uint32_t band_alert_changes = 0;
+    std::uint32_t band_driven_changes = 0;
+    double boundary_stimulus = 0.0;
+    double boundary_arousal = 0.0;
+    std::uint64_t boundary_driven_ticks = 0;
+    double stubborn_stimulus = 0.0;
+    double stubborn_arousal = 0.0;
+    double clamped_stimulus = 0.0;
+    std::uint64_t adversarial_ticks = 0;
+    std::uint32_t adversarial_changes = 0;
+    std::uint32_t adversarial_late_changes = 0;
+    std::uint32_t adversarial_threshold_flips = 0;
+    std::uint32_t adversarial_above = 0;
+    std::uint32_t adversarial_below = 0;
+    std::uint64_t scripted_alert_tick = 0;
+    std::uint64_t scripted_driven_tick = 0;
+    std::uint64_t scripted_recovering_tick = 0;
+    std::uint64_t scripted_settled_tick = 0;
+    double scripted_peak_arousal = 0.0;
+    std::size_t allocations = 0;
+};
+
+// One sheep's published behavior history, recorded so the oracle can name the
+// exact tick of a transition and the prior state that produced it.
+struct BehaviorTransitionRecord {
+    std::uint64_t tick = 0;
+    double prior_arousal = 0.0;
+    double stimulus = 0.0;
+    double arousal = 0.0;
+    wide_eye::game::SheepBehaviorState from = wide_eye::game::SheepBehaviorState::settled;
+    wide_eye::game::SheepBehaviorState to = wide_eye::game::SheepBehaviorState::settled;
+};
+
+BehaviorTransitionOracle run_behavior_transition_oracle() {
+    BehaviorTransitionOracle result;
+    // Behavior transitions and the arousal proxy. Every accepted rule so far
+    // decides how a sheep is pushed; none of them says what the sheep *is*. The
+    // two fields that were supposed to say it — `arousal` and `behavior` — have
+    // existed in the authoritative buffer since the first sheep and have never
+    // been written, so every sheep in the game has been permanently `settled`
+    // with an arousal of exactly zero.
+    //
+    // Arousal is a **named game parameter, not a claim about animal
+    // physiology**: a bounded `[0, 1]` design variable that follows the
+    // published dog stimulus at named rates. The rule maps it, plus whether a
+    // cause is acting, onto the four accepted labels with explicit hysteresis.
+    //
+    // The paired fixture enables no steering term at all, so nothing can
+    // accelerate a sheep and every number below is exact arithmetic on the
+    // fixture's own geometry.
+    using wide_eye::game::SheepBehaviorState;
+    constexpr double kRiseRate = 1.875;
+    constexpr double kRecoveryRate = 0.234375;
+    constexpr double kRestArousal = 0.125;
+    constexpr double kAlertArousal = 0.25;
+    constexpr double kDrivenReleaseArousal = 0.5;
+    constexpr double kDrivenArousal = 0.75;
+    constexpr double kStimulusRadius = 8.0;
+    constexpr double kSubjectSpeed = 3.75;
+    constexpr std::uint64_t kCycleTicks = 400;
+    constexpr std::uint64_t kBandTicks = 240;
+    constexpr double kBandArousal = 0.625;
+    constexpr std::uint64_t kAdversarialTicks = 400;
+    constexpr double kAdversarialHoldSpeed = 0.1171875;
+    constexpr std::uint64_t kAdversarialSettleTick = 100;
+    constexpr std::uint64_t kScriptedApproachTicks = 90;
+    constexpr std::uint64_t kScriptedHoldTicks = 150;
+    constexpr std::uint64_t kScriptedTicks = 700;
+    const double rise_step = kRiseRate * wide_eye::game::GameplaySimulation::kFixedDeltaSeconds;
+    const double recovery_step =
+        kRecoveryRate * wide_eye::game::GameplaySimulation::kFixedDeltaSeconds;
+    result.rise_rate = kRiseRate;
+    result.recovery_rate = kRecoveryRate;
+    result.rise_step = rise_step;
+    result.recovery_step = recovery_step;
+    result.rest_arousal = kRestArousal;
+    result.alert_arousal = kAlertArousal;
+    result.driven_release_arousal = kDrivenReleaseArousal;
+    result.driven_arousal = kDrivenArousal;
+    result.stimulus_radius = kStimulusRadius;
+    result.cycle_ticks = kCycleTicks;
+    result.adversarial_ticks = kAdversarialTicks;
+
+    const auto behavior_off_scenario =
+        wide_eye::game::find_gameplay_scenario("sheep-behavior-transitions-off");
+    const auto behavior_on_scenario =
+        wide_eye::game::find_gameplay_scenario("sheep-behavior-transitions-on");
+    auto behavior_on_as_control =
+        behavior_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
+    if (behavior_off_scenario.has_value()) {
+        behavior_on_as_control.id = behavior_off_scenario->id;
+    }
+    behavior_on_as_control.sheep_behavior.enabled = false;
+    if (!check(behavior_off_scenario.has_value() && behavior_on_scenario.has_value() &&
+                   behavior_off_scenario->id ==
+                       wide_eye::game::GameplayScenarioId::sheep_behavior_transitions_off &&
+                   behavior_on_scenario->id ==
+                       wide_eye::game::GameplayScenarioId::sheep_behavior_transitions_on &&
+                   behavior_on_as_control == *behavior_off_scenario &&
+                   behavior_on_scenario->sheep_behavior.enabled &&
+                   !behavior_off_scenario->sheep_behavior.enabled &&
+                   behavior_off_scenario->version == 1 && behavior_off_scenario->seed == 0,
+               "paired_behavior_fixture_differs_only_by_the_transition_switch") ||
+        // The fixture must isolate the transitions: any enabled steering term
+        // would move a sheep and make the stimulus curve inexact. Temperament is
+        // deliberately enabled — with every dog term off it produces no vector
+        // at all, and its response scale is exactly the variable two of these
+        // sheep exist to show.
+        !check(!behavior_off_scenario->sheep_separation.enabled &&
+                   !behavior_off_scenario->sheep_attraction.enabled &&
+                   !behavior_off_scenario->sheep_alignment.enabled &&
+                   !behavior_off_scenario->sheep_dog_pressure.enabled &&
+                   !behavior_off_scenario->sheep_dog_approach.enabled &&
+                   !behavior_off_scenario->sheep_dog_facing.enabled &&
+                   !behavior_off_scenario->sheep_dog_line_of_sight.enabled &&
+                   !behavior_off_scenario->sheep_avoidance.enabled &&
+                   !behavior_off_scenario->sheep_combined_influence.enabled &&
+                   !behavior_off_scenario->sheep_motion_limit.enabled &&
+                   behavior_off_scenario->sheep_temperament.enabled,
+               "the_behavior_fixture_enables_no_steering_term") ||
+        // The rates and thresholds are exact binary fractions at 60 Hz, which is
+        // what lets every arousal value below be pinned with equality. Rise is
+        // exactly eight times recovery: pressure is felt in about half a second
+        // and shed over about four, because the accepted loop makes release the
+        // slow half of the pressure/release pair.
+        !check(behavior_on_scenario->sheep_behavior.rise_rate_per_second == kRiseRate &&
+                   behavior_on_scenario->sheep_behavior.recovery_rate_per_second == kRecoveryRate &&
+                   kRiseRate == 8.0 * kRecoveryRate && rise_step == 1.0 / 32.0 &&
+                   recovery_step == 1.0 / 256.0,
+               "the_arousal_rates_are_exact_binary_fractions_at_sixty_hertz") ||
+        // A ladder, not four unordered numbers: each band is entered above where
+        // it is left and the bands do not cross.
+        !check(behavior_on_scenario->sheep_behavior.rest_arousal == kRestArousal &&
+                   behavior_on_scenario->sheep_behavior.alert_arousal == kAlertArousal &&
+                   behavior_on_scenario->sheep_behavior.driven_release_arousal ==
+                       kDrivenReleaseArousal &&
+                   behavior_on_scenario->sheep_behavior.driven_arousal == kDrivenArousal &&
+                   wide_eye::game::kSheepMinimumArousal < kRestArousal &&
+                   kRestArousal < kAlertArousal && kAlertArousal <= kDrivenReleaseArousal &&
+                   kDrivenReleaseArousal < kDrivenArousal &&
+                   kDrivenArousal <= wide_eye::game::kSheepMaximumArousal,
+               "the_four_arousal_thresholds_form_an_ordered_hysteretic_ladder") ||
+        // The geometry is chosen so one tick of the subject's travel moves the
+        // stimulus by exactly one part in 128.
+        !check(behavior_on_scenario->sheep_dog_pressure.radius == kStimulusRadius &&
+                   behavior_on_scenario->initial_sheep[0].velocity.x == -kSubjectSpeed &&
+                   kSubjectSpeed * wide_eye::game::GameplaySimulation::kFixedDeltaSeconds ==
+                       1.0 / 16.0 &&
+                   (kSubjectSpeed * wide_eye::game::GameplaySimulation::kFixedDeltaSeconds) /
+                           kStimulusRadius ==
+                       1.0 / 128.0,
+               "one_subject_tick_moves_the_stimulus_by_exactly_one_part_in_one_hundred_and_"
+               "twenty_eight")) {
+        return result;
+    }
+
+    const SimulationHandle behavior_off = make_simulation(*behavior_off_scenario);
+    const SimulationHandle behavior_on = make_simulation(*behavior_on_scenario);
+    const auto behavior_initial = behavior_on->current_snapshot();
+
+    std::array<BehaviorTransitionRecord, 8> subject_transitions{};
+    std::size_t subject_transition_count = 0;
+    SheepBehaviorState subject_state = behavior_initial.sheep[0].behavior;
+    bool only_behavior_differs = true;
+    bool control_is_settled_at_zero = true;
+    bool recovering_only_after_release = true;
+    bool settled_never_hides_a_recovery = true;
+    bool rise_is_exactly_one_thirty_second = true;
+    bool recovery_is_exactly_one_two_hundred_and_fifty_sixth = true;
+    bool boundary_never_leaves_driven = true;
+    bool boundary_seen_driven = false;
+    std::uint64_t boundary_driven_ticks = 0;
+    for (std::uint64_t tick = 1; tick <= kCycleTicks; ++tick) {
+        behavior_off->fixed_update({});
+        behavior_on->fixed_update({});
+        const auto& on_snapshot = behavior_on->current_snapshot();
+        const auto& off_snapshot = behavior_off->current_snapshot();
+        const auto& on_prior = behavior_on->previous_snapshot();
+        for (std::size_t index = 0; index < on_snapshot.sheep.size(); ++index) {
+            const auto& on_member = on_snapshot.sheep[index];
+            const auto& off_member = off_snapshot.sheep[index];
+            const auto& stimulus = on_snapshot.sheep_dog_pressure_evidence[index];
+            // The transitions are observational: with the switch off every
+            // published field must be identical, and with it on only the two
+            // fields the rule writes may differ. That is the whole claim that
+            // behavior does not feed back into steering.
+            wide_eye::game::SheepState on_without_behavior = on_member;
+            on_without_behavior.arousal = off_member.arousal;
+            on_without_behavior.behavior = off_member.behavior;
+            only_behavior_differs = only_behavior_differs && on_without_behavior == off_member &&
+                                    stimulus == off_snapshot.sheep_dog_pressure_evidence[index] &&
+                                    on_snapshot.sheep_social_evidence[index] ==
+                                        off_snapshot.sheep_social_evidence[index] &&
+                                    on_snapshot.sheep_collision_evidence[index] ==
+                                        off_snapshot.sheep_collision_evidence[index] &&
+                                    on_snapshot.sheep_avoidance_evidence[index] ==
+                                        off_snapshot.sheep_avoidance_evidence[index] &&
+                                    on_snapshot.sheep_combined_influence_evidence[index] ==
+                                        off_snapshot.sheep_combined_influence_evidence[index] &&
+                                    on_snapshot.sheep_motion_limit_evidence[index] ==
+                                        off_snapshot.sheep_motion_limit_evidence[index];
+            control_is_settled_at_zero = control_is_settled_at_zero && off_member.arousal == 0.0 &&
+                                         off_member.behavior == SheepBehaviorState::settled;
+            // `recovering` is the released state and nothing else: it can never
+            // be published while a cause is acting, and a released sheep that
+            // still carries arousal can never be published as settled.
+            const bool cause_acting = stimulus.arousal_stimulus > kRestArousal;
+            const double prior_arousal = on_prior.sheep[index].arousal;
+            if (on_member.behavior == SheepBehaviorState::recovering) {
+                recovering_only_after_release =
+                    recovering_only_after_release && !cause_acting && prior_arousal > kRestArousal;
+            }
+            if (on_member.behavior == SheepBehaviorState::settled && !cause_acting) {
+                settled_never_hides_a_recovery =
+                    settled_never_hides_a_recovery && prior_arousal <= kRestArousal;
+            }
+        }
+
+        // Rates: the in-band sheep climbs by exactly one rise budget per tick
+        // until it reaches its cause, and the subject sheds exactly one recovery
+        // budget per tick for every tick it spends recovering.
+        const auto& band_member = sheep_with_id(on_snapshot.sheep, 3);
+        const auto& band_prior = sheep_with_id(on_prior.sheep, 3);
+        if (band_member.arousal < kBandArousal) {
+            rise_is_exactly_one_thirty_second =
+                rise_is_exactly_one_thirty_second &&
+                band_member.arousal - band_prior.arousal == rise_step;
+        }
+        const auto& subject = sheep_with_id(on_snapshot.sheep, 1);
+        const auto& subject_prior = sheep_with_id(on_prior.sheep, 1);
+        if (subject.behavior == SheepBehaviorState::recovering) {
+            recovery_is_exactly_one_two_hundred_and_fifty_sixth =
+                recovery_is_exactly_one_two_hundred_and_fifty_sixth &&
+                subject.arousal - subject_prior.arousal == -recovery_step;
+        }
+        // The nervous sheep's cause holds its arousal at exactly the driven
+        // entry threshold, so once it is driven it sits on that boundary for the
+        // rest of the run.
+        const auto& boundary_member = sheep_with_id(on_snapshot.sheep, 4);
+        boundary_seen_driven =
+            boundary_seen_driven || boundary_member.behavior == SheepBehaviorState::driven;
+        if (boundary_seen_driven) {
+            ++boundary_driven_ticks;
+            boundary_never_leaves_driven = boundary_never_leaves_driven &&
+                                           boundary_member.behavior == SheepBehaviorState::driven &&
+                                           boundary_member.arousal == kDrivenArousal;
+        }
+
+        result.peak_arousal = std::max(result.peak_arousal, subject.arousal);
+        if (subject.behavior != subject_state &&
+            subject_transition_count < subject_transitions.size()) {
+            subject_transitions[subject_transition_count] = {
+                .tick = tick,
+                .prior_arousal = subject_prior.arousal,
+                .stimulus =
+                    evidence_with_id(on_snapshot.sheep_dog_pressure_evidence, 1).arousal_stimulus,
+                .arousal = subject.arousal,
+                .from = subject_state,
+                .to = subject.behavior};
+            ++subject_transition_count;
+            subject_state = subject.behavior;
+        }
+    }
+    result.boundary_driven_ticks = boundary_driven_ticks;
+
+    const auto& final_on = behavior_on->current_snapshot();
+    result.control_arousal = sheep_with_id(final_on.sheep, 2).arousal;
+    result.band_arousal = sheep_with_id(final_on.sheep, 3).arousal;
+    result.band_stimulus =
+        evidence_with_id(final_on.sheep_dog_pressure_evidence, 3).arousal_stimulus;
+    result.boundary_arousal = sheep_with_id(final_on.sheep, 4).arousal;
+    result.boundary_stimulus =
+        evidence_with_id(final_on.sheep_dog_pressure_evidence, 4).arousal_stimulus;
+    result.stubborn_arousal = sheep_with_id(final_on.sheep, 5).arousal;
+    result.stubborn_stimulus =
+        evidence_with_id(final_on.sheep_dog_pressure_evidence, 5).arousal_stimulus;
+    if (subject_transition_count == 4) {
+        result.alert_tick = subject_transitions[0].tick;
+        result.alert_prior_arousal = subject_transitions[0].prior_arousal;
+        result.driven_tick = subject_transitions[1].tick;
+        result.driven_prior_arousal = subject_transitions[1].prior_arousal;
+        result.recovering_tick = subject_transitions[2].tick;
+        result.recovering_prior_arousal = subject_transitions[2].prior_arousal;
+        result.recovering_release_stimulus = subject_transitions[2].stimulus;
+        result.settled_tick = subject_transitions[3].tick;
+        result.settled_prior_arousal = subject_transitions[3].prior_arousal;
+    }
+
+    if (!check(only_behavior_differs, "the_transitions_change_nothing_but_arousal_and_behavior") ||
+        !check(control_is_settled_at_zero,
+               "a_fixture_with_the_transitions_off_stays_settled_at_exactly_zero_arousal") ||
+        // The one sequence the roadmap item names, in one deterministic run.
+        !check(subject_transition_count == 4 &&
+                   subject_transitions[0].from == SheepBehaviorState::settled &&
+                   subject_transitions[0].to == SheepBehaviorState::alert &&
+                   subject_transitions[1].to == SheepBehaviorState::driven &&
+                   subject_transitions[2].to == SheepBehaviorState::recovering &&
+                   subject_transitions[3].to == SheepBehaviorState::settled,
+               "one_run_walks_settled_alert_driven_recovering_settled_in_that_order") ||
+        // Each transition is produced by the *prior* arousal, so the arousal
+        // published beside a new label is already one tick past the threshold
+        // that selected it.
+        !check(
+            subject_transitions[0].prior_arousal == kAlertArousal &&
+                subject_transitions[1].prior_arousal == kDrivenArousal &&
+                subject_transitions[3].prior_arousal == kRestArousal,
+            "each_ladder_transition_is_produced_by_the_prior_arousal_exactly_at_its_threshold") ||
+        // Release, not decay, is what produces `recovering`: the cause fell to
+        // rest while the sheep was still carrying most of its arousal.
+        !check(subject_transitions[2].from == SheepBehaviorState::driven &&
+                   subject_transitions[2].stimulus <= kRestArousal &&
+                   subject_transitions[2].prior_arousal > kDrivenReleaseArousal,
+               "recovering_is_entered_by_release_while_the_sheep_is_still_aroused") ||
+        !check(recovering_only_after_release && settled_never_hides_a_recovery,
+               "recovering_and_settled_are_separated_by_whether_a_cause_is_acting") ||
+        !check(rise_is_exactly_one_thirty_second &&
+                   recovery_is_exactly_one_two_hundred_and_fifty_sixth,
+               "arousal_rises_and_decays_at_exactly_the_configured_rates") ||
+        !check(result.peak_arousal == wide_eye::game::kSheepMaximumArousal,
+               "an_exact_dog_overlap_drives_the_subject_to_full_arousal") ||
+        // The in-fixture control: a dog exactly at the stimulus radius is not a
+        // cause at all.
+        !check(result.control_arousal == 0.0 &&
+                   sheep_with_id(final_on.sheep, 2).behavior == SheepBehaviorState::settled &&
+                   evidence_with_id(final_on.sheep_dog_pressure_evidence, 2).dog_distance ==
+                       kStimulusRadius &&
+                   evidence_with_id(final_on.sheep_dog_pressure_evidence, 2).arousal_stimulus ==
+                       0.0,
+               "a_dog_exactly_at_the_stimulus_radius_raises_no_arousal_at_all") ||
+        // Temperament scales the cause, not the rule: two sheep at the same
+        // exact distance end at opposite ends of the ladder.
+        !check(result.boundary_stimulus == kDrivenArousal &&
+                   result.boundary_arousal == kDrivenArousal &&
+                   sheep_with_id(final_on.sheep, 4).behavior == SheepBehaviorState::driven &&
+                   result.stubborn_stimulus == 0.1875 &&
+                   result.stubborn_arousal == result.stubborn_stimulus &&
+                   sheep_with_id(final_on.sheep, 5).behavior == SheepBehaviorState::settled &&
+                   evidence_with_id(final_on.sheep_dog_pressure_evidence, 4).dog_distance ==
+                       evidence_with_id(final_on.sheep_dog_pressure_evidence, 5).dog_distance,
+               "temperament_scales_the_arousal_stimulus_from_an_identical_cause") ||
+        // The literal boundary case: a sheep whose arousal is exactly the driven
+        // entry threshold on every tick publishes `driven` on every one of them.
+        !check(boundary_driven_ticks > kCycleTicks / 2 && boundary_never_leaves_driven,
+               "a_sheep_resting_exactly_on_an_entry_threshold_never_flaps")) {
+        return result;
+    }
+
+    // Hysteresis in its defining form. Two runs of the same sheep under the same
+    // constant cause, holding exactly the same arousal inside the driven
+    // hysteresis band, differ only in the label they started from — and publish
+    // two different labels for the whole window. No rule that reads arousal
+    // alone can produce that.
+    auto band_alert_scenario = *behavior_on_scenario;
+    band_alert_scenario.initial_sheep[2].arousal = kBandArousal;
+    band_alert_scenario.initial_sheep[2].behavior = SheepBehaviorState::alert;
+    auto band_driven_scenario = band_alert_scenario;
+    band_driven_scenario.initial_sheep[2].behavior = SheepBehaviorState::driven;
+    const SimulationHandle band_alert = make_simulation(band_alert_scenario);
+    const SimulationHandle band_driven = make_simulation(band_driven_scenario);
+    bool band_arousal_is_constant = true;
+    SheepBehaviorState band_alert_state = SheepBehaviorState::alert;
+    SheepBehaviorState band_driven_state = SheepBehaviorState::driven;
+    for (std::uint64_t tick = 1; tick <= kBandTicks; ++tick) {
+        band_alert->fixed_update({});
+        band_driven->fixed_update({});
+        const auto& alert_member = sheep_with_id(band_alert->current_snapshot().sheep, 3);
+        const auto& driven_member = sheep_with_id(band_driven->current_snapshot().sheep, 3);
+        band_arousal_is_constant = band_arousal_is_constant &&
+                                   alert_member.arousal == kBandArousal &&
+                                   driven_member.arousal == kBandArousal;
+        if (alert_member.behavior != band_alert_state) {
+            ++result.band_alert_changes;
+            band_alert_state = alert_member.behavior;
+        }
+        if (driven_member.behavior != band_driven_state) {
+            ++result.band_driven_changes;
+            band_driven_state = driven_member.behavior;
+        }
+    }
+    if (!check(kDrivenReleaseArousal < kBandArousal && kBandArousal < kDrivenArousal &&
+                   band_arousal_is_constant,
+               "both_band_runs_hold_the_same_arousal_inside_the_driven_hysteresis_band") ||
+        !check(result.band_alert_changes == 0 && result.band_driven_changes == 0 &&
+                   band_alert_state == SheepBehaviorState::alert &&
+                   band_driven_state == SheepBehaviorState::driven,
+               "the_same_arousal_holds_two_different_stable_labels_from_two_prior_states")) {
+        return result;
+    }
+
+    // The adversarial case the hysteresis exists for: a cause tuned so the
+    // published arousal crosses the driven entry threshold in one direction or
+    // the other on nearly every tick. The rule must not follow it. The
+    // counterfactual is computed from the published arousal series rather than
+    // from a second rule in the engine: a threshold-only rule using the same
+    // `driven_arousal` would have changed the label once per crossing.
+    auto adversarial_scenario = *behavior_on_scenario;
+    adversarial_scenario.initial_sheep[0].position = {.x = 24.0, .y = 1.0, .z = 20.0};
+    adversarial_scenario.initial_sheep[0].velocity = {.x = kAdversarialHoldSpeed};
+    const SimulationHandle adversarial = make_simulation(adversarial_scenario);
+    SheepBehaviorState adversarial_state = SheepBehaviorState::settled;
+    bool adversarial_above_threshold = false;
+    bool adversarial_first_sample = true;
+    for (std::uint64_t tick = 1; tick <= kAdversarialTicks; ++tick) {
+        // A dog that reverses every single tick. Its wiggle moves the stimulus,
+        // and therefore the arousal, up and down on alternating ticks.
+        const wide_eye::game::GameplayTickInput input{
+            .dog_move = wide_eye::game::DogMoveInput{.world_x = tick % 2 == 1 ? 1.0 : -1.0}};
+        adversarial->fixed_update(input);
+        const auto& member = sheep_with_id(adversarial->current_snapshot().sheep, 1);
+        if (member.behavior != adversarial_state) {
+            ++result.adversarial_changes;
+            if (tick > kAdversarialSettleTick) {
+                ++result.adversarial_late_changes;
+            }
+            adversarial_state = member.behavior;
+        }
+        const bool above = member.arousal >= kDrivenArousal;
+        if (tick > kAdversarialSettleTick) {
+            if (above) {
+                ++result.adversarial_above;
+            } else {
+                ++result.adversarial_below;
+            }
+        }
+        if (!adversarial_first_sample && above != adversarial_above_threshold) {
+            ++result.adversarial_threshold_flips;
+        }
+        adversarial_first_sample = false;
+        adversarial_above_threshold = above;
+    }
+    if (!check(result.adversarial_above > 100 && result.adversarial_below > 100 &&
+                   result.adversarial_threshold_flips > kAdversarialTicks / 2,
+               "the_adversarial_cause_really_does_cross_the_threshold_on_alternating_ticks") ||
+        !check(result.adversarial_late_changes == 0 &&
+                   adversarial_state == SheepBehaviorState::driven,
+               "the_hysteretic_rule_holds_one_label_while_a_threshold_only_rule_would_flap")) {
+        return result;
+    }
+
+    // The same four-state sequence when the *dog* is the body that moves: it
+    // walks in, holds, and leaves under scripted input. The numbers are no
+    // longer exact — the dog motor's acceleration is not a binary fraction — but
+    // the sequence and its cause are the same, so the result does not depend on
+    // which body the fixture chose to move.
+    auto scripted_scenario = *behavior_on_scenario;
+    scripted_scenario.initial_sheep[0].velocity = {};
+    const SimulationHandle scripted = make_simulation(scripted_scenario);
+    SheepBehaviorState scripted_state = SheepBehaviorState::settled;
+    for (std::uint64_t tick = 1; tick <= kScriptedTicks; ++tick) {
+        wide_eye::game::GameplayTickInput input{.dog_move = wide_eye::game::DogMoveInput{}};
+        if (tick <= kScriptedApproachTicks) {
+            input.dog_move = wide_eye::game::DogMoveInput{.world_x = 1.0};
+        } else if (tick > kScriptedHoldTicks) {
+            input.dog_move = wide_eye::game::DogMoveInput{.world_x = -1.0};
+        }
+        scripted->fixed_update(input);
+        const auto& member = sheep_with_id(scripted->current_snapshot().sheep, 1);
+        result.scripted_peak_arousal = std::max(result.scripted_peak_arousal, member.arousal);
+        if (member.behavior == scripted_state) {
+            continue;
+        }
+        scripted_state = member.behavior;
+        switch (scripted_state) {
+        case SheepBehaviorState::alert:
+            if (result.scripted_alert_tick == 0) {
+                result.scripted_alert_tick = tick;
+            }
+            break;
+        case SheepBehaviorState::driven:
+            if (result.scripted_driven_tick == 0) {
+                result.scripted_driven_tick = tick;
+            }
+            break;
+        case SheepBehaviorState::recovering:
+            if (result.scripted_recovering_tick == 0) {
+                result.scripted_recovering_tick = tick;
+            }
+            break;
+        case SheepBehaviorState::settled:
+            if (result.scripted_driven_tick != 0 && result.scripted_settled_tick == 0) {
+                result.scripted_settled_tick = tick;
+            }
+            break;
+        }
+    }
+    if (!check(result.scripted_alert_tick != 0 &&
+                   result.scripted_driven_tick > result.scripted_alert_tick &&
+                   result.scripted_recovering_tick > result.scripted_driven_tick &&
+                   result.scripted_settled_tick > result.scripted_recovering_tick &&
+                   scripted_state == SheepBehaviorState::settled,
+               "a_dog_that_approaches_holds_and_leaves_walks_the_same_four_states")) {
+        return result;
+    }
+
+    // A nervous sheep close to the dog would carry the product above one.
+    // Arousal is a bounded design parameter, so the stimulus clamps instead.
+    auto clamped_scenario = *behavior_on_scenario;
+    clamped_scenario.initial_sheep[3].position = {.x = 22.0, .y = 1.0, .z = 21.0};
+    const SimulationHandle clamped = make_simulation(clamped_scenario);
+    clamped->fixed_update({});
+    const auto& clamped_evidence =
+        evidence_with_id(clamped->current_snapshot().sheep_dog_pressure_evidence, 4);
+    result.clamped_stimulus = clamped_evidence.arousal_stimulus;
+    if (!check(clamped_evidence.dog_distance == 1.0 &&
+                   clamped_evidence.temperament_response_scale == 2.0 &&
+                   result.clamped_stimulus == wide_eye::game::kSheepMaximumArousal,
+               "a_stimulus_above_the_arousal_maximum_is_clamped_rather_than_accumulated")) {
+        return result;
+    }
+
+    // The transition reads prior state, so the same tick's dog motion cannot
+    // change it: a fixture fed a full dog move on its first tick publishes
+    // exactly the arousal, label, and stimulus of one fed nothing at all.
+    const SimulationHandle prior_state_moved = make_simulation(*behavior_on_scenario);
+    const SimulationHandle prior_state_still = make_simulation(*behavior_on_scenario);
+    prior_state_moved->fixed_update(
+        {.dog_move = wide_eye::game::DogMoveInput{.world_x = -1.0, .sprint = true}});
+    prior_state_still->fixed_update({});
+    bool prior_state_is_immune = prior_state_moved->current_snapshot().dog.position.x !=
+                                 prior_state_still->current_snapshot().dog.position.x;
+    for (const auto& member : prior_state_still->current_snapshot().sheep) {
+        const auto& moved_member =
+            sheep_with_id(prior_state_moved->current_snapshot().sheep, member.id);
+        prior_state_is_immune =
+            prior_state_is_immune && moved_member.arousal == member.arousal &&
+            moved_member.behavior == member.behavior &&
+            evidence_with_id(prior_state_moved->current_snapshot().sheep_dog_pressure_evidence,
+                             member.id) ==
+                evidence_with_id(prior_state_still->current_snapshot().sheep_dog_pressure_evidence,
+                                 member.id);
+    }
+    if (!check(prior_state_is_immune,
+               "the_same_ticks_dog_move_cannot_alter_the_transition_it_reads_prior_state_for")) {
+        return result;
+    }
+
+    auto reversed_behavior_scenario = *behavior_on_scenario;
+    std::reverse(reversed_behavior_scenario.initial_sheep.begin(),
+                 reversed_behavior_scenario.initial_sheep.end());
+    const SimulationHandle reversed_behavior = make_simulation(reversed_behavior_scenario);
+    for (std::uint64_t tick = 1; tick <= 120; ++tick) {
+        reversed_behavior->fixed_update({});
+    }
+    const SimulationHandle forward_behavior = make_simulation(*behavior_on_scenario);
+    for (std::uint64_t tick = 1; tick <= 120; ++tick) {
+        forward_behavior->fixed_update({});
+    }
+    for (const auto& member : forward_behavior->current_snapshot().sheep) {
+        if (!check(member == sheep_with_id(reversed_behavior->current_snapshot().sheep, member.id),
+                   "behavior_and_arousal_are_stable_by_id_under_reversed_storage") ||
+            !check(
+                evidence_with_id(forward_behavior->current_snapshot().sheep_dog_pressure_evidence,
+                                 member.id) ==
+                    evidence_with_id(
+                        reversed_behavior->current_snapshot().sheep_dog_pressure_evidence,
+                        member.id),
+                "the_arousal_stimulus_is_stable_under_reversed_storage")) {
+            return result;
+        }
+    }
+
+    const auto behavior_state = wide_eye::game::gameplay_state_dump_json(*behavior_on);
+    const auto behavior_control_state = wide_eye::game::gameplay_state_dump_json(*behavior_off);
+    if (!check(behavior_state &&
+                   behavior_state.text.find("\"arousal\":0.75,\"behavior\":\"driven\","
+                                            "\"temperament\":\"nervous\"") != std::string::npos &&
+                   behavior_state.text.find("\"temperament_response_scale\":2,"
+                                            "\"arousal_stimulus\":0.75") != std::string::npos &&
+                   behavior_state.text.find("\"arousal\":0.625,\"behavior\":\"alert\"") !=
+                       std::string::npos,
+               "state_dump_contains_the_driven_and_alert_evidence") ||
+        !check(behavior_control_state &&
+                   behavior_control_state.text.find("\"arousal\":0,\"behavior\":\"settled\","
+                                                    "\"temperament\":\"nervous\"") !=
+                       std::string::npos &&
+                   behavior_control_state.text.find("\"arousal_stimulus\":0.75") !=
+                       std::string::npos,
+               "a_fixture_without_the_transitions_publishes_the_same_cause_and_no_arousal")) {
+        return result;
+    }
+
+    // The writer still refuses a state it cannot describe. Both fixtures below
+    // keep the transitions switched off so the scenario's own construction
+    // checks do not reject the value first: the point is that the *contract*
+    // rejects it.
+    auto unknown_behavior_scenario = *behavior_off_scenario;
+    unknown_behavior_scenario.initial_sheep[0].behavior = static_cast<SheepBehaviorState>(255);
+    auto out_of_range_scenario = *behavior_off_scenario;
+    out_of_range_scenario.initial_sheep[0].arousal = 1.5;
+    const SimulationHandle unknown_behavior = make_simulation(unknown_behavior_scenario);
+    const SimulationHandle out_of_range = make_simulation(out_of_range_scenario);
+    if (!check(wide_eye::game::gameplay_state_dump_json(*unknown_behavior).error ==
+                   wide_eye::game::GameplayContractError::non_finite_state,
+               "an_unknown_behavior_state_is_still_rejected") ||
+        !check(wide_eye::game::gameplay_state_dump_json(*out_of_range).error ==
+                   wide_eye::game::GameplayContractError::non_finite_state,
+               "an_arousal_outside_its_stated_range_is_rejected")) {
+        return result;
+    }
+
+    const SimulationHandle allocation_behavior = make_simulation(*behavior_on_scenario);
+    const std::size_t behavior_allocations_before = g_allocation_count;
+    for (std::uint32_t tick = 0; tick < 600; ++tick) {
+        allocation_behavior->fixed_update({});
+    }
+    result.allocations = g_allocation_count - behavior_allocations_before;
+    if (!check(result.allocations == 0, "behavior_fixed_updates_do_not_allocate")) {
+        return result;
+    }
+
+    // Restart restores the starting contract exactly, including a non-zero
+    // starting arousal and a non-settled starting label.
+    behavior_on->restart();
+    band_driven->restart();
+    bool restart_restores_arousal_and_behavior = true;
+    for (const auto& member : band_driven->current_snapshot().sheep) {
+        const auto& fixture = sheep_with_id(band_driven_scenario.initial_sheep, member.id);
+        restart_restores_arousal_and_behavior = restart_restores_arousal_and_behavior &&
+                                                member.arousal == fixture.arousal &&
+                                                member.behavior == fixture.behavior;
+    }
+    if (!check(behavior_on->current_snapshot() == behavior_initial &&
+                   behavior_on->previous_snapshot() == behavior_initial,
+               "behavior_restart_restores_the_paired_fixture") ||
+        !check(restart_restores_arousal_and_behavior &&
+                   sheep_with_id(band_driven->current_snapshot().sheep, 3).arousal ==
+                       kBandArousal &&
+                   sheep_with_id(band_driven->current_snapshot().sheep, 3).behavior ==
+                       SheepBehaviorState::driven,
+               "behavior_restart_restores_a_non_zero_starting_arousal_and_label")) {
+        return result;
+    }
+
+    result.passed = true;
+    return result;
+}
+
 } // namespace
 
 int main() {
@@ -3674,6 +4338,12 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // The behavior-transition oracle owns its own frame for the same reason.
+    const BehaviorTransitionOracle behavior = run_behavior_transition_oracle();
+    if (!behavior.passed) {
+        return EXIT_FAILURE;
+    }
+
     wide_eye::game::GameplaySimulation replay_a{*scenario};
     wide_eye::game::GameplaySimulation replay_b{*scenario};
     const wide_eye::game::GameplayReplay replay = sample_replay(replay_a);
@@ -3681,7 +4351,7 @@ int main() {
     if (!check(wide_eye::game::kGameplaySeedFormatVersion == 1 &&
                    wide_eye::game::kGameplayActionInputFormatVersion == 1 &&
                    wide_eye::game::kGameplayReplayFormatVersion == 1 &&
-                   wide_eye::game::kGameplayStateDumpFormatVersion == 13,
+                   wide_eye::game::kGameplayStateDumpFormatVersion == 14,
                "contract_versions_are_explicit") ||
         !check(replay_text &&
                    replay_text.text ==
@@ -3706,7 +4376,7 @@ int main() {
     const auto state_b = wide_eye::game::gameplay_state_dump_json(replay_b);
     if (!check(state_a && state_b && state_a.text == state_b.text,
                "canonical_state_dump_repeats") ||
-        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":13,"
+        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":14,"
                                         "\"tick_rate\":60,\"scenario\":{"),
                "state_dump_schema_header") ||
         !check(state_a.text.find("\"current\":{\"tick\":3") != std::string::npos,
@@ -4015,6 +4685,58 @@ int main() {
         << "sheep_avoidance_replaces_hard_collision=no\n"
         << "sheep_avoidance_verified_drop=paddock_edge_only\n"
         << "sheep_avoidance_steady_state_allocations=" << avoidance.allocations << '\n'
+        << "sheep_behavior_fixture=exact_stimulus_curve_paired_control\n"
+        << "sheep_behavior_arousal_is_physiological=no\n"
+        << "sheep_behavior_arousal_range=[" << wide_eye::game::kSheepMinimumArousal << ','
+        << wide_eye::game::kSheepMaximumArousal << "]\n"
+        << "sheep_behavior_rise_rate=" << behavior.rise_rate << '\n'
+        << "sheep_behavior_recovery_rate=" << behavior.recovery_rate << '\n'
+        << "sheep_behavior_rise_step=" << behavior.rise_step << '\n'
+        << "sheep_behavior_recovery_step=" << behavior.recovery_step << '\n'
+        << "sheep_behavior_rest_arousal=" << behavior.rest_arousal << '\n'
+        << "sheep_behavior_alert_arousal=" << behavior.alert_arousal << '\n'
+        << "sheep_behavior_driven_release_arousal=" << behavior.driven_release_arousal << '\n'
+        << "sheep_behavior_driven_arousal=" << behavior.driven_arousal << '\n'
+        << "sheep_behavior_stimulus_radius=" << behavior.stimulus_radius << '\n'
+        << "sheep_behavior_cycle_ticks=" << behavior.cycle_ticks << '\n'
+        << "sheep_behavior_alert_tick=" << behavior.alert_tick << '\n'
+        << "sheep_behavior_alert_prior_arousal=" << behavior.alert_prior_arousal << '\n'
+        << "sheep_behavior_driven_tick=" << behavior.driven_tick << '\n'
+        << "sheep_behavior_driven_prior_arousal=" << behavior.driven_prior_arousal << '\n'
+        << "sheep_behavior_recovering_tick=" << behavior.recovering_tick << '\n'
+        << "sheep_behavior_recovering_prior_arousal=" << behavior.recovering_prior_arousal << '\n'
+        << "sheep_behavior_recovering_release_stimulus=" << behavior.recovering_release_stimulus
+        << '\n'
+        << "sheep_behavior_settled_tick=" << behavior.settled_tick << '\n'
+        << "sheep_behavior_settled_prior_arousal=" << behavior.settled_prior_arousal << '\n'
+        << "sheep_behavior_peak_arousal=" << behavior.peak_arousal << '\n'
+        << "sheep_behavior_control_arousal=" << behavior.control_arousal << '\n'
+        << "sheep_behavior_band_stimulus=" << behavior.band_stimulus << '\n'
+        << "sheep_behavior_band_arousal=" << behavior.band_arousal << '\n'
+        << "sheep_behavior_band_alert_label_changes=" << behavior.band_alert_changes << '\n'
+        << "sheep_behavior_band_driven_label_changes=" << behavior.band_driven_changes << '\n'
+        << "sheep_behavior_boundary_stimulus=" << behavior.boundary_stimulus << '\n'
+        << "sheep_behavior_boundary_arousal=" << behavior.boundary_arousal << '\n'
+        << "sheep_behavior_boundary_driven_ticks=" << behavior.boundary_driven_ticks << '\n'
+        << "sheep_behavior_stubborn_stimulus=" << behavior.stubborn_stimulus << '\n'
+        << "sheep_behavior_stubborn_arousal=" << behavior.stubborn_arousal << '\n'
+        << "sheep_behavior_clamped_stimulus=" << behavior.clamped_stimulus << '\n'
+        << "sheep_behavior_adversarial_ticks=" << behavior.adversarial_ticks << '\n'
+        << "sheep_behavior_adversarial_threshold_crossings=" << behavior.adversarial_threshold_flips
+        << '\n'
+        << "sheep_behavior_adversarial_ticks_above=" << behavior.adversarial_above << '\n'
+        << "sheep_behavior_adversarial_ticks_below=" << behavior.adversarial_below << '\n'
+        << "sheep_behavior_adversarial_label_changes=" << behavior.adversarial_changes << '\n'
+        << "sheep_behavior_adversarial_late_label_changes=" << behavior.adversarial_late_changes
+        << '\n'
+        << "sheep_behavior_scripted_dog_alert_tick=" << behavior.scripted_alert_tick << '\n'
+        << "sheep_behavior_scripted_dog_driven_tick=" << behavior.scripted_driven_tick << '\n'
+        << "sheep_behavior_scripted_dog_recovering_tick=" << behavior.scripted_recovering_tick
+        << '\n'
+        << "sheep_behavior_scripted_dog_settled_tick=" << behavior.scripted_settled_tick << '\n'
+        << "sheep_behavior_scripted_dog_peak_arousal=" << behavior.scripted_peak_arousal << '\n'
+        << "sheep_behavior_feeds_back_into_steering=no\n"
+        << "sheep_behavior_steady_state_allocations=" << behavior.allocations << '\n'
         << "repeated_local_replay_equal=yes\n"
         << "gameplay_simulation_result=pass\n";
     return EXIT_SUCCESS;

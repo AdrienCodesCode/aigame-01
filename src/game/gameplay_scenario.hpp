@@ -37,6 +37,8 @@ enum class GameplayScenarioId : std::uint8_t {
     sheep_motion_limit_on,
     sheep_avoidance_off,
     sheep_avoidance_on,
+    sheep_behavior_transitions_off,
+    sheep_behavior_transitions_on,
 };
 
 enum class SheepFixture : std::uint8_t {
@@ -223,6 +225,56 @@ struct SheepMotionLimitConfiguration {
     bool operator==(const SheepMotionLimitConfiguration&) const = default;
 };
 
+// The arousal/recovery proxy and the four behavior states it selects.
+//
+// **Arousal is a named game parameter, not a claim about animal physiology.**
+// Nothing here is a heart rate, a stress hormone, or a measured animal
+// response; the accepted design calls player-facing "stress" shorthand for "an
+// arousal/recovery design variable, not a claimed physiological model", and the
+// research record asks for exactly this caution. Every magnitude below is a
+// provisional legibility choice rather than a measured or tuned value.
+//
+// The proxy is a **rate-limited follower of the published dog stimulus**:
+// arousal moves toward that stimulus at up to `rise_rate_per_second` while the
+// stimulus is higher and at up to `recovery_rate_per_second` while it is lower.
+// Because both endpoints lie in `[0, 1]`, arousal stays in `[0, 1]` without a
+// clamp, and because it never overshoots it cannot oscillate on its own.
+//
+// `rise_rate_per_second` is `1.875` and `recovery_rate_per_second` is exactly
+// one eighth of it. Under a saturated stimulus a sheep reaches full arousal in
+// 32 ticks — about half a second — and needs 256 ticks — about four seconds — to
+// shed it again, because the accepted loop makes *release* the slow, deliberate
+// half of the pressure/release pair: "widen or pause to preserve cohesion and
+// let sheep settle". Both rates are chosen so that one tick at 60 Hz is an
+// exactly representable binary fraction — `1/32` and `1/256` — which lets a
+// paired oracle pin them with equality rather than with a tolerance.
+//
+// The four thresholds map arousal onto the four states as a Schmitt trigger:
+// each band is *entered* at its named arousal and *left* only at a lower one, so
+// a sheep whose arousal hovers on an entry threshold cannot alternate between
+// two labels on consecutive ticks. `rest_arousal` is the bottom of the ladder
+// and does double duty as the "is a cause acting at all" test on the stimulus: a
+// stimulus that cannot lift a sheep out of rest is not pressure, so the two
+// cannot disagree about whether this sheep is under pressure. That leaves two
+// hysteresis bands — `rest_arousal`..`alert_arousal` and
+// `driven_release_arousal`..`driven_arousal` — whose widths, divided by the
+// recovery rate, are a guaranteed minimum dwell: 32 ticks in `alert` and 64
+// ticks in `driven` before either can be left downward.
+//
+// Arousal deliberately does **not** feed back into steering in this outcome; it
+// is published state only. ADR 0009 records why.
+struct SheepBehaviorConfiguration {
+    bool enabled = false;
+    double rise_rate_per_second = 1.875;
+    double recovery_rate_per_second = 0.234375;
+    double rest_arousal = 0.125;
+    double alert_arousal = 0.25;
+    double driven_release_arousal = 0.5;
+    double driven_arousal = 0.75;
+
+    bool operator==(const SheepBehaviorConfiguration&) const = default;
+};
+
 // Owns the complete deterministic starting contract for one game scenario.
 // Controller-specific configuration stays nested under its subsystem, while
 // sheep, objective, and future fixture state remain owned at the game level.
@@ -247,6 +299,7 @@ struct GameplayScenarioDefinition {
     SheepAvoidanceConfiguration sheep_avoidance{};
     SheepCombinedInfluenceConfiguration sheep_combined_influence{};
     SheepMotionLimitConfiguration sheep_motion_limit{};
+    SheepBehaviorConfiguration sheep_behavior{};
 
     bool operator==(const GameplayScenarioDefinition&) const = default;
 };

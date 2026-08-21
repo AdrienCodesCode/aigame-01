@@ -9,6 +9,23 @@
 
 namespace wide_eye::game {
 
+// The four behavior states the accepted design asks a sheep to distinguish "so
+// sheep do not move like constant-speed boids". They are selected from the
+// arousal parameter below and from whether a cause is acting on the sheep right
+// now; see `SheepBehaviorConfiguration` for the thresholds and
+// [ADR 0009](../../docs/decisions/0009-behavior-transitions-and-arousal.md) for
+// the rule.
+//
+// - `settled` — this sheep is not engaged: either no cause has lifted its
+//   arousal as far as the alert threshold, or it has already come all the way
+//   back down to rest. The grazing state.
+// - `alert` — a cause is acting and arousal has passed the alert threshold but
+//   not the driven one: the sheep has noticed, and is not yet being moved.
+// - `driven` — a cause is acting and arousal has passed the driven threshold.
+// - `recovering` — the cause has been released and arousal has not yet returned
+//   to rest. This is what makes release a verb: it is reachable only after
+//   pressure stops, and it is the one state a sheep can never be in while a
+//   cause is still acting on it.
 enum class SheepBehaviorState : std::uint8_t {
     settled,
     alert,
@@ -31,7 +48,7 @@ enum class SheepBehaviorState : std::uint8_t {
 // effective pressure depend on "the sheep's temperament", so temperament is a
 // property of the sheep and travels with it in the authoritative buffer rather
 // than living in a dog, fixture-index, or presentation structure. Unlike
-// `SheepBehaviorState`, which the unimplemented transitions will drive, this
+// `SheepBehaviorState`, which the transition rule rewrites every tick, this
 // label never changes during a run: it is part of the scenario's starting
 // contract. The three names are game-readable design categories, not validated
 // biological ones.
@@ -51,11 +68,25 @@ enum class SheepTemperament : std::uint8_t {
     return false;
 }
 
+// Arousal is a **named game parameter**, not a claim about animal physiology.
+// It is not a heart rate, a stress hormone, a cortisol level, or any measured
+// animal response, and nothing in this project has calibrated it against an
+// animal. It is a bounded design variable in `[0, 1]` that decides which of the
+// four behavior states a sheep is in, exactly as the accepted design intends:
+// "`Stress` is player-facing shorthand for an arousal/recovery design variable,
+// not a claimed physiological model." The research record asks for the same
+// caution — name it `arousal` internally until evidence establishes what it
+// represents — so the name is deliberately the internal one.
+inline constexpr double kSheepMinimumArousal = 0.0;
+inline constexpr double kSheepMaximumArousal = 1.0;
+
 struct SheepState {
     std::uint32_t id = 0;
     Vec3 position{};
     Vec3 velocity{};
     double heading_radians = 0.0;
+    // Bounded to `[kSheepMinimumArousal, kSheepMaximumArousal]`. See above: a
+    // game parameter, not a physiological measurement.
     double arousal = 0.0;
     SheepBehaviorState behavior = SheepBehaviorState::settled;
     SheepTemperament temperament = SheepTemperament::ordinary;
@@ -118,6 +149,17 @@ using SheepSocialEvidenceBuffer = std::array<SheepSocialEvidence, kGameplaySheep
 // applied term keeps its own acceleration vector so one switch can be isolated
 // without hiding it inside a combined total; an occluded dog releases all three
 // vectors rather than adding a fourth.
+//
+// `arousal_stimulus` is the same dog stimulus expressed as a dimensionless
+// `[0, 1]` fraction instead of as an acceleration: the shared linear distance
+// falloff, released by an occluded sight line and scaled by the same
+// temperament factor as every dog term. It lives here rather than in a parallel
+// per-sheep array because it *is* dog-stimulus evidence — the dog is the only
+// cause that drives arousal in this outcome — and because a new array would cost
+// stack the harness does not have (QA-002). It is published whenever the
+// stimulus was evaluated, in a scenario with the behavior transitions switched
+// off as well as on, so a paired control publishes an identical cause and only
+// the applied arousal differs.
 struct SheepDogPressureEvidence {
     std::uint32_t subject_id = 0;
     bool stimulus_evaluated = false;
@@ -128,6 +170,7 @@ struct SheepDogPressureEvidence {
     bool dog_line_of_sight_blocked = false;
     PaddockObstacle dog_line_of_sight_occluder = PaddockObstacle::none;
     double temperament_response_scale = 0.0;
+    double arousal_stimulus = 0.0;
     Vec3 pressure_acceleration{};
     Vec3 approach_acceleration{};
     Vec3 facing_acceleration{};

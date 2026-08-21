@@ -457,7 +457,70 @@ constexpr SheepStateBuffer kAvoidanceSheepStates{{
 constexpr DogState kAvoidanceDogState{
     .position = {.x = 26.0, .y = 1.0, .z = 26.0}, .heading_radians = 0.0, .grounded = true};
 
-constexpr std::array<NamedGameplayScenario, 27> kGameplayScenarios{{
+// One stationary dog and five sheep isolate the arousal proxy and the four
+// behavior transitions. No steering term is enabled, so nothing can accelerate a
+// sheep at all and the paired control is bit-identical in every field except the
+// two the transitions write. Temperament *is* enabled: it adds no vector of its
+// own with every dog term switched off, so its only effect here is the response
+// scale it applies to the arousal stimulus, which is exactly the variable two of
+// these sheep exist to show.
+//
+// The fixture widens the shared dog-pressure radius to exactly `8.0`. The rule
+// is unchanged — arousal reads the same linear distance falloff the dog terms
+// read — but at that radius one tick of the subject's exact `3.75` world-units/s
+// travel changes the stimulus by exactly `1/128`, so the whole stimulus curve
+// and every arousal value on it are exactly representable and the oracle can pin
+// them with equality.
+//
+// Sheep 1 is the cycle subject: it is given an exact constant velocity that
+// carries it from exactly the stimulus radius, straight through the dog, and out
+// to the far side again, so the dog-to-sheep distance closes and opens exactly
+// as it would if the dog walked in and left. Moving the sheep rather than the
+// dog is what keeps the arithmetic exact — the stimulus depends only on the
+// relative geometry, and the dog motor's acceleration is not a binary fraction —
+// and the focused oracle additionally drives the *dog* through the same
+// approach/hold/release to show the sequence does not depend on which body
+// moves. Sheep 2 stands at exactly the stimulus radius, where the falloff is
+// exactly zero, so it is the in-fixture control that must stay `settled` with an
+// arousal of exactly `0`. Sheep 3 stands where the stimulus is exactly `0.625`,
+// inside the driven hysteresis band, so a derived run that starts it already
+// `driven` holds `driven` at the same arousal this one holds `alert` at. Sheep 4
+// is nervous and sheep 5 is stubborn at the same exact `5`-unit distance, so one
+// sits exactly on the driven entry threshold and the other never becomes alert
+// at all from an identical cause.
+constexpr double kBehaviorStimulusRadius = 8.0;
+constexpr double kBehaviorSubjectSpeed = 3.75;
+
+constexpr SheepStateBuffer kBehaviorTransitionSheepStates{{
+    {.id = 1,
+     .position = {.x = 30.0, .y = 1.0, .z = 20.0},
+     .velocity = {.x = -kBehaviorSubjectSpeed},
+     .heading_radians = -1.57079632679489661923,
+     .grounded = true},
+    {.id = 2,
+     .position = {.x = 22.0, .y = 1.0, .z = 28.0},
+     .heading_radians = 0.0,
+     .grounded = true},
+    {.id = 3,
+     .position = {.x = 22.0, .y = 1.0, .z = 23.0},
+     .heading_radians = 0.0,
+     .grounded = true},
+    {.id = 4,
+     .position = {.x = 25.0, .y = 1.0, .z = 24.0},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::nervous,
+     .grounded = true},
+    {.id = 5,
+     .position = {.x = 19.0, .y = 1.0, .z = 24.0},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::stubborn,
+     .grounded = true},
+}};
+
+constexpr DogState kBehaviorTransitionDogState{
+    .position = {.x = 22.0, .y = 1.0, .z = 20.0}, .heading_radians = 0.0, .grounded = true};
+
+constexpr std::array<NamedGameplayScenario, 29> kGameplayScenarios{{
     {
         .name = "paddock-start",
         .definition = {.id = GameplayScenarioId::paddock_start,
@@ -692,6 +755,25 @@ constexpr std::array<NamedGameplayScenario, 27> kGameplayScenarios{{
                        .sheep_fixture = SheepFixture::local_social_response,
                        .initial_sheep = kAvoidanceSheepStates,
                        .sheep_avoidance = {.enabled = true}},
+    },
+    {
+        .name = "sheep-behavior-transitions-off",
+        .definition = {.id = GameplayScenarioId::sheep_behavior_transitions_off,
+                       .dog = {.initial_state = kBehaviorTransitionDogState},
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kBehaviorTransitionSheepStates,
+                       .sheep_dog_pressure = {.radius = kBehaviorStimulusRadius},
+                       .sheep_temperament = {.enabled = true}},
+    },
+    {
+        .name = "sheep-behavior-transitions-on",
+        .definition = {.id = GameplayScenarioId::sheep_behavior_transitions_on,
+                       .dog = {.initial_state = kBehaviorTransitionDogState},
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kBehaviorTransitionSheepStates,
+                       .sheep_dog_pressure = {.radius = kBehaviorStimulusRadius},
+                       .sheep_temperament = {.enabled = true},
+                       .sheep_behavior = {.enabled = true}},
     },
 }};
 
