@@ -10,6 +10,7 @@ reported: 2026-08-22
 phase: 3
 platform: wsl-ubuntu-24.04
 closed: 2026-08-22
+fix: edc2548
 rule: docs/decisions/0008-obstacle-and-drop-avoidance.md
 verify:
   - wide_eye.gameplay_simulation
