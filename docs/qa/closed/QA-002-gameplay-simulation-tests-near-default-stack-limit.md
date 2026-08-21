@@ -8,7 +8,7 @@ area: tests
 reporter: agent
 reported: 2026-08-21
 closed: 2026-08-22
-fix: 4945b9b
+fix: 674c078
 phase: 3
 platform: wsl-ubuntu-24.04
 rule: tests/README.md
