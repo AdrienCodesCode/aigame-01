@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <new>
 #include <span>
 #include <string>
@@ -149,6 +150,40 @@ evidence_with_id(const wide_eye::game::SheepCollisionEvidenceBuffer& evidence, s
     return *member;
 }
 
+const wide_eye::game::SheepCombinedInfluenceEvidence&
+evidence_with_id(const wide_eye::game::SheepCombinedInfluenceEvidenceBuffer& evidence,
+                 std::uint32_t id) {
+    const auto member = std::find_if(evidence.begin(), evidence.end(), [id](const auto& candidate) {
+        return candidate.subject_id == id;
+    });
+    if (member == evidence.end()) {
+        std::abort();
+    }
+    return *member;
+}
+
+// The unbounded sum the combined-influence bound acts on, added in the same left
+// to right order the simulation adds it so an oracle can compare exactly instead
+// of within a tolerance.
+wide_eye::game::Vec3 summed_steering_terms(const wide_eye::game::SheepSocialEvidence& social,
+                                           const wide_eye::game::SheepDogPressureEvidence& dog) {
+    return {.x = social.separation_acceleration.x + social.attraction_acceleration.x +
+                 social.alignment_acceleration.x + dog.pressure_acceleration.x +
+                 dog.approach_acceleration.x + dog.facing_acceleration.x,
+            .z = social.separation_acceleration.z + social.attraction_acceleration.z +
+                 social.alignment_acceleration.z + dog.pressure_acceleration.z +
+                 dog.approach_acceleration.z + dog.facing_acceleration.z};
+}
+
+// Applied acceleration is the summed terms after the combined-influence bound,
+// so every per-term oracle compares against the sum scaled by the factor that
+// sheep published rather than against the raw sum. The factor is exactly `1.0`
+// wherever the bound is switched off or did not bind.
+wide_eye::game::Vec3 bounded_terms(const wide_eye::game::Vec3& summed,
+                                   const wide_eye::game::SheepCombinedInfluenceEvidence& evidence) {
+    return {.x = summed.x * evidence.applied_scale, .z = summed.z * evidence.applied_scale};
+}
+
 // One sheep's first refused displacement, kept with the immutable prior state
 // that caused it so the oracle can say the sheep arrived from open ground and
 // stopped rather than starting inside a wall.
@@ -245,6 +280,376 @@ bool separation_acceleration_is_bounded(const wide_eye::game::GameplaySimulation
     return true;
 }
 
+// `GameplaySimulation` is about 114 KiB, because `SheepSpatialGrid` carries the
+// 1,000-member capacity-experiment ceiling while the game has five sheep. `main`
+// below already holds roughly seventy of them alive at once and sits within
+// about 1 MiB of the default 8 MiB stack, so fixtures added here are held by
+// pointer rather than by value. Every handle is constructed outside the windows
+// that count allocations, so this does not weaken the zero-allocation oracles.
+using SimulationHandle = std::unique_ptr<wide_eye::game::GameplaySimulation>;
+
+SimulationHandle make_simulation(const wide_eye::game::GameplayScenarioDefinition& scenario) {
+    return std::make_unique<wide_eye::game::GameplaySimulation>(scenario);
+}
+
+// What the combined-influence oracle observed, returned so the run report can
+// name the numbers without keeping the fixtures alive in `main`.
+struct CombinedInfluenceOracle {
+    bool passed = false;
+    double bound = 0.0;
+    std::uint64_t drift_ticks = 0;
+    wide_eye::game::SheepCombinedInfluenceEvidence over_bound{};
+    wide_eye::game::SheepCombinedInfluenceEvidence over_bound_control{};
+    wide_eye::game::SheepCombinedInfluenceEvidence under_bound{};
+    wide_eye::game::SheepCombinedInfluenceEvidence idle_bound{};
+    wide_eye::game::SheepCombinedInfluenceEvidence diagonal_bound{};
+    double bounded_drift_z = 0.0;
+    double unbounded_drift_z = 0.0;
+    std::size_t allocations = 0;
+};
+
+CombinedInfluenceOracle run_combined_influence_oracle(
+    const wide_eye::game::GameplayScenarioDefinition& stationary_fixture) {
+    CombinedInfluenceOracle result;
+    // Combined influence. Every social and dog term already bounds itself, but
+    // nothing bounded their sum, so a sheep standing inside several overlapping
+    // influences — or a nervous sheep whose temperament multiplies three dog
+    // terms at once — was accelerated by an unbounded total. The rule is one
+    // clamp on the summed vector: each per-term vector keeps its published value
+    // and the sum alone is scaled down, so the accepted per-term evidence stays
+    // exactly as inspectable as it was. The paired fixture puts two sheep over
+    // the bound and two under it in the same tick, so "the bound binds" and "the
+    // bound leaves an under-bound sheep alone" are observed against each other.
+    constexpr double kCombinedInfluenceBound = 4.0;
+    constexpr double kOverBoundSummedMagnitude = 8.0;
+    constexpr double kOverBoundAppliedScale = 0.5;
+    constexpr double kUnderBoundSummedMagnitude = 1.625;
+    constexpr std::uint64_t kCombinedInfluenceDriftTicks = 120;
+    result.bound = kCombinedInfluenceBound;
+    result.drift_ticks = kCombinedInfluenceDriftTicks;
+    const auto combined_off_scenario =
+        wide_eye::game::find_gameplay_scenario("sheep-combined-influence-off");
+    const auto combined_on_scenario =
+        wide_eye::game::find_gameplay_scenario("sheep-combined-influence-on");
+    auto combined_on_as_control =
+        combined_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
+    if (combined_off_scenario.has_value()) {
+        combined_on_as_control.id = combined_off_scenario->id;
+    }
+    combined_on_as_control.sheep_combined_influence.enabled = false;
+    if (!check(combined_off_scenario.has_value() && combined_on_scenario.has_value() &&
+                   combined_off_scenario->id ==
+                       wide_eye::game::GameplayScenarioId::sheep_combined_influence_off &&
+                   combined_on_scenario->id ==
+                       wide_eye::game::GameplayScenarioId::sheep_combined_influence_on &&
+                   combined_on_as_control == *combined_off_scenario &&
+                   combined_on_scenario->sheep_combined_influence.enabled &&
+                   !combined_off_scenario->sheep_combined_influence.enabled &&
+                   combined_on_scenario->sheep_combined_influence.maximum_acceleration ==
+                       kCombinedInfluenceBound &&
+                   combined_off_scenario->version == 1 && combined_off_scenario->seed == 0 &&
+                   combined_off_scenario->sheep_separation.enabled &&
+                   combined_off_scenario->sheep_dog_pressure.enabled &&
+                   combined_off_scenario->sheep_dog_approach.enabled &&
+                   combined_off_scenario->sheep_dog_facing.enabled &&
+                   combined_off_scenario->sheep_temperament.enabled &&
+                   !combined_off_scenario->sheep_attraction.enabled &&
+                   !combined_off_scenario->sheep_alignment.enabled &&
+                   !combined_off_scenario->sheep_dog_line_of_sight.enabled,
+               "paired_combined_influence_fixture_differs_only_by_the_bound_switch") ||
+        // The magnitude is chosen, not arbitrary: no combination of influences
+        // may accelerate a sheep harder than the strongest single influence the
+        // flock already accepts on its own, which is close-range separation.
+        !check(combined_on_scenario->sheep_combined_influence.maximum_acceleration ==
+                       combined_on_scenario->sheep_separation.maximum_acceleration &&
+                   combined_on_scenario->sheep_separation.maximum_acceleration >=
+                       combined_on_scenario->sheep_dog_pressure.maximum_acceleration &&
+                   combined_on_scenario->sheep_separation.maximum_acceleration >=
+                       combined_on_scenario->sheep_dog_approach.maximum_acceleration &&
+                   combined_on_scenario->sheep_separation.maximum_acceleration >=
+                       combined_on_scenario->sheep_dog_facing.maximum_acceleration,
+               "combined_bound_is_the_largest_single_accepted_term_maximum")) {
+        return result;
+    }
+
+    const SimulationHandle combined_off = make_simulation(*combined_off_scenario);
+    const SimulationHandle combined_on = make_simulation(*combined_on_scenario);
+    const auto combined_initial = combined_on->current_snapshot();
+    combined_off->fixed_update({});
+    combined_on->fixed_update({});
+    const auto combined_off_after_one = combined_off->current_snapshot();
+    const auto combined_on_after_one = combined_on->current_snapshot();
+    if (!check(combined_on->previous_snapshot() == combined_initial,
+               "combined_influence_reads_immutable_prior_snapshot")) {
+        return result;
+    }
+
+    for (const auto& on_combined : combined_on_after_one.sheep_combined_influence_evidence) {
+        const std::uint32_t subject_id = on_combined.subject_id;
+        const auto& off_combined =
+            evidence_with_id(combined_off_after_one.sheep_combined_influence_evidence, subject_id);
+        const auto& on_social =
+            evidence_with_id(combined_on_after_one.sheep_social_evidence, subject_id);
+        const auto& off_social =
+            evidence_with_id(combined_off_after_one.sheep_social_evidence, subject_id);
+        const auto& on_dog =
+            evidence_with_id(combined_on_after_one.sheep_dog_pressure_evidence, subject_id);
+        const auto& off_dog =
+            evidence_with_id(combined_off_after_one.sheep_dog_pressure_evidence, subject_id);
+        const auto summed = summed_steering_terms(on_social, on_dog);
+        const auto& prior_member = sheep_with_id(combined_initial.sheep, subject_id);
+        const auto applied = [&prior_member](const wide_eye::game::SheepState& member) {
+            return wide_eye::game::Vec3{.x = (member.velocity.x - prior_member.velocity.x) /
+                                             wide_eye::game::GameplaySimulation::kFixedDeltaSeconds,
+                                        .z =
+                                            (member.velocity.z - prior_member.velocity.z) /
+                                            wide_eye::game::GameplaySimulation::kFixedDeltaSeconds};
+        };
+        const auto on_applied = applied(sheep_with_id(combined_on_after_one.sheep, subject_id));
+        if ( // The bound must not touch a single term. Every published social and
+             // dog vector, and the pre-bound magnitude they sum to, must be
+             // identical between the two members; only the applied result differs.
+            !check(on_social == off_social && on_dog == off_dog &&
+                       on_combined.summed_acceleration_magnitude ==
+                           off_combined.summed_acceleration_magnitude,
+                   "the_bound_leaves_every_published_per_term_vector_identical") ||
+            !check(on_combined.bound_evaluated && off_combined.bound_evaluated &&
+                       on_combined.applied_scale > 0.0 && on_combined.applied_scale <= 1.0 &&
+                       std::abs(on_combined.summed_acceleration_magnitude -
+                                std::hypot(summed.x, summed.z)) < 1.0e-12,
+                   "published_pre_bound_magnitude_is_the_magnitude_of_the_summed_terms") ||
+            // The defining identity, checked exactly: applied is the summed terms
+            // times the published scale, in both components.
+            !check(on_combined.applied_acceleration.x == summed.x * on_combined.applied_scale &&
+                       on_combined.applied_acceleration.z == summed.z * on_combined.applied_scale,
+                   "published_scale_times_the_summed_terms_is_the_applied_acceleration") ||
+            !check(std::abs(on_applied.x - on_combined.applied_acceleration.x) < 1.0e-12 &&
+                       std::abs(on_applied.z - on_combined.applied_acceleration.z) < 1.0e-12,
+                   "published_applied_acceleration_is_what_integration_used") ||
+            !check(std::hypot(on_combined.applied_acceleration.x,
+                              on_combined.applied_acceleration.z) <=
+                       kCombinedInfluenceBound + 1.0e-12,
+                   "no_bounded_sheep_exceeds_the_combined_bound") ||
+            // The off member is the accepted unbounded behavior: it must publish
+            // exactly one and apply the raw sum bit for bit.
+            !check(off_combined.applied_scale == 1.0 &&
+                       off_combined.applied_acceleration.x == summed.x &&
+                       off_combined.applied_acceleration.z == summed.z,
+                   "the_off_member_publishes_scale_one_and_applies_the_raw_sum")) {
+            return result;
+        }
+    }
+
+    // Copies, not references: the restart oracle below rewinds this simulation.
+    result.over_bound =
+        evidence_with_id(combined_on_after_one.sheep_combined_influence_evidence, 1);
+    result.over_bound_control =
+        evidence_with_id(combined_off_after_one.sheep_combined_influence_evidence, 1);
+    result.under_bound =
+        evidence_with_id(combined_on_after_one.sheep_combined_influence_evidence, 3);
+    result.idle_bound =
+        evidence_with_id(combined_on_after_one.sheep_combined_influence_evidence, 4);
+    result.diagonal_bound =
+        evidence_with_id(combined_on_after_one.sheep_combined_influence_evidence, 5);
+    const auto& over_bound_social =
+        evidence_with_id(combined_on_after_one.sheep_social_evidence, 1);
+    const auto& over_bound_dog =
+        evidence_with_id(combined_on_after_one.sheep_dog_pressure_evidence, 1);
+    const auto& diagonal_social = evidence_with_id(combined_on_after_one.sheep_social_evidence, 5);
+    const auto& diagonal_dog =
+        evidence_with_id(combined_on_after_one.sheep_dog_pressure_evidence, 5);
+    const auto diagonal_summed = summed_steering_terms(diagonal_social, diagonal_dog);
+    // Exact equality rather than a tolerance: the fixture is built so the
+    // over-bound sheep's six terms sum to exactly twice the bound along one axis,
+    // which makes the scale an exact power of two and the bounded magnitude
+    // exactly the bound.
+    if (!check(over_bound_dog.dog_distance == 3.0 &&
+                   over_bound_dog.temperament_response_scale == 2.0 &&
+                   over_bound_social.separation_acceleration.z == 1.5 &&
+                   over_bound_dog.pressure_acceleration.z == 3.0 &&
+                   over_bound_dog.approach_acceleration.z == 2.0 &&
+                   over_bound_dog.facing_acceleration.z == 1.5,
+               "over_bound_sheep_sees_four_overlapping_influences_on_one_axis") ||
+        !check(result.over_bound.summed_acceleration_magnitude == kOverBoundSummedMagnitude &&
+                   result.over_bound.applied_scale == kOverBoundAppliedScale &&
+                   result.over_bound.applied_acceleration.z == kCombinedInfluenceBound &&
+                   std::hypot(result.over_bound.applied_acceleration.x,
+                              result.over_bound.applied_acceleration.z) == kCombinedInfluenceBound,
+               "an_over_bound_sheep_is_accelerated_at_exactly_the_bound") ||
+        // Direction preservation on the axis case: the summed and applied vectors
+        // have no x component and the same positive z sign, so scaling changed
+        // magnitude only.
+        !check(result.over_bound.applied_acceleration.x == 0.0 &&
+                   result.over_bound_control.applied_acceleration.x == 0.0 &&
+                   result.over_bound_control.applied_acceleration.z == kOverBoundSummedMagnitude &&
+                   result.over_bound.applied_acceleration.z > 0.0,
+               "bounding_changes_magnitude_without_changing_direction") ||
+        // The unbounded member really is over the bound, so the comparison is not
+        // vacuous, and its sheep really moves further this tick.
+        !check(result.over_bound_control.applied_scale == 1.0 &&
+                   result.over_bound_control.summed_acceleration_magnitude >
+                       kCombinedInfluenceBound &&
+                   sheep_with_id(combined_off_after_one.sheep, 1).position.z >
+                       sheep_with_id(combined_on_after_one.sheep, 1).position.z,
+               "the_unbounded_control_exceeds_the_bound_and_moves_further") ||
+        !check(result.under_bound.summed_acceleration_magnitude == kUnderBoundSummedMagnitude &&
+                   result.under_bound.applied_scale == 1.0 &&
+                   result.under_bound.applied_acceleration.z == kUnderBoundSummedMagnitude &&
+                   sheep_with_id(combined_on_after_one.sheep, 3) ==
+                       sheep_with_id(combined_off_after_one.sheep, 3),
+               "an_under_bound_sheep_is_untouched_with_scale_exactly_one") ||
+        !check(result.idle_bound.bound_evaluated &&
+                   result.idle_bound.summed_acceleration_magnitude == 0.0 &&
+                   result.idle_bound.applied_scale == 1.0 &&
+                   result.idle_bound.applied_acceleration == wide_eye::game::Vec3{},
+               "a_sheep_under_no_influence_publishes_scale_exactly_one") ||
+        // The bound is not an axis artifact: the diagonal sheep is scaled to the
+        // same magnitude and keeps its direction, measured as a zero cross
+        // product against the unbounded sum.
+        !check(result.diagonal_bound.summed_acceleration_magnitude > kCombinedInfluenceBound &&
+                   result.diagonal_bound.applied_scale < 1.0 &&
+                   result.diagonal_bound.applied_acceleration.x > 0.0 &&
+                   result.diagonal_bound.applied_acceleration.z > 0.0 &&
+                   std::abs(std::hypot(result.diagonal_bound.applied_acceleration.x,
+                                       result.diagonal_bound.applied_acceleration.z) -
+                            kCombinedInfluenceBound) < 1.0e-12 &&
+                   std::abs(result.diagonal_bound.applied_acceleration.x * diagonal_summed.z -
+                            result.diagonal_bound.applied_acceleration.z * diagonal_summed.x) <
+                       1.0e-12,
+               "the_bound_preserves_direction_off_axis_too")) {
+        return result;
+    }
+
+    // A sum exactly equal to the bound is not over it. Raising the same
+    // fixture's bound to the over-bound sheep's exact summed magnitude must
+    // reproduce the unbounded control bit for bit.
+    auto combined_at_bound_scenario = *combined_on_scenario;
+    combined_at_bound_scenario.sheep_combined_influence.maximum_acceleration =
+        kOverBoundSummedMagnitude;
+    const SimulationHandle combined_at_bound = make_simulation(combined_at_bound_scenario);
+    combined_at_bound->fixed_update({});
+    const auto& at_bound_evidence = evidence_with_id(
+        combined_at_bound->current_snapshot().sheep_combined_influence_evidence, 1);
+    if (!check(at_bound_evidence.summed_acceleration_magnitude == kOverBoundSummedMagnitude &&
+                   at_bound_evidence.applied_scale == 1.0 &&
+                   at_bound_evidence.applied_acceleration ==
+                       result.over_bound_control.applied_acceleration &&
+                   sheep_with_id(combined_at_bound->current_snapshot().sheep, 1) ==
+                       sheep_with_id(combined_off_after_one.sheep, 1),
+               "a_sum_exactly_at_the_bound_is_left_alone")) {
+        return result;
+    }
+
+    // The bound is a per-tick rule, not a first-tick one: it must hold on every
+    // tick of a run, and the unbounded control must actually breach it.
+    const SimulationHandle combined_drift_on = make_simulation(*combined_on_scenario);
+    const SimulationHandle combined_drift_off = make_simulation(*combined_off_scenario);
+    bool combined_bound_holds_every_tick = true;
+    bool combined_control_breaches_the_bound = false;
+    bool combined_drift_is_contact_free = true;
+    for (std::uint64_t tick = 0; tick < kCombinedInfluenceDriftTicks; ++tick) {
+        combined_drift_on->fixed_update({});
+        combined_drift_off->fixed_update({});
+        for (const auto& contact : combined_drift_on->current_snapshot().sheep_collision_evidence) {
+            combined_drift_is_contact_free =
+                combined_drift_is_contact_free && !contact.clipped_x && !contact.clipped_z;
+        }
+        for (const auto& contact :
+             combined_drift_off->current_snapshot().sheep_collision_evidence) {
+            combined_drift_is_contact_free =
+                combined_drift_is_contact_free && !contact.clipped_x && !contact.clipped_z;
+        }
+        for (const auto& evidence :
+             combined_drift_on->current_snapshot().sheep_combined_influence_evidence) {
+            combined_bound_holds_every_tick =
+                combined_bound_holds_every_tick &&
+                std::hypot(evidence.applied_acceleration.x, evidence.applied_acceleration.z) <=
+                    kCombinedInfluenceBound + 1.0e-12;
+        }
+        for (const auto& evidence :
+             combined_drift_off->current_snapshot().sheep_combined_influence_evidence) {
+            combined_control_breaches_the_bound =
+                combined_control_breaches_the_bound ||
+                std::hypot(evidence.applied_acceleration.x, evidence.applied_acceleration.z) >
+                    kCombinedInfluenceBound;
+        }
+    }
+    result.bounded_drift_z =
+        sheep_with_id(combined_drift_on->current_snapshot().sheep, 1).position.z;
+    result.unbounded_drift_z =
+        sheep_with_id(combined_drift_off->current_snapshot().sheep, 1).position.z;
+    if (!check(combined_bound_holds_every_tick && combined_control_breaches_the_bound,
+               "the_bound_holds_on_every_tick_while_the_control_breaches_it") ||
+        // Neither run may touch the paddock, so the distance difference is pure
+        // steering rather than one twin being stopped by a limit.
+        !check(combined_drift_is_contact_free && result.unbounded_drift_z > result.bounded_drift_z,
+               "a_bounded_sheep_is_driven_less_far_than_its_unbounded_twin")) {
+        return result;
+    }
+
+    auto reversed_combined_scenario = *combined_on_scenario;
+    std::reverse(reversed_combined_scenario.initial_sheep.begin(),
+                 reversed_combined_scenario.initial_sheep.end());
+    const SimulationHandle reversed_combined = make_simulation(reversed_combined_scenario);
+    reversed_combined->fixed_update({});
+    for (const auto& member : combined_on_after_one.sheep) {
+        if (!check(member == sheep_with_id(reversed_combined->current_snapshot().sheep, member.id),
+                   "combined_influence_result_is_stable_by_id_under_reversed_storage") ||
+            !check(evidence_with_id(combined_on_after_one.sheep_combined_influence_evidence,
+                                    member.id) ==
+                       evidence_with_id(
+                           reversed_combined->current_snapshot().sheep_combined_influence_evidence,
+                           member.id),
+                   "combined_influence_evidence_is_stable_under_reversed_storage")) {
+            return result;
+        }
+    }
+
+    const auto combined_state = wide_eye::game::gameplay_state_dump_json(*combined_on);
+    // A fixture that sums no steering terms must publish the bound as
+    // unevaluated rather than as a silent scale of one.
+    const SimulationHandle combined_unevaluated = make_simulation(stationary_fixture);
+    combined_unevaluated->fixed_update({});
+    const auto unevaluated_state = wide_eye::game::gameplay_state_dump_json(*combined_unevaluated);
+    if (!check(combined_state &&
+                   combined_state.text.find("\"sheep_combined_influence_evidence\":[{"
+                                            "\"subject_id\":1,\"bound_evaluated\":true,"
+                                            "\"summed_acceleration_magnitude\":8,"
+                                            "\"applied_scale\":0.5,\"applied_acceleration\":{"
+                                            "\"x\":0,\"y\":0,\"z\":4}}") != std::string::npos &&
+                   combined_state.text.find("\"applied_scale\":1,") != std::string::npos,
+               "state_dump_contains_the_combined_influence_bound_evidence") ||
+        !check(unevaluated_state && unevaluated_state.text.find(
+                                        "\"bound_evaluated\":false,\"summed_acceleration_"
+                                        "magnitude\":0,\"applied_scale\":0,") != std::string::npos,
+               "a_fixture_that_sums_no_terms_publishes_an_unevaluated_bound")) {
+        return result;
+    }
+
+    const SimulationHandle allocation_combined = make_simulation(*combined_on_scenario);
+    const std::size_t combined_allocations_before = g_allocation_count;
+    for (std::uint32_t tick = 0; tick < 600; ++tick) {
+        allocation_combined->fixed_update({});
+    }
+    result.allocations = g_allocation_count - combined_allocations_before;
+    if (!check(result.allocations == 0, "combined_influence_fixed_updates_do_not_allocate")) {
+        return result;
+    }
+
+    for (std::uint32_t tick = 0; tick < 120; ++tick) {
+        combined_on->fixed_update({});
+    }
+    combined_on->restart();
+    if (!check(combined_on->current_snapshot() == combined_initial &&
+                   combined_on->previous_snapshot() == combined_initial,
+               "combined_influence_restart_restores_the_paired_fixture")) {
+        return result;
+    }
+
+    result.passed = true;
+    return result;
+}
+
 } // namespace
 
 int main() {
@@ -274,6 +679,9 @@ int main() {
     static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepDogPressureEvidenceBuffer>);
     static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepCollisionEvidence>);
     static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepCollisionEvidenceBuffer>);
+    static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepCombinedInfluenceEvidence>);
+    static_assert(
+        std::is_trivially_copyable_v<wide_eye::game::SheepCombinedInfluenceEvidenceBuffer>);
 
     const auto scenario = wide_eye::game::find_gameplay_scenario("paddock-start");
     if (!check(scenario.has_value(), "scenario_available") ||
@@ -549,6 +957,13 @@ int main() {
     const auto& subject_one_evidence =
         evidence_with_id(attraction_after_one.sheep_social_evidence, 1);
     const auto& subject_one = sheep_with_id(attraction_after_one.sheep, 1);
+    // Applied acceleration is the summed terms after the combined-influence
+    // bound, so the expected value is the published term scaled by the factor
+    // that sheep published. This fixture never reaches the bound, so the factor
+    // is exactly one and the accepted arithmetic is unchanged.
+    const auto subject_one_expected =
+        bounded_terms(subject_one_evidence.attraction_acceleration,
+                      evidence_with_id(attraction_after_one.sheep_combined_influence_evidence, 1));
     const double subject_one_acceleration_x =
         subject_one.velocity.x / wide_eye::game::GameplaySimulation::kFixedDeltaSeconds;
     const double subject_one_acceleration_z =
@@ -565,11 +980,9 @@ int main() {
                    std::abs(subject_one_evidence.attraction_acceleration.z - 0.09375) < 1.0e-12 &&
                    subject_one_evidence.separation_acceleration == wide_eye::game::Vec3{},
                "attraction_influence_is_independent_and_exact") ||
-        !check(std::abs(subject_one_acceleration_x -
-                        subject_one_evidence.attraction_acceleration.x) < 1.0e-12 &&
-                   std::abs(subject_one_acceleration_z -
-                            subject_one_evidence.attraction_acceleration.z) < 1.0e-12,
-               "published_attraction_matches_applied_acceleration")) {
+        !check(std::abs(subject_one_acceleration_x - subject_one_expected.x) < 1.0e-12 &&
+                   std::abs(subject_one_acceleration_z - subject_one_expected.z) < 1.0e-12,
+               "published_attraction_matches_bounded_applied_acceleration")) {
         return EXIT_FAILURE;
     }
 
@@ -660,6 +1073,9 @@ int main() {
         evidence_with_id(alignment_on_after_one.sheep_social_evidence, 1);
     const auto& aligned_subject = sheep_with_id(alignment_on_after_one.sheep, 1);
     const auto& unaligned_subject = sheep_with_id(alignment_off_after_one.sheep, 1);
+    const auto alignment_expected = bounded_terms(
+        alignment_evidence.alignment_acceleration,
+        evidence_with_id(alignment_on_after_one.sheep_combined_influence_evidence, 1));
     if (!check(alignment_on.previous_snapshot() == alignment_initial,
                "alignment_reads_immutable_prior_snapshot") ||
         !check(alignment_evidence.alignment_candidate_count == 2 &&
@@ -673,11 +1089,11 @@ int main() {
                "alignment_influence_is_independent_and_exact") ||
         !check(std::abs((aligned_subject.velocity.x - alignment_initial.sheep[0].velocity.x) /
                             wide_eye::game::GameplaySimulation::kFixedDeltaSeconds -
-                        alignment_evidence.alignment_acceleration.x) < 1.0e-12 &&
+                        alignment_expected.x) < 1.0e-12 &&
                    std::abs((aligned_subject.velocity.z - alignment_initial.sheep[0].velocity.z) /
                                 wide_eye::game::GameplaySimulation::kFixedDeltaSeconds -
-                            alignment_evidence.alignment_acceleration.z) < 1.0e-12,
-               "published_alignment_matches_applied_acceleration") ||
+                            alignment_expected.z) < 1.0e-12,
+               "published_alignment_matches_bounded_applied_acceleration") ||
         !check(unaligned_subject.velocity == alignment_initial.sheep[0].velocity &&
                    evidence_with_id(alignment_off_after_one.sheep_social_evidence, 1)
                            .alignment_acceleration == wide_eye::game::Vec3{},
@@ -825,6 +1241,10 @@ int main() {
             sheep_with_id(dog_pressure_on_after_one.sheep, on_evidence.subject_id);
         const auto& prior_member =
             sheep_with_id(dog_pressure_initial.sheep, on_evidence.subject_id);
+        const auto expected = bounded_terms(
+            on_evidence.pressure_acceleration,
+            evidence_with_id(dog_pressure_on_after_one.sheep_combined_influence_evidence,
+                             on_evidence.subject_id));
         if (!check(off_evidence.stimulus_evaluated == on_evidence.stimulus_evaluated &&
                        off_evidence.dog_distance == on_evidence.dog_distance &&
                        off_evidence.dog_relative_bearing_radians ==
@@ -833,11 +1253,11 @@ int main() {
                    "pressure_control_publishes_same_geometry_without_influence") ||
             !check(std::abs((current_member.velocity.x - prior_member.velocity.x) /
                                 wide_eye::game::GameplaySimulation::kFixedDeltaSeconds -
-                            on_evidence.pressure_acceleration.x) < 1.0e-12 &&
+                            expected.x) < 1.0e-12 &&
                        std::abs((current_member.velocity.z - prior_member.velocity.z) /
                                     wide_eye::game::GameplaySimulation::kFixedDeltaSeconds -
-                                on_evidence.pressure_acceleration.z) < 1.0e-12,
-                   "published_dog_pressure_matches_applied_acceleration")) {
+                                expected.z) < 1.0e-12,
+                   "published_dog_pressure_matches_bounded_applied_acceleration")) {
             return EXIT_FAILURE;
         }
     }
@@ -977,6 +1397,11 @@ int main() {
         const auto& current_member =
             sheep_with_id(approach_on_after_one.sheep, on_evidence.subject_id);
         const auto& prior_member = sheep_with_id(approach_initial.sheep, on_evidence.subject_id);
+        const auto expected = bounded_terms(
+            {.x = on_evidence.pressure_acceleration.x + on_evidence.approach_acceleration.x,
+             .z = on_evidence.pressure_acceleration.z + on_evidence.approach_acceleration.z},
+            evidence_with_id(approach_on_after_one.sheep_combined_influence_evidence,
+                             on_evidence.subject_id));
         if (!check(off_evidence.stimulus_evaluated == on_evidence.stimulus_evaluated &&
                        off_evidence.dog_distance == on_evidence.dog_distance &&
                        off_evidence.dog_relative_bearing_radians ==
@@ -987,13 +1412,11 @@ int main() {
                    "approach_control_preserves_accepted_distance_only_pressure") ||
             !check(std::abs((current_member.velocity.x - prior_member.velocity.x) /
                                 wide_eye::game::GameplaySimulation::kFixedDeltaSeconds -
-                            (on_evidence.pressure_acceleration.x +
-                             on_evidence.approach_acceleration.x)) < 1.0e-12 &&
+                            expected.x) < 1.0e-12 &&
                        std::abs((current_member.velocity.z - prior_member.velocity.z) /
                                     wide_eye::game::GameplaySimulation::kFixedDeltaSeconds -
-                                (on_evidence.pressure_acceleration.z +
-                                 on_evidence.approach_acceleration.z)) < 1.0e-12,
-                   "published_dog_terms_match_applied_acceleration")) {
+                                expected.z) < 1.0e-12,
+                   "published_dog_terms_match_bounded_applied_acceleration")) {
             return EXIT_FAILURE;
         }
     }
@@ -1137,6 +1560,11 @@ int main() {
         const auto& current_member =
             sheep_with_id(facing_on_after_one.sheep, on_evidence.subject_id);
         const auto& prior_member = sheep_with_id(facing_initial.sheep, on_evidence.subject_id);
+        const auto expected = bounded_terms(
+            {.x = on_evidence.pressure_acceleration.x + on_evidence.facing_acceleration.x,
+             .z = on_evidence.pressure_acceleration.z + on_evidence.facing_acceleration.z},
+            evidence_with_id(facing_on_after_one.sheep_combined_influence_evidence,
+                             on_evidence.subject_id));
         if (!check(off_evidence.stimulus_evaluated == on_evidence.stimulus_evaluated &&
                        off_evidence.dog_distance == on_evidence.dog_distance &&
                        off_evidence.dog_relative_bearing_radians ==
@@ -1148,13 +1576,11 @@ int main() {
                    "facing_control_preserves_accepted_distance_only_pressure") ||
             !check(std::abs((current_member.velocity.x - prior_member.velocity.x) /
                                 wide_eye::game::GameplaySimulation::kFixedDeltaSeconds -
-                            (on_evidence.pressure_acceleration.x +
-                             on_evidence.facing_acceleration.x)) < 1.0e-12 &&
+                            expected.x) < 1.0e-12 &&
                        std::abs((current_member.velocity.z - prior_member.velocity.z) /
                                     wide_eye::game::GameplaySimulation::kFixedDeltaSeconds -
-                                (on_evidence.pressure_acceleration.z +
-                                 on_evidence.facing_acceleration.z)) < 1.0e-12,
-                   "published_facing_term_matches_applied_acceleration")) {
+                                expected.z) < 1.0e-12,
+                   "published_facing_term_matches_bounded_applied_acceleration")) {
             return EXIT_FAILURE;
         }
     }
@@ -1349,6 +1775,14 @@ int main() {
             applied(sheep_with_id(sight_on_after_one.sheep, on_evidence.subject_id));
         const auto off_applied =
             applied(sheep_with_id(sight_off_after_one.sheep, on_evidence.subject_id));
+        const auto on_expected =
+            bounded_terms(on_evidence.pressure_acceleration,
+                          evidence_with_id(sight_on_after_one.sheep_combined_influence_evidence,
+                                           on_evidence.subject_id));
+        const auto off_expected =
+            bounded_terms(off_evidence.pressure_acceleration,
+                          evidence_with_id(sight_off_after_one.sheep_combined_influence_evidence,
+                                           on_evidence.subject_id));
         const bool released = on_evidence.dog_line_of_sight_blocked;
         if (!check(off_evidence.stimulus_evaluated == on_evidence.stimulus_evaluated &&
                        off_evidence.dog_distance == on_evidence.dog_distance &&
@@ -1365,11 +1799,11 @@ int main() {
                        ? on_evidence.pressure_acceleration == wide_eye::game::Vec3{}
                        : on_evidence.pressure_acceleration == off_evidence.pressure_acceleration,
                    "only_an_occluded_dog_changes_the_applied_pressure") ||
-            !check(std::abs(on_applied.x - on_evidence.pressure_acceleration.x) < 1.0e-12 &&
-                       std::abs(on_applied.z - on_evidence.pressure_acceleration.z) < 1.0e-12 &&
-                       std::abs(off_applied.x - off_evidence.pressure_acceleration.x) < 1.0e-12 &&
-                       std::abs(off_applied.z - off_evidence.pressure_acceleration.z) < 1.0e-12,
-                   "published_line_of_sight_terms_match_applied_acceleration")) {
+            !check(std::abs(on_applied.x - on_expected.x) < 1.0e-12 &&
+                       std::abs(on_applied.z - on_expected.z) < 1.0e-12 &&
+                       std::abs(off_applied.x - off_expected.x) < 1.0e-12 &&
+                       std::abs(off_applied.z - off_expected.z) < 1.0e-12,
+                   "published_line_of_sight_terms_match_bounded_applied_acceleration")) {
             return EXIT_FAILURE;
         }
     }
@@ -1887,6 +2321,14 @@ int main() {
             applied(sheep_with_id(temperament_varied_after_one.sheep, subject_id));
         const auto neutral_applied =
             applied(sheep_with_id(temperament_neutral_after_one.sheep, subject_id));
+        const auto varied_expected = bounded_terms(
+            varied_evidence.pressure_acceleration,
+            evidence_with_id(temperament_varied_after_one.sheep_combined_influence_evidence,
+                             subject_id));
+        const auto neutral_expected = bounded_terms(
+            neutral_evidence.pressure_acceleration,
+            evidence_with_id(temperament_neutral_after_one.sheep_combined_influence_evidence,
+                             subject_id));
         const double neutral_magnitude = std::hypot(neutral_evidence.pressure_acceleration.x,
                                                     neutral_evidence.pressure_acceleration.z);
         const double varied_magnitude = std::hypot(varied_evidence.pressure_acceleration.x,
@@ -1918,14 +2360,11 @@ int main() {
             !check(std::abs(neutral_magnitude - kOrdinaryRingPressure) < 1.0e-12 &&
                        std::abs(varied_magnitude - scale * kOrdinaryRingPressure) < 1.0e-12,
                    "every_ring_sheep_responds_at_its_temperament_share_of_one_pressure") ||
-            !check(std::abs(varied_applied.x - varied_evidence.pressure_acceleration.x) < 1.0e-12 &&
-                       std::abs(varied_applied.z - varied_evidence.pressure_acceleration.z) <
-                           1.0e-12 &&
-                       std::abs(neutral_applied.x - neutral_evidence.pressure_acceleration.x) <
-                           1.0e-12 &&
-                       std::abs(neutral_applied.z - neutral_evidence.pressure_acceleration.z) <
-                           1.0e-12,
-                   "published_temperament_terms_match_applied_acceleration")) {
+            !check(std::abs(varied_applied.x - varied_expected.x) < 1.0e-12 &&
+                       std::abs(varied_applied.z - varied_expected.z) < 1.0e-12 &&
+                       std::abs(neutral_applied.x - neutral_expected.x) < 1.0e-12 &&
+                       std::abs(neutral_applied.z - neutral_expected.z) < 1.0e-12,
+                   "published_temperament_terms_match_bounded_applied_acceleration")) {
             return EXIT_FAILURE;
         }
     }
@@ -2210,6 +2649,15 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // The combined-influence oracle owns its own frame. `GameplaySimulation` is
+    // ~114 KiB because of the spatial grid's capacity-experiment ceiling, and
+    // this `main` already keeps roughly seventy of them alive at once, so a new
+    // paired fixture declared here would overflow the default 8 MiB stack.
+    const CombinedInfluenceOracle combined_influence = run_combined_influence_oracle(*scenario);
+    if (!combined_influence.passed) {
+        return EXIT_FAILURE;
+    }
+
     wide_eye::game::GameplaySimulation replay_a{*scenario};
     wide_eye::game::GameplaySimulation replay_b{*scenario};
     const wide_eye::game::GameplayReplay replay = sample_replay(replay_a);
@@ -2217,7 +2665,7 @@ int main() {
     if (!check(wide_eye::game::kGameplaySeedFormatVersion == 1 &&
                    wide_eye::game::kGameplayActionInputFormatVersion == 1 &&
                    wide_eye::game::kGameplayReplayFormatVersion == 1 &&
-                   wide_eye::game::kGameplayStateDumpFormatVersion == 10,
+                   wide_eye::game::kGameplayStateDumpFormatVersion == 11,
                "contract_versions_are_explicit") ||
         !check(replay_text &&
                    replay_text.text ==
@@ -2242,7 +2690,7 @@ int main() {
     const auto state_b = wide_eye::game::gameplay_state_dump_json(replay_b);
     if (!check(state_a && state_b && state_a.text == state_b.text,
                "canonical_state_dump_repeats") ||
-        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":10,"
+        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":11,"
                                         "\"tick_rate\":60,\"scenario\":{"),
                "state_dump_schema_header") ||
         !check(state_a.text.find("\"current\":{\"tick\":3") != std::string::npos,
@@ -2438,6 +2886,36 @@ int main() {
         << "sheep_temperament_stubborn_dog_range=" << stubborn_range << '\n'
         << "sheep_temperament_scales_social_terms=no\n"
         << "sheep_temperament_steady_state_allocations=" << temperament_allocations << '\n'
+        << "sheep_combined_influence_fixture=overlapping_influence_paired_control\n"
+        << "sheep_combined_influence_bound=" << combined_influence.bound << '\n'
+        << "sheep_combined_influence_over_bound_summed_magnitude="
+        << combined_influence.over_bound.summed_acceleration_magnitude << '\n'
+        << "sheep_combined_influence_over_bound_applied_scale="
+        << combined_influence.over_bound.applied_scale << '\n'
+        << "sheep_combined_influence_over_bound_applied_z="
+        << combined_influence.over_bound.applied_acceleration.z << '\n'
+        << "sheep_combined_influence_control_applied_z="
+        << combined_influence.over_bound_control.applied_acceleration.z << '\n'
+        << "sheep_combined_influence_under_bound_summed_magnitude="
+        << combined_influence.under_bound.summed_acceleration_magnitude << '\n'
+        << "sheep_combined_influence_under_bound_applied_scale="
+        << combined_influence.under_bound.applied_scale << '\n'
+        << "sheep_combined_influence_idle_applied_scale="
+        << combined_influence.idle_bound.applied_scale << '\n'
+        << "sheep_combined_influence_diagonal_summed_magnitude="
+        << combined_influence.diagonal_bound.summed_acceleration_magnitude << '\n'
+        << "sheep_combined_influence_diagonal_applied_scale="
+        << combined_influence.diagonal_bound.applied_scale << '\n'
+        << "sheep_combined_influence_diagonal_applied_magnitude="
+        << std::hypot(combined_influence.diagonal_bound.applied_acceleration.x,
+                      combined_influence.diagonal_bound.applied_acceleration.z)
+        << '\n'
+        << "sheep_combined_influence_drift_ticks=" << combined_influence.drift_ticks << '\n'
+        << "sheep_combined_influence_bounded_drift_z=" << combined_influence.bounded_drift_z << '\n'
+        << "sheep_combined_influence_unbounded_drift_z=" << combined_influence.unbounded_drift_z
+        << '\n'
+        << "sheep_combined_influence_steady_state_allocations=" << combined_influence.allocations
+        << '\n'
         << "repeated_local_replay_equal=yes\n"
         << "gameplay_simulation_result=pass\n";
     return EXIT_SUCCESS;

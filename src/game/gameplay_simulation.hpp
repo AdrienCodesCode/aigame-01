@@ -29,6 +29,7 @@ struct GameplaySnapshot {
     SheepSocialEvidenceBuffer sheep_social_evidence{};
     SheepDogPressureEvidenceBuffer sheep_dog_pressure_evidence{};
     SheepCollisionEvidenceBuffer sheep_collision_evidence{};
+    SheepCombinedInfluenceEvidenceBuffer sheep_combined_influence_evidence{};
 
     bool operator==(const GameplaySnapshot&) const = default;
 };

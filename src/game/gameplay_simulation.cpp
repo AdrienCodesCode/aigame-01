@@ -35,6 +35,15 @@ empty_collision_evidence(const SheepStateBuffer& sheep) noexcept {
     return evidence;
 }
 
+[[nodiscard]] SheepCombinedInfluenceEvidenceBuffer
+empty_combined_influence_evidence(const SheepStateBuffer& sheep) noexcept {
+    SheepCombinedInfluenceEvidenceBuffer evidence{};
+    for (std::size_t index = 0; index < sheep.size(); ++index) {
+        evidence[index].subject_id = sheep[index].id;
+    }
+    return evidence;
+}
+
 // The one positional authority for a sheep. Every fixture chooses a desired
 // planar displacement; the analytic paddock decides where the sheep actually
 // ends up, using the same field and the same clipping the dog motor collides
@@ -73,6 +82,7 @@ void validate_social_response_configuration(const GameplayScenarioDefinition& sc
     const SheepDogApproachConfiguration& dog_approach = scenario.sheep_dog_approach;
     const SheepDogFacingConfiguration& dog_facing = scenario.sheep_dog_facing;
     const SheepTemperamentConfiguration& temperament = scenario.sheep_temperament;
+    const SheepCombinedInfluenceConfiguration& combined = scenario.sheep_combined_influence;
     if (separation.enabled) {
         WIDE_EYE_ASSERT(std::isfinite(separation.radius) && separation.radius > 0.0,
                         "sheep separation radius must be finite and positive");
@@ -135,6 +145,15 @@ void validate_social_response_configuration(const GameplayScenarioDefinition& sc
         WIDE_EYE_ASSERT(std::isfinite(temperament.stubborn_response_scale) &&
                             temperament.stubborn_response_scale > 0.0,
                         "sheep stubborn response scale must be finite and positive");
+    }
+    if (combined.enabled) {
+        // A zero bound would silence every steering term at once, which is a way
+        // of disabling the flock rather than of bounding it, and the published
+        // scale could no longer be read as "the fraction of the summed terms that
+        // was applied".
+        WIDE_EYE_ASSERT(std::isfinite(combined.maximum_acceleration) &&
+                            combined.maximum_acceleration > 0.0,
+                        "sheep combined-influence acceleration must be finite and positive");
     }
 }
 
@@ -396,6 +415,7 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
         next.sheep_social_evidence[index] = {.subject_id = prior[index].id};
         next.sheep_dog_pressure_evidence[index] = {.subject_id = prior[index].id};
         next.sheep_collision_evidence[index] = {.subject_id = prior[index].id};
+        next.sheep_combined_influence_evidence[index] = {.subject_id = prior[index].id};
         if (scenario.sheep_fixture != SheepFixture::scripted_presentation_motion) {
             // The stationary fixture chooses no displacement, so the paddock has
             // nothing to resolve and no contact to publish. The social fixture
@@ -421,6 +441,7 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
     const SheepSeparationConfiguration& separation = scenario.sheep_separation;
     const SheepAttractionConfiguration& attraction = scenario.sheep_attraction;
     const SheepAlignmentConfiguration& alignment = scenario.sheep_alignment;
+    const SheepCombinedInfluenceConfiguration& combined = scenario.sheep_combined_influence;
 
     const double grid_cell_size = std::max({separation.enabled ? separation.radius : 0.0,
                                             attraction.enabled ? attraction.radius : 0.0,
@@ -440,6 +461,8 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
     for (std::size_t index = 0; index < prior.size(); ++index) {
         SheepSocialEvidence& evidence = next.sheep_social_evidence[index];
         SheepDogPressureEvidence& dog_evidence = next.sheep_dog_pressure_evidence[index];
+        SheepCombinedInfluenceEvidence& combined_evidence =
+            next.sheep_combined_influence_evidence[index];
 
         evaluate_dog_stimulus(prior[index], previous.dog, scenario, paddock, dog_evidence);
         if (separation.enabled) {
@@ -452,14 +475,33 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
             apply_alignment(prior, index, alignment, grid, alignment_scratch, evidence);
         }
 
-        const double acceleration_x =
+        double acceleration_x =
             evidence.separation_acceleration.x + evidence.attraction_acceleration.x +
             evidence.alignment_acceleration.x + dog_evidence.pressure_acceleration.x +
             dog_evidence.approach_acceleration.x + dog_evidence.facing_acceleration.x;
-        const double acceleration_z =
+        double acceleration_z =
             evidence.separation_acceleration.z + evidence.attraction_acceleration.z +
             evidence.alignment_acceleration.z + dog_evidence.pressure_acceleration.z +
             dog_evidence.approach_acceleration.z + dog_evidence.facing_acceleration.z;
+
+        // The one place the terms become a single acceleration is the one place
+        // the combined bound belongs. It scales the sum, never an individual
+        // term, so every vector published above stays exactly what its term
+        // produced and only this record explains the difference. A sum that
+        // stays under the bound takes no arithmetic at all, so an under-bound
+        // scenario is byte-identical rather than merely multiplied by one.
+        const double summed_magnitude = std::hypot(acceleration_x, acceleration_z);
+        double combined_scale = 1.0;
+        if (combined.enabled && summed_magnitude > combined.maximum_acceleration) {
+            combined_scale = combined.maximum_acceleration / summed_magnitude;
+            acceleration_x *= combined_scale;
+            acceleration_z *= combined_scale;
+        }
+        combined_evidence.bound_evaluated = true;
+        combined_evidence.summed_acceleration_magnitude = summed_magnitude;
+        combined_evidence.applied_scale = combined_scale;
+        combined_evidence.applied_acceleration = {.x = acceleration_x, .z = acceleration_z};
+
         next.sheep[index].velocity.x += acceleration_x * GameplaySimulation::kFixedDeltaSeconds;
         next.sheep[index].velocity.z += acceleration_z * GameplaySimulation::kFixedDeltaSeconds;
         resolve_sheep_against_paddock(
@@ -511,6 +553,7 @@ GameplaySimulation::GameplaySimulation(GameplayScenarioDefinition scenario) noex
     current_.sheep_social_evidence = empty_social_evidence(current_.sheep);
     current_.sheep_dog_pressure_evidence = empty_dog_pressure_evidence(current_.sheep);
     current_.sheep_collision_evidence = empty_collision_evidence(current_.sheep);
+    current_.sheep_combined_influence_evidence = empty_combined_influence_evidence(current_.sheep);
     previous_ = current_;
 }
 
@@ -534,7 +577,9 @@ void GameplaySimulation::restart() noexcept {
                 .sheep = scenario_.initial_sheep,
                 .sheep_social_evidence = empty_social_evidence(scenario_.initial_sheep),
                 .sheep_dog_pressure_evidence = empty_dog_pressure_evidence(scenario_.initial_sheep),
-                .sheep_collision_evidence = empty_collision_evidence(scenario_.initial_sheep)};
+                .sheep_collision_evidence = empty_collision_evidence(scenario_.initial_sheep),
+                .sheep_combined_influence_evidence =
+                    empty_combined_influence_evidence(scenario_.initial_sheep)};
     previous_ = current_;
 }
 
@@ -554,6 +599,7 @@ GameplaySnapshot GameplaySimulation::interpolated_snapshot(double alpha) const n
         .sheep_social_evidence = current_.sheep_social_evidence,
         .sheep_dog_pressure_evidence = current_.sheep_dog_pressure_evidence,
         .sheep_collision_evidence = current_.sheep_collision_evidence,
+        .sheep_combined_influence_evidence = current_.sheep_combined_influence_evidence,
     };
     for (std::size_t index = 0; index < result.sheep.size(); ++index) {
         result.sheep[index] =

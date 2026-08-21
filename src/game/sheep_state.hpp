@@ -156,6 +156,31 @@ struct SheepCollisionEvidence {
 
 using SheepCollisionEvidenceBuffer = std::array<SheepCollisionEvidence, kGameplaySheepCount>;
 
+// Read-only evidence for the single bound that limits what every published
+// steering term can do to one sheep together. Each social and dog term keeps its
+// own maximum, but nothing previously stopped their sum, so a sheep standing
+// inside several overlapping influences was accelerated by an unbounded total.
+// The bound scales the sum rather than any individual term, so the vectors above
+// stay exactly what the terms produced and this record is the only place the
+// difference between "what the terms asked for" and "what integration used"
+// lives. `applied_scale` is exactly `1.0` whenever the bound did not bind,
+// including when it is switched off, so a scenario under the limit is
+// arithmetically untouched. `summed_acceleration_magnitude` records how hard the
+// terms wanted to push before the bound, which is the one number that explains a
+// scale below `1.0` without re-adding six vectors by hand.
+struct SheepCombinedInfluenceEvidence {
+    std::uint32_t subject_id = 0;
+    bool bound_evaluated = false;
+    double summed_acceleration_magnitude = 0.0;
+    double applied_scale = 0.0;
+    Vec3 applied_acceleration{};
+
+    bool operator==(const SheepCombinedInfluenceEvidence&) const = default;
+};
+
+using SheepCombinedInfluenceEvidenceBuffer =
+    std::array<SheepCombinedInfluenceEvidence, kGameplaySheepCount>;
+
 inline constexpr SheepStateBuffer kDefaultGameplaySheepStates{{
     {.id = 1,
      .position = {.x = 14.5, .y = 1.0, .z = 20.0},

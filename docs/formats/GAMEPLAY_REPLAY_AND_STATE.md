@@ -1,9 +1,10 @@
 # Gameplay replay and state-dump contracts
 
-**Status:** Version 1 seed/action/replay and version 10 dog, five-sheep, social-
-evidence, dog-stimulus-evidence, sheep-temperament, and sheep-collision-evidence
-state dump implemented; the presentation capture CLI can write a state dump,
-while JSON decoding and general replay/seed CLI integration remain pending
+**Status:** Version 1 seed/action/replay and version 11 dog, five-sheep, social-
+evidence, dog-stimulus-evidence, sheep-temperament, sheep-collision-evidence, and
+combined-influence-bound state dump implemented; the presentation capture CLI can
+write a state dump, while JSON decoding and general replay/seed CLI integration
+remain pending
 
 **Last revised:** 2026-08-21
 
@@ -38,18 +39,22 @@ The contracts use four independently named versions:
   authoritative tick;
 - replay format `1` binds the tick rate, seed contract, action-input version,
   and complete action sequence;
-- state-dump format `10` records the seed contract, tick rate, restart count, and
+- state-dump format `11` records the seed contract, tick rate, restart count, and
   published previous/current dog, five-sheep, social-evidence, dog-stimulus-
-  evidence, and sheep-collision-evidence snapshots. Version 1 was dog-only,
+  evidence, sheep-collision-evidence, and combined-influence-bound snapshots.
+  Version 1 was dog-only,
   version 2 added sheep state, version 3 added attraction evidence, version 4
   added alignment evidence, version 5 added dog distance, relative bearing, and
   pressure acceleration, version 6 added dog approach speed and a separate
   approach acceleration, version 7 added dog facing alignment and a separate
   facing acceleration, version 8 added the dog line-of-sight blocked flag and the
   named analytic paddock obstacle that blocks it, version 9 added the
-  per-sheep paddock-contact record, and version 10 added the per-sheep
+  per-sheep paddock-contact record, version 10 added the per-sheep
   temperament label and the temperament response scale it applied to the dog
-  terms. No older version is silently reinterpreted.
+  terms, and version 11 added the per-sheep combined-influence record: the
+  pre-bound summed magnitude of every steering term, the scale the bound applied
+  to that sum, and the acceleration integration actually used. No older version
+  is silently reinterpreted.
 
 A replay consumer must reject an unsupported version, a tick rate other than
 60 Hz, an unknown scenario, a zero scenario version, a scenario/version/seed
@@ -81,7 +86,7 @@ decoder, replay file path, checked-in replay fixture, and executable
 `--replay`/`--seed` flags are intentionally deferred. No untrusted or external
 JSON is accepted by the engine yet.
 
-## State dump version 10
+## State dump version 11
 
 The schema name is `wide-eye.gameplay-state`. The dump contains the scenario
 seed contract, fixed rate, restart count, and complete published previous and
@@ -140,6 +145,27 @@ displacement as an upright cylinder of the game-owned sheep body radius against
 the same field the dog collides with; sheep-versus-sheep and sheep-versus-dog
 body collision are not implemented.
 
+A fourth fixed-size record per sheep publishes the one bound that limits what all
+of those terms can do to that sheep together. `bound_evaluated` states whether
+the tick summed any steering terms at all; a stationary or scripted fixture never
+does and leaves every other field zero. `summed_acceleration_magnitude` is the
+magnitude of the summed per-term vectors before the bound, `applied_scale` is the
+factor the bound applied to that sum, and `applied_acceleration` is the vector
+integration actually used. The rule is a clamp on the sum rather than on any
+individual term: every per-term vector above keeps exactly the value its term
+produced, and the relationship between them and the applied result is
+`applied == sum * applied_scale`. `applied_scale` is exactly `1.0` whenever the
+bound did not bind, including when the term is switched off and when the summed
+magnitude is exactly equal to the bound, so an under-bound scenario is
+arithmetically untouched rather than multiplied by one. The writer requires an
+evaluated bound to publish a finite scale within `(0, 1]` — the rule is a bound,
+not a gain — requires a finite, non-negative summed magnitude and a finite
+applied vector, and requires an unevaluated bound to leave every field zero.
+The bound is a per-sheep, per-tick pure function of that tick's terms and is
+applied before integration and before collision;
+[`ADR 0006`](../decisions/0006-combined-influence-acceleration-bound.md) records
+the combination rule and the alternatives rejected for now.
+
 IDs 1–5 initialize in a fixed contiguous buffer with `settled` behavior and zero
 arousal. The default scenarios keep them stationary. The version 1, seed-zero
 `presentation-motion` fixture moves them through a deterministic scripted path
@@ -192,10 +218,16 @@ identical in both cases, carry the same per-sheep temperaments, and differ only
 by the temperament switch and the required scenario ID. Every sheep therefore
 publishes the same prior-state distance and falloff, and only its bearing
 differs; only the on case scales each sheep's dog response by the factor its
-temperament names. Terrain and
-behavior-state transitions remain absent, and the dog terms are still summed
-without a combined-influence bound. A non-finite state is rejected because JSON
-has no portable representation for NaN or infinity.
+temperament names. The paired `sheep-combined-influence-off` and
+`sheep-combined-influence-on` fixtures share one dog closing south at the
+approach reference speed and looking down the same axis, keep separation,
+pressure, approach, facing, and temperament enabled and identical in both cases,
+and differ only by the bound switch and the required scenario ID. Both publish
+identical per-term vectors and identical pre-bound summed magnitudes; only the on
+case scales the sum. Terrain and behavior-state transitions remain absent, and
+bounded sheep speed and bounded turning are still unimplemented. A non-finite
+state is rejected because JSON has no portable representation for NaN or
+infinity.
 
 The state dump is an observation, not a save format. It does not restore a
 simulation, promise save compatibility, include renderer state, or establish
@@ -404,6 +436,48 @@ and halving factors are a provisional legibility choice, not a measured or
 biological value, and this is synthetic causal evidence rather than player-facing
 motion acceptance.
 
+**Observed result (2026-08-21):** the required per-sheep combined-influence
+record advanced the state dump to version 11 when the summed steering terms
+gained a single bound. In the paired combined-influence fixture, whose dog closes
+south at the `3.0` approach reference speed while looking straight down the same
+axis, the nervous sheep three units south of it stood under four simultaneous
+influences on one axis — `1.5` of close-range separation from a neighbour `0.625`
+away, plus doubled `3.0` pressure, `2.0` approach, and `1.5` facing responses — so
+its six published terms summed to exactly `8.0`, twice the `4.0` bound. With the
+bound off it was accelerated at that full `8.0`; with the bound on and nothing
+else changed it published an applied scale of exactly `0.5`, an applied
+acceleration of exactly `(0, 4)`, and an applied magnitude of exactly `4.0`, with
+its `x` component exactly zero in both members, so the scaling changed magnitude
+without changing direction. Because the fixture is built so the sum is an exact
+power-of-two multiple of the bound, those are exact equalities rather than
+tolerances. A second over-bound sheep on an exact 3-4-5 diagonal at distance
+`3.75` summed to `4.35`, published a `0.919540` scale, and reached the same `4.0`
+applied magnitude with a zero cross product against its unbounded sum, so the
+bound is not an axis artifact. In the same tick the ordinary sheep `4.5` units
+from the dog summed to exactly `1.625`, published a scale of exactly `1`, and was
+bit-identical to the unbounded member, and the sheep outside the pressure radius
+with no neighbour summed to exactly `0` and still published a scale of exactly
+`1`. Every published social and dog-stimulus vector, and every pre-bound summed
+magnitude, was identical between the two members; only the applied result
+differed. Raising the same fixture's bound to exactly the over-bound sheep's
+`8.0` sum reproduced the unbounded member bit for bit, so a sum exactly at the
+bound is not over it. Across 120 ticks with no sheep touching the paddock, every
+bounded sheep stayed within the bound on every tick while the control breached
+it, and the bounded sheep ended at `27.3558` against its unbounded twin's
+`30.2792`. A direct comparison against a pre-change build ran all twenty-one
+earlier scenarios for 240 scripted ticks each and found every canonical dump
+byte-identical once the new key and the version number were removed, so version
+11 adds fields without reinterpreting version 10 values. The oracle also proved
+that reversed sheep storage preserved exact per-ID state and evidence, that
+restart was exact, that a fixture which sums no terms publishes the bound as
+unevaluated with zeroed fields, and that 600 enabled ticks allocated no heap
+memory. On WSL Ubuntu 24.04.4 with Clang 18.1.3, development, Release, and
+ASan/UBSan configurations each passed 24/24 CTests; formatting and bounded
+clang-tidy passed. The `4.0` magnitude is the largest single accepted per-term
+maximum and is a provisional legibility choice, not a measured or tuned value,
+and this is synthetic causal evidence rather than player-facing motion
+acceptance.
+
 **Observed result (2026-08-16):** the earlier native Windows Release capture
 commands wrote canonical version 2 state at presentation ticks 1, 61, and 121.
 The independent normal, repeat-normal, and face-normal debug commands at tick 61
@@ -412,8 +486,8 @@ byte-identical state files with SHA-256
 `8b2921e4a87bc2e8b8b86e08f4f17d8b3a7bf7c9413293b90b03b728ec27a905`.
 This is local same-platform evidence, not a cross-platform identity claim.
 
-Native Linux graphics, a native Windows version 10 capture, JSON decoding, CLI
+Native Linux graphics, a native Windows version 11 capture, JSON decoding, CLI
 replay/seed ingestion, persistent replay files, the terrain pressure factor,
-combined-influence acceleration bounds, behavior transitions, objective
-outcomes, and cross-platform state or text identity remain untested or
-unimplemented.
+bounded sheep speed and turning, obstacle and drop avoidance, behavior
+transitions, objective outcomes, and cross-platform state or text identity remain
+untested or unimplemented.

@@ -85,6 +85,15 @@ response bit for bit, nervous and stubborn scale every dog term by exactly the
 configured factors under identical published geometry, the social terms are
 unchanged in both members, and the published scale, published/applied equality,
 unknown-temperament rejection, reversed-storage identity, restart, and zero
+allocations across 600 fixed updates all hold; paired combined-influence off/on
+fixtures in which every published per-term vector and pre-bound summed magnitude
+is identical between the members, an over-bound sheep's summed terms are scaled
+to exactly the bound with an unchanged direction on and off the axis, an
+under-bound sheep and a sheep under no influence are untouched with a published
+scale of exactly one, a sum exactly at the bound is left alone, the published
+scale times the summed terms is the applied acceleration exactly, the bound holds
+on every tick of a run while the unbounded control breaches it, and
+reversed-storage identity, restart, unevaluated-bound evidence, and zero
 allocations across 600 fixed updates all hold;
 repeated scripted `presentation-motion` state, all-five
 translation, midpoint turn interpolation, immutable-prior publication, exact

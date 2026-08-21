@@ -126,7 +126,9 @@ The versioned state dump — its current version number is owned by the
 and sheep prior/current snapshots plus per-sheep attraction/alignment neighbor
 selection, separated social influences, and prior-state dog distance, relative
 bearing, approach speed, facing alignment, line-of-sight blocking with its named
-paddock occluder, and separated pressure/approach/facing evidence.
+paddock occluder, separated pressure/approach/facing evidence, and the
+combined-influence bound's pre-bound summed magnitude, applied scale, and applied
+acceleration.
 Compatibility validation completes before replay mutation, and canonical
 compact JSON writers expose replay plus published state. The bounded
 presentation capture path can write the latter beside a frame; file decoding
@@ -195,9 +197,21 @@ same stimulus and a proportionally larger or smaller response. It scales the dog
 terms only; the social terms have no temperament factor, and each sheep publishes
 the scale that was applied. Paired `sheep-temperament-neutral` and
 `sheep-temperament-varied` fixtures stand five sheep on one exact 5-unit ring
-around a stationary dog and differ only by the temperament switch. Damping,
-bounded speed/turning, combined-influence acceleration bounds, the terrain
-pressure factor, and behavior-state transitions remain deferred. Flock-level
+around a stationary dog and differ only by the temperament switch. All of those
+per-term vectors are then summed once, and that sum — not any individual term —
+is limited by a single scenario-owned combined-influence bound set to the largest
+accepted per-term maximum, so a sheep inside several overlapping influences
+cannot be accelerated by their unbounded total. Each per-term vector keeps its
+published value; each sheep publishes the pre-bound summed magnitude, the scale
+the bound applied, and the acceleration integration used, and that scale is
+exactly `1.0` wherever the bound did not bind. The bound's magnitude is a
+provisional legibility choice rather than a measured one, and
+[`ADR 0006`](../docs/decisions/0006-combined-influence-acceleration-bound.md)
+records the combination rule and the rejected alternatives. Paired
+`sheep-combined-influence-off` and `sheep-combined-influence-on` fixtures put two
+sheep over the bound and two under it in the same tick and differ only by the
+bound switch. Damping, bounded speed/turning, obstacle and drop avoidance, the
+terrain pressure factor, and behavior-state transitions remain deferred. Flock-level
 dog-relative and response-timing observables also remain deferred until their
 required behavior
 scenarios exist. The dog is a kinematic upright
@@ -213,7 +227,8 @@ meshes; the same game-owned field answers the sheep sight-line query. Version 1,
 `sheep-dog-facing-on`, `sheep-dog-line-of-sight-off`,
 `sheep-dog-line-of-sight-on`, `sheep-paddock-collision-closed-gate`,
 `sheep-paddock-collision-open-gate`, `sheep-temperament-neutral`,
-`sheep-temperament-varied`,
+`sheep-temperament-varied`, `sheep-combined-influence-off`,
+`sheep-combined-influence-on`,
 `wall-contact`, `closed-gate`, and `open-gate` gameplay definitions provide
 deterministic initialization and exact restart. The
 gameplay camera owns orbit yaw/pitch independently of dog facing; orchestration

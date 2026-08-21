@@ -153,6 +153,32 @@ bool valid_collision_evidence(const GameplaySnapshot& snapshot) noexcept {
     return true;
 }
 
+bool valid_combined_influence_evidence(const GameplaySnapshot& snapshot) noexcept {
+    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+        const SheepCombinedInfluenceEvidence& evidence =
+            snapshot.sheep_combined_influence_evidence[index];
+        if (evidence.subject_id != snapshot.sheep[index].id ||
+            !std::isfinite(evidence.summed_acceleration_magnitude) ||
+            evidence.summed_acceleration_magnitude < 0.0 ||
+            !std::isfinite(evidence.applied_scale) || !finite(evidence.applied_acceleration)) {
+            return false;
+        }
+        // The rule is a bound, not a gain: an evaluated tick either left the
+        // summed terms alone or scaled them down, so a scale outside `(0, 1]`
+        // would describe something the bound cannot do.
+        if (evidence.bound_evaluated &&
+            (evidence.applied_scale <= 0.0 || evidence.applied_scale > 1.0)) {
+            return false;
+        }
+        if (!evidence.bound_evaluated &&
+            (evidence.summed_acceleration_magnitude != 0.0 || evidence.applied_scale != 0.0 ||
+             evidence.applied_acceleration != Vec3{})) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string_view paddock_obstacle_name(PaddockObstacle obstacle) noexcept {
     switch (obstacle) {
     case PaddockObstacle::none:
@@ -418,6 +444,30 @@ bool append_collision_evidence(std::string& output, const SheepCollisionEvidence
     return true;
 }
 
+bool append_combined_influence_evidence(std::string& output,
+                                        const SheepCombinedInfluenceEvidence& evidence) {
+    output += "{\"subject_id\":";
+    if (!append_integer(output, evidence.subject_id)) {
+        return false;
+    }
+    output += ",\"bound_evaluated\":";
+    output += evidence.bound_evaluated ? "true" : "false";
+    output += ",\"summed_acceleration_magnitude\":";
+    if (!append_double(output, evidence.summed_acceleration_magnitude)) {
+        return false;
+    }
+    output += ",\"applied_scale\":";
+    if (!append_double(output, evidence.applied_scale)) {
+        return false;
+    }
+    output += ",\"applied_acceleration\":";
+    if (!append_vec3(output, evidence.applied_acceleration)) {
+        return false;
+    }
+    output += '}';
+    return true;
+}
+
 bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
     output += "{\"tick\":";
     if (!append_integer(output, snapshot.tick)) {
@@ -471,6 +521,19 @@ bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
         }
         first_collision_evidence = false;
         if (!append_collision_evidence(output, evidence)) {
+            return false;
+        }
+    }
+    output += ']';
+    output += ",\"sheep_combined_influence_evidence\":[";
+    bool first_combined_evidence = true;
+    for (const SheepCombinedInfluenceEvidence& evidence :
+         snapshot.sheep_combined_influence_evidence) {
+        if (!first_combined_evidence) {
+            output += ',';
+        }
+        first_combined_evidence = false;
+        if (!append_combined_influence_evidence(output, evidence)) {
             return false;
         }
     }
@@ -642,7 +705,9 @@ GameplayTextResult gameplay_state_dump_json(const GameplaySimulation& simulation
         !valid_dog_pressure_evidence(simulation.previous_snapshot()) ||
         !valid_dog_pressure_evidence(simulation.current_snapshot()) ||
         !valid_collision_evidence(simulation.previous_snapshot()) ||
-        !valid_collision_evidence(simulation.current_snapshot())) {
+        !valid_collision_evidence(simulation.current_snapshot()) ||
+        !valid_combined_influence_evidence(simulation.previous_snapshot()) ||
+        !valid_combined_influence_evidence(simulation.current_snapshot())) {
         return {.error = GameplayContractError::non_finite_state, .text = {}};
     }
 

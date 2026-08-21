@@ -31,6 +31,8 @@ enum class GameplayScenarioId : std::uint8_t {
     sheep_paddock_collision_open_gate,
     sheep_temperament_neutral,
     sheep_temperament_varied,
+    sheep_combined_influence_off,
+    sheep_combined_influence_on,
 };
 
 enum class SheepFixture : std::uint8_t {
@@ -130,6 +132,27 @@ struct SheepTemperamentConfiguration {
     bool operator==(const SheepTemperamentConfiguration&) const = default;
 };
 
+// The one rule that limits what every social and dog term can do to a sheep
+// together. Each term above already bounds itself, but their sum was unbounded,
+// so a sheep inside several overlapping influences — or a nervous sheep whose
+// temperament multiplies three dog terms at once — could be accelerated harder
+// than any single accepted influence allows. The combination rule is a clamp on
+// the summed vector: every per-term vector keeps its published value and the sum
+// is scaled down as a whole when it exceeds `maximum_acceleration`. That keeps
+// the existing per-term evidence exactly as inspectable as it was, which a
+// prioritized or per-term-weighted scheme would destroy by silently rewriting
+// the individual vectors. `maximum_acceleration` is set to the largest single
+// accepted per-term maximum — close-range separation's `4.0` — so no combination
+// of influences may accelerate a sheep harder than the strongest influence the
+// flock already accepts on its own. That magnitude is a provisional legibility
+// choice, not a measured or tuned value.
+struct SheepCombinedInfluenceConfiguration {
+    bool enabled = false;
+    double maximum_acceleration = 4.0;
+
+    bool operator==(const SheepCombinedInfluenceConfiguration&) const = default;
+};
+
 // Owns the complete deterministic starting contract for one game scenario.
 // Controller-specific configuration stays nested under its subsystem, while
 // sheep, objective, and future fixture state remain owned at the game level.
@@ -151,6 +174,7 @@ struct GameplayScenarioDefinition {
     SheepDogFacingConfiguration sheep_dog_facing{};
     SheepDogLineOfSightConfiguration sheep_dog_line_of_sight{};
     SheepTemperamentConfiguration sheep_temperament{};
+    SheepCombinedInfluenceConfiguration sheep_combined_influence{};
 
     bool operator==(const GameplayScenarioDefinition&) const = default;
 };

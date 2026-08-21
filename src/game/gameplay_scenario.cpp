@@ -291,7 +291,61 @@ constexpr SheepStateBuffer kTemperamentSheepStates{{
 constexpr DogState kTemperamentDogState{
     .position = {.x = 16.0, .y = 1.0, .z = 26.0}, .heading_radians = 0.0, .grounded = true};
 
-constexpr std::array<NamedGameplayScenario, 21> kGameplayScenarios{{
+// One dog at (16, 20) closing south at exactly the approach reference speed,
+// looking straight down the same axis, isolates the combined-influence bound.
+// Everything sits at least four units south of the paddock wall line, so no
+// sheep starts within its own body radius of an obstacle face and collision
+// cannot contaminate a steering measurement.
+//
+// Sheep 1 is the over-bound subject: it stands an exact 3 units south of the dog,
+// so the shared 6-unit falloff is exactly 0.5, and it carries the nervous
+// temperament, so its pressure, approach, and facing responses double to 3.0,
+// 2.0, and 1.5. Sheep 2 stands 0.625 north of it, which is inside the 1-unit
+// separation radius, so sheep 1 is also pushed south by exactly 1.5 of
+// separation. Its six terms therefore sum to exactly 8.0 straight down +z:
+// twice the 4.0 bound, so the applied scale is exactly 0.5 and the bounded
+// result is exactly the bound. Sheep 5 is a second over-bound subject on an
+// exact 3-4-5 diagonal at distance 3.75, so the bound is observed on a direction
+// that is not axis-aligned. Sheep 3 is the under-bound control: 4.5 units south
+// of the dog, ordinary, and more than a separation radius from anyone, so its
+// three dog terms sum to exactly 1.625 and the bound must leave it alone. Sheep 4
+// stands outside the pressure radius with no neighbour at all, so its sum is
+// exactly zero and it observes that an untouched sheep still publishes a scale of
+// one.
+constexpr SheepStateBuffer kCombinedInfluenceSheepStates{{
+    {.id = 1,
+     .position = {.x = 16.0, .y = 1.0, .z = 23.0},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::nervous,
+     .grounded = true},
+    {.id = 2,
+     .position = {.x = 16.0, .y = 1.0, .z = 22.375},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::ordinary,
+     .grounded = true},
+    {.id = 3,
+     .position = {.x = 16.0, .y = 1.0, .z = 24.5},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::ordinary,
+     .grounded = true},
+    {.id = 4,
+     .position = {.x = 12.0, .y = 1.0, .z = 28.0},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::stubborn,
+     .grounded = true},
+    {.id = 5,
+     .position = {.x = 18.25, .y = 1.0, .z = 23.0},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::nervous,
+     .grounded = true},
+}};
+
+constexpr DogState kCombinedInfluenceDogState{.position = {.x = 16.0, .y = 1.0, .z = 20.0},
+                                              .velocity = {.z = 3.0},
+                                              .heading_radians = 3.14159265358979323846,
+                                              .grounded = true};
+
+constexpr std::array<NamedGameplayScenario, 23> kGameplayScenarios{{
     {
         .name = "paddock-start",
         .definition = {.id = GameplayScenarioId::paddock_start,
@@ -471,6 +525,31 @@ constexpr std::array<NamedGameplayScenario, 21> kGameplayScenarios{{
                        .initial_sheep = kTemperamentSheepStates,
                        .sheep_dog_pressure = {.enabled = true},
                        .sheep_temperament = {.enabled = true}},
+    },
+    {
+        .name = "sheep-combined-influence-off",
+        .definition = {.id = GameplayScenarioId::sheep_combined_influence_off,
+                       .dog = {.initial_state = kCombinedInfluenceDogState},
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kCombinedInfluenceSheepStates,
+                       .sheep_separation = {.enabled = true},
+                       .sheep_dog_pressure = {.enabled = true},
+                       .sheep_dog_approach = {.enabled = true},
+                       .sheep_dog_facing = {.enabled = true},
+                       .sheep_temperament = {.enabled = true}},
+    },
+    {
+        .name = "sheep-combined-influence-on",
+        .definition = {.id = GameplayScenarioId::sheep_combined_influence_on,
+                       .dog = {.initial_state = kCombinedInfluenceDogState},
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kCombinedInfluenceSheepStates,
+                       .sheep_separation = {.enabled = true},
+                       .sheep_dog_pressure = {.enabled = true},
+                       .sheep_dog_approach = {.enabled = true},
+                       .sheep_dog_facing = {.enabled = true},
+                       .sheep_temperament = {.enabled = true},
+                       .sheep_combined_influence = {.enabled = true}},
     },
 }};
 
