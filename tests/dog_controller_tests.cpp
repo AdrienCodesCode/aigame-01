@@ -24,7 +24,7 @@ wide_eye::game::DogState run_forward(std::string_view scenario_name, int tick_co
     if (!scenario.has_value()) {
         return {};
     }
-    wide_eye::game::DogController dog{scenario->dog};
+    wide_eye::game::DogController dog{scenario->dog, scenario->gate_open};
     for (int tick = 0; tick < tick_count; ++tick) {
         dog.fixed_update({.world_z = -1.0}, 1.0 / 60.0);
     }
@@ -156,7 +156,7 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    DogController first_contact_motor{wall->dog};
+    DogController first_contact_motor{wall->dog, wall->gate_open};
     bool observed_first_contact = false;
     for (int tick = 0; tick < 120; ++tick) {
         const double previous_z = first_contact_motor.state().position.z;
@@ -191,8 +191,8 @@ int main() {
 
     auto diagonal_configuration = start->dog;
     diagonal_configuration.initial_state.heading_radians = kPi * 0.25;
-    DogController cardinal_motor{start->dog};
-    DogController diagonal_motor{diagonal_configuration};
+    DogController cardinal_motor{start->dog, start->gate_open};
+    DogController diagonal_motor{diagonal_configuration, start->gate_open};
     cardinal_motor.fixed_update({.world_z = -1.0}, 1.0 / 60.0);
     constexpr double kDiagonalComponent = 0.70710678118654752440;
     diagonal_motor.fixed_update({.world_x = kDiagonalComponent, .world_z = -kDiagonalComponent},
@@ -205,7 +205,7 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    DogController reversal_motor{start->dog};
+    DogController reversal_motor{start->dog, start->gate_open};
     for (int tick = 0; tick < 45; ++tick) {
         reversal_motor.fixed_update({.world_z = -1.0}, 1.0 / 60.0);
     }
@@ -231,7 +231,7 @@ int main() {
     }
 
     CameraController steering_camera{start->dog.initial_state};
-    DogController steering_dog{start->dog};
+    DogController steering_dog{start->dog, start->gate_open};
     steering_camera.fixed_update(steering_dog.state(),
                                  CameraControlInput{.look_right_delta = 100.0}, 1.0 / 60.0);
     const auto curved_intent = wide_eye::game::resolve_camera_relative_move(
@@ -261,8 +261,8 @@ int main() {
 
     CameraController repeated_camera_a{start->dog.initial_state};
     CameraController repeated_camera_b{start->dog.initial_state};
-    DogController repeated_dog_a{start->dog};
-    DogController repeated_dog_b{start->dog};
+    DogController repeated_dog_a{start->dog, start->gate_open};
+    DogController repeated_dog_b{start->dog, start->gate_open};
     for (int tick = 0; tick < 120; ++tick) {
         const double mouse_delta = static_cast<double>((tick % 5) - 2);
         const double move_right = tick < 40 ? 0.25 : (tick < 80 ? -0.5 : 0.0);
@@ -282,7 +282,7 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    DogController dog{start->dog};
+    DogController dog{start->dog, start->gate_open};
     const auto initial_state = dog.state();
     CameraController turn_camera{initial_state};
     const auto initial_turn_pose = turn_camera.pose(initial_state);

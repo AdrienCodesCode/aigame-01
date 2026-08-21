@@ -28,6 +28,7 @@ set(
     "${PROJECT_SOURCE_DIR}/src/game/gameplay_replay.cpp"
     "${PROJECT_SOURCE_DIR}/src/game/gameplay_scenario.cpp"
     "${PROJECT_SOURCE_DIR}/src/game/gameplay_simulation.cpp"
+    "${PROJECT_SOURCE_DIR}/src/game/paddock_collision.cpp"
     "${PROJECT_SOURCE_DIR}/src/game/sheep_spatial_grid.cpp"
 )
 set(
@@ -39,6 +40,7 @@ set(
     "${PROJECT_SOURCE_DIR}/src/game/gameplay_scenario.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/gameplay_simulation.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/math.hpp"
+    "${PROJECT_SOURCE_DIR}/src/game/paddock_collision.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/sheep_spatial_grid.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/sheep_state.hpp"
 )

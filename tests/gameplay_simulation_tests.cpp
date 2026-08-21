@@ -1157,6 +1157,278 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    const auto sight_off_scenario =
+        wide_eye::game::find_gameplay_scenario("sheep-dog-line-of-sight-off");
+    const auto sight_on_scenario =
+        wide_eye::game::find_gameplay_scenario("sheep-dog-line-of-sight-on");
+    auto sight_on_as_control =
+        sight_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
+    if (sight_off_scenario.has_value()) {
+        sight_on_as_control.id = sight_off_scenario->id;
+    }
+    sight_on_as_control.sheep_dog_line_of_sight.enabled = false;
+    if (!check(sight_off_scenario.has_value() && sight_on_scenario.has_value() &&
+                   sight_off_scenario->id ==
+                       wide_eye::game::GameplayScenarioId::sheep_dog_line_of_sight_off &&
+                   sight_on_scenario->id ==
+                       wide_eye::game::GameplayScenarioId::sheep_dog_line_of_sight_on &&
+                   sight_on_as_control == *sight_off_scenario &&
+                   sight_on_scenario->sheep_dog_line_of_sight.enabled &&
+                   sight_off_scenario->sheep_dog_pressure.enabled &&
+                   sight_off_scenario->sheep_dog_pressure ==
+                       sight_on_scenario->sheep_dog_pressure &&
+                   !sight_off_scenario->sheep_dog_approach.enabled &&
+                   !sight_off_scenario->sheep_dog_facing.enabled && sight_off_scenario->gate_open &&
+                   sight_off_scenario->dog.initial_state.velocity == wide_eye::game::Vec3{},
+               "paired_line_of_sight_fixture_differs_only_by_sight_switch")) {
+        return EXIT_FAILURE;
+    }
+
+    wide_eye::game::GameplaySimulation sight_off{*sight_off_scenario};
+    wide_eye::game::GameplaySimulation sight_on{*sight_on_scenario};
+    const auto sight_initial = sight_on.current_snapshot();
+    sight_off.fixed_update({});
+    sight_on.fixed_update({});
+    const auto& sight_off_after_one = sight_off.current_snapshot();
+    const auto& sight_on_after_one = sight_on.current_snapshot();
+    const auto clear_sight = evidence_with_id(sight_on_after_one.sheep_dog_pressure_evidence, 1);
+    const auto left_wall_sight =
+        evidence_with_id(sight_on_after_one.sheep_dog_pressure_evidence, 2);
+    const auto gate_gap_sight = evidence_with_id(sight_on_after_one.sheep_dog_pressure_evidence, 3);
+    const auto right_wall_sight =
+        evidence_with_id(sight_on_after_one.sheep_dog_pressure_evidence, 4);
+    const auto distant_sight = evidence_with_id(sight_on_after_one.sheep_dog_pressure_evidence, 5);
+    const auto blocked_left_pressure =
+        evidence_with_id(sight_off_after_one.sheep_dog_pressure_evidence, 2).pressure_acceleration;
+    const auto blocked_right_pressure =
+        evidence_with_id(sight_off_after_one.sheep_dog_pressure_evidence, 4).pressure_acceleration;
+    if (!check(sight_on.previous_snapshot() == sight_initial,
+               "line_of_sight_reads_immutable_prior_snapshot") ||
+        !check(clear_sight.stimulus_evaluated && clear_sight.dog_distance == 4.0 &&
+                   !clear_sight.dog_line_of_sight_blocked &&
+                   clear_sight.dog_line_of_sight_occluder ==
+                       wide_eye::game::PaddockObstacle::none &&
+                   clear_sight.pressure_acceleration.x == 0.0 &&
+                   std::abs(clear_sight.pressure_acceleration.z + 1.0) < 1.0e-12,
+               "clear_line_reproduces_accepted_distance_pressure") ||
+        !check(left_wall_sight.dog_distance == 5.0 && left_wall_sight.dog_line_of_sight_blocked &&
+                   left_wall_sight.dog_line_of_sight_occluder ==
+                       wide_eye::game::PaddockObstacle::left_wall &&
+                   left_wall_sight.pressure_acceleration == wide_eye::game::Vec3{} &&
+                   std::abs(blocked_left_pressure.x + 0.3) < 1.0e-12 &&
+                   std::abs(blocked_left_pressure.z - 0.4) < 1.0e-12,
+               "wall_between_sheep_and_dog_releases_pressure") ||
+        !check(right_wall_sight.dog_distance == 5.0 && right_wall_sight.dog_line_of_sight_blocked &&
+                   right_wall_sight.dog_line_of_sight_occluder ==
+                       wide_eye::game::PaddockObstacle::right_wall &&
+                   right_wall_sight.pressure_acceleration == wide_eye::game::Vec3{} &&
+                   std::abs(blocked_right_pressure.x - 0.3) < 1.0e-12 &&
+                   std::abs(blocked_right_pressure.z - 0.4) < 1.0e-12,
+               "opposite_wall_is_named_as_its_own_occluder") ||
+        !check(gate_gap_sight.dog_distance == 5.0 && !gate_gap_sight.dog_line_of_sight_blocked &&
+                   gate_gap_sight.dog_line_of_sight_occluder ==
+                       wide_eye::game::PaddockObstacle::none &&
+                   gate_gap_sight.pressure_acceleration.x == 0.0 &&
+                   std::abs(gate_gap_sight.pressure_acceleration.z - 0.5) < 1.0e-12,
+               "sight_through_the_open_gate_keeps_full_pressure") ||
+        !check(distant_sight.dog_distance == 10.0 && distant_sight.dog_line_of_sight_blocked &&
+                   distant_sight.dog_line_of_sight_occluder ==
+                       wide_eye::game::PaddockObstacle::left_wall &&
+                   distant_sight.pressure_acceleration == wide_eye::game::Vec3{},
+               "occlusion_outside_pressure_radius_publishes_without_influence")) {
+        return EXIT_FAILURE;
+    }
+
+    for (const auto& on_evidence : sight_on_after_one.sheep_dog_pressure_evidence) {
+        const auto& off_evidence = evidence_with_id(sight_off_after_one.sheep_dog_pressure_evidence,
+                                                    on_evidence.subject_id);
+        const auto& prior_member = sheep_with_id(sight_initial.sheep, on_evidence.subject_id);
+        const auto applied = [&prior_member](const wide_eye::game::SheepState& member) {
+            return wide_eye::game::Vec3{.x = (member.velocity.x - prior_member.velocity.x) /
+                                             wide_eye::game::GameplaySimulation::kFixedDeltaSeconds,
+                                        .z =
+                                            (member.velocity.z - prior_member.velocity.z) /
+                                            wide_eye::game::GameplaySimulation::kFixedDeltaSeconds};
+        };
+        const auto on_applied =
+            applied(sheep_with_id(sight_on_after_one.sheep, on_evidence.subject_id));
+        const auto off_applied =
+            applied(sheep_with_id(sight_off_after_one.sheep, on_evidence.subject_id));
+        const bool released = on_evidence.dog_line_of_sight_blocked;
+        if (!check(off_evidence.stimulus_evaluated == on_evidence.stimulus_evaluated &&
+                       off_evidence.dog_distance == on_evidence.dog_distance &&
+                       off_evidence.dog_relative_bearing_radians ==
+                           on_evidence.dog_relative_bearing_radians &&
+                       off_evidence.dog_approach_speed == on_evidence.dog_approach_speed &&
+                       off_evidence.dog_facing_alignment == on_evidence.dog_facing_alignment &&
+                       off_evidence.dog_line_of_sight_blocked ==
+                           on_evidence.dog_line_of_sight_blocked &&
+                       off_evidence.dog_line_of_sight_occluder ==
+                           on_evidence.dog_line_of_sight_occluder,
+                   "line_of_sight_control_publishes_identical_prior_state_evidence") ||
+            !check(released
+                       ? on_evidence.pressure_acceleration == wide_eye::game::Vec3{}
+                       : on_evidence.pressure_acceleration == off_evidence.pressure_acceleration,
+                   "only_an_occluded_dog_changes_the_applied_pressure") ||
+            !check(std::abs(on_applied.x - on_evidence.pressure_acceleration.x) < 1.0e-12 &&
+                       std::abs(on_applied.z - on_evidence.pressure_acceleration.z) < 1.0e-12 &&
+                       std::abs(off_applied.x - off_evidence.pressure_acceleration.x) < 1.0e-12 &&
+                       std::abs(off_applied.z - off_evidence.pressure_acceleration.z) < 1.0e-12,
+                   "published_line_of_sight_terms_match_applied_acceleration")) {
+            return EXIT_FAILURE;
+        }
+    }
+
+    // The gate is world state, not fixture layout: closing it must hide the dog
+    // from the sheep that was watching through the opening and leave every other
+    // sight line unchanged.
+    auto closed_gate_sight_scenario = *sight_on_scenario;
+    closed_gate_sight_scenario.gate_open = false;
+    wide_eye::game::GameplaySimulation closed_gate_sight{closed_gate_sight_scenario};
+    closed_gate_sight.fixed_update({});
+    const auto& closed_gate_evidence =
+        closed_gate_sight.current_snapshot().sheep_dog_pressure_evidence;
+    const auto& gated = evidence_with_id(closed_gate_evidence, 3);
+    if (!check(gated.dog_distance == gate_gap_sight.dog_distance &&
+                   gated.dog_facing_alignment == gate_gap_sight.dog_facing_alignment &&
+                   gated.dog_line_of_sight_blocked &&
+                   gated.dog_line_of_sight_occluder == wide_eye::game::PaddockObstacle::gate &&
+                   gated.pressure_acceleration == wide_eye::game::Vec3{},
+               "closing_the_gate_hides_the_dog_that_was_visible_through_it") ||
+        !check(evidence_with_id(closed_gate_evidence, 1) == clear_sight &&
+                   evidence_with_id(closed_gate_evidence, 2) == left_wall_sight,
+               "closing_the_gate_leaves_other_sight_lines_unchanged")) {
+        return EXIT_FAILURE;
+    }
+
+    // Visibility multiplies every dog term rather than adding a fourth vector,
+    // so the same occluder must release approach and facing with pressure.
+    auto combined_sight_on_scenario = *sight_on_scenario;
+    combined_sight_on_scenario.dog.initial_state.velocity = {.z = 3.0};
+    combined_sight_on_scenario.sheep_dog_approach.enabled = true;
+    combined_sight_on_scenario.sheep_dog_facing.enabled = true;
+    auto combined_sight_off_scenario = combined_sight_on_scenario;
+    combined_sight_off_scenario.id = sight_off_scenario->id;
+    combined_sight_off_scenario.sheep_dog_line_of_sight.enabled = false;
+    wide_eye::game::GameplaySimulation combined_sight_on{combined_sight_on_scenario};
+    wide_eye::game::GameplaySimulation combined_sight_off{combined_sight_off_scenario};
+    combined_sight_on.fixed_update({});
+    combined_sight_off.fixed_update({});
+    const auto& combined_on_blocked =
+        evidence_with_id(combined_sight_on.current_snapshot().sheep_dog_pressure_evidence, 2);
+    const auto& combined_off_blocked =
+        evidence_with_id(combined_sight_off.current_snapshot().sheep_dog_pressure_evidence, 2);
+    const auto& combined_on_visible =
+        evidence_with_id(combined_sight_on.current_snapshot().sheep_dog_pressure_evidence, 3);
+    const auto& combined_off_visible =
+        evidence_with_id(combined_sight_off.current_snapshot().sheep_dog_pressure_evidence, 3);
+    if (!check(std::abs(combined_off_blocked.dog_approach_speed - 2.4) < 1.0e-12 &&
+                   std::abs(combined_off_blocked.dog_facing_alignment - 0.8) < 1.0e-12 &&
+                   combined_off_blocked.pressure_acceleration != wide_eye::game::Vec3{} &&
+                   combined_off_blocked.approach_acceleration != wide_eye::game::Vec3{} &&
+                   combined_off_blocked.facing_acceleration != wide_eye::game::Vec3{},
+               "combined_control_applies_all_three_dog_terms_through_the_wall") ||
+        !check(combined_on_blocked.dog_approach_speed == combined_off_blocked.dog_approach_speed &&
+                   combined_on_blocked.dog_facing_alignment ==
+                       combined_off_blocked.dog_facing_alignment &&
+                   combined_on_blocked.pressure_acceleration == wide_eye::game::Vec3{} &&
+                   combined_on_blocked.approach_acceleration == wide_eye::game::Vec3{} &&
+                   combined_on_blocked.facing_acceleration == wide_eye::game::Vec3{} &&
+                   sheep_with_id(combined_sight_on.current_snapshot().sheep, 2).velocity ==
+                       wide_eye::game::Vec3{},
+               "occluded_dog_releases_pressure_approach_and_facing_together") ||
+        !check(std::abs(combined_on_visible.dog_approach_speed - 3.0) < 1.0e-12 &&
+                   combined_on_visible.pressure_acceleration ==
+                       combined_off_visible.pressure_acceleration &&
+                   combined_on_visible.approach_acceleration ==
+                       combined_off_visible.approach_acceleration &&
+                   combined_on_visible.facing_acceleration ==
+                       combined_off_visible.facing_acceleration &&
+                   combined_on_visible.approach_acceleration != wide_eye::game::Vec3{} &&
+                   combined_on_visible.facing_acceleration != wide_eye::game::Vec3{},
+               "visible_dog_keeps_every_accepted_term_unchanged")) {
+        return EXIT_FAILURE;
+    }
+
+    // The dog motor moves within the same tick. Sight evidence must still
+    // describe the prior state that caused the published sheep result.
+    wide_eye::game::GameplaySimulation sight_same_tick_move{*sight_on_scenario};
+    sight_same_tick_move.fixed_update({.dog_move = wide_eye::game::DogMoveInput{.world_z = 1.0}});
+    if (!check(sight_same_tick_move.current_snapshot().dog.position.z >
+                       sight_on_scenario->dog.initial_state.position.z &&
+                   evidence_with_id(
+                       sight_same_tick_move.current_snapshot().sheep_dog_pressure_evidence, 2) ==
+                       left_wall_sight,
+               "same_tick_dog_motor_move_does_not_alter_prior_state_sight")) {
+        return EXIT_FAILURE;
+    }
+
+    auto overlapping_sight_scenario = *sight_on_scenario;
+    overlapping_sight_scenario.initial_sheep[0].position =
+        overlapping_sight_scenario.dog.initial_state.position;
+    wide_eye::game::GameplaySimulation overlapping_sight{overlapping_sight_scenario};
+    overlapping_sight.fixed_update({});
+    const auto& overlap_sight_evidence =
+        evidence_with_id(overlapping_sight.current_snapshot().sheep_dog_pressure_evidence, 1);
+    if (!check(overlap_sight_evidence.stimulus_evaluated &&
+                   overlap_sight_evidence.dog_distance == 0.0 &&
+                   !overlap_sight_evidence.dog_line_of_sight_blocked &&
+                   overlap_sight_evidence.dog_line_of_sight_occluder ==
+                       wide_eye::game::PaddockObstacle::none &&
+                   overlap_sight_evidence.pressure_acceleration == wide_eye::game::Vec3{} &&
+                   sheep_with_id(overlapping_sight.current_snapshot().sheep, 1).velocity ==
+                       wide_eye::game::Vec3{},
+               "exact_dog_overlap_does_not_invent_an_occluder")) {
+        return EXIT_FAILURE;
+    }
+
+    auto reversed_sight_scenario = *sight_on_scenario;
+    std::reverse(reversed_sight_scenario.initial_sheep.begin(),
+                 reversed_sight_scenario.initial_sheep.end());
+    wide_eye::game::GameplaySimulation reversed_sight{reversed_sight_scenario};
+    reversed_sight.fixed_update({});
+    for (const auto& member : sight_on_after_one.sheep) {
+        if (!check(member == sheep_with_id(reversed_sight.current_snapshot().sheep, member.id),
+                   "line_of_sight_result_is_stable_by_id_under_reversed_storage") ||
+            !check(
+                evidence_with_id(sight_on_after_one.sheep_dog_pressure_evidence, member.id) ==
+                    evidence_with_id(reversed_sight.current_snapshot().sheep_dog_pressure_evidence,
+                                     member.id),
+                "line_of_sight_evidence_is_stable_under_reversed_storage")) {
+            return EXIT_FAILURE;
+        }
+    }
+
+    const auto sight_state = wide_eye::game::gameplay_state_dump_json(sight_on);
+    if (!check(sight_state &&
+                   sight_state.text.find("\"dog_line_of_sight_blocked\":true") !=
+                       std::string::npos &&
+                   sight_state.text.find("\"dog_line_of_sight_occluder\":\"left_wall\"") !=
+                       std::string::npos &&
+                   sight_state.text.find("\"dog_line_of_sight_occluder\":\"right_wall\"") !=
+                       std::string::npos &&
+                   sight_state.text.find("\"dog_line_of_sight_occluder\":\"none\"") !=
+                       std::string::npos,
+               "state_dump_contains_dog_line_of_sight_stimulus_and_occluder")) {
+        return EXIT_FAILURE;
+    }
+
+    wide_eye::game::GameplaySimulation allocation_sight{*sight_on_scenario};
+    const std::size_t sight_allocations_before = g_allocation_count;
+    for (std::uint32_t tick = 0; tick < 600; ++tick) {
+        allocation_sight.fixed_update({});
+    }
+    const std::size_t sight_allocations = g_allocation_count - sight_allocations_before;
+    if (!check(sight_allocations == 0, "line_of_sight_fixed_updates_do_not_allocate")) {
+        return EXIT_FAILURE;
+    }
+    sight_on.restart();
+    if (!check(sight_on.current_snapshot() == sight_initial &&
+                   sight_on.previous_snapshot() == sight_initial,
+               "line_of_sight_restart_restores_paired_fixture")) {
+        return EXIT_FAILURE;
+    }
+
     wide_eye::game::GameplaySimulation replay_a{*scenario};
     wide_eye::game::GameplaySimulation replay_b{*scenario};
     const wide_eye::game::GameplayReplay replay = sample_replay(replay_a);
@@ -1164,7 +1436,7 @@ int main() {
     if (!check(wide_eye::game::kGameplaySeedFormatVersion == 1 &&
                    wide_eye::game::kGameplayActionInputFormatVersion == 1 &&
                    wide_eye::game::kGameplayReplayFormatVersion == 1 &&
-                   wide_eye::game::kGameplayStateDumpFormatVersion == 7,
+                   wide_eye::game::kGameplayStateDumpFormatVersion == 8,
                "contract_versions_are_explicit") ||
         !check(replay_text &&
                    replay_text.text ==
@@ -1189,7 +1461,7 @@ int main() {
     const auto state_b = wide_eye::game::gameplay_state_dump_json(replay_b);
     if (!check(state_a && state_b && state_a.text == state_b.text,
                "canonical_state_dump_repeats") ||
-        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":7,"
+        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":8,"
                                         "\"tick_rate\":60,\"scenario\":{"),
                "state_dump_schema_header") ||
         !check(state_a.text.find("\"current\":{\"tick\":3") != std::string::npos,
@@ -1335,6 +1607,19 @@ int main() {
               << "dog_facing_ahead_alignment=" << ahead_facing.dog_facing_alignment << '\n'
               << "dog_facing_diagonal_alignment=" << diagonal_facing.dog_facing_alignment << '\n'
               << "dog_facing_steady_state_allocations=" << facing_allocations << '\n'
+              << "dog_line_of_sight_fixture=analytic_occluder_paired_control\n"
+              << "dog_line_of_sight_clear_pressure_z=" << clear_sight.pressure_acceleration.z
+              << '\n'
+              << "dog_line_of_sight_control_left_wall_pressure_x=" << blocked_left_pressure.x
+              << '\n'
+              << "dog_line_of_sight_occluded_pressure="
+              << std::hypot(left_wall_sight.pressure_acceleration.x,
+                            left_wall_sight.pressure_acceleration.z)
+              << '\n'
+              << "dog_line_of_sight_gate_gap_pressure_z=" << gate_gap_sight.pressure_acceleration.z
+              << '\n'
+              << "dog_line_of_sight_closed_gate_blocks_gate_gap=yes\n"
+              << "dog_line_of_sight_steady_state_allocations=" << sight_allocations << '\n'
               << "repeated_local_replay_equal=yes\n"
               << "gameplay_simulation_result=pass\n";
     return EXIT_SUCCESS;

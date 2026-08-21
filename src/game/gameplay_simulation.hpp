@@ -3,6 +3,7 @@
 #include "core/runtime.hpp"
 #include "game/dog_controller.hpp"
 #include "game/gameplay_scenario.hpp"
+#include "game/paddock_collision.hpp"
 #include "game/sheep_spatial_grid.hpp"
 #include "game/sheep_state.hpp"
 
@@ -53,6 +54,9 @@ class GameplaySimulation {
   private:
     GameplayScenarioDefinition scenario_;
     DogController dog_;
+    // Sheep rules read the same analytic paddock the dog motor collides with, so
+    // occlusion and collision can never disagree about where a wall is.
+    PaddockCollisionField paddock_;
     SheepSpatialGrid sheep_grid_;
     GameplaySnapshot previous_{};
     GameplaySnapshot current_{};

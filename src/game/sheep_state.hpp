@@ -1,6 +1,7 @@
 #pragma once
 
 #include "game/math.hpp"
+#include "game/paddock_collision.hpp"
 
 #include <array>
 #include <cstddef>
@@ -67,15 +68,18 @@ using SheepSocialEvidenceBuffer = std::array<SheepSocialEvidence, kGameplaySheep
 
 // Dog stimulus remains separate from social evidence so paired controls can
 // publish identical geometry while independently switching the applied term.
-// Distance, bearing, approach speed, and facing alignment describe the immutable
-// prior state that caused the next authoritative sheep state. Bearing is signed
-// relative to sheep heading. Approach speed is the prior-state component of dog
-// velocity along the dog-to-sheep direction: positive when the dog closes,
-// negative when it leaves. Facing alignment is the cosine between the prior dog
-// forward direction and the dog-to-sheep direction: `1` when the dog looks
-// straight at the sheep, `0` abeam, `-1` when it looks directly away. Each
-// applied term keeps its own acceleration vector so one switch can be isolated
-// without hiding it inside a combined total.
+// Distance, bearing, approach speed, facing alignment, and line-of-sight
+// blocking describe the immutable prior state that caused the next authoritative
+// sheep state. Bearing is signed relative to sheep heading. Approach speed is
+// the prior-state component of dog velocity along the dog-to-sheep direction:
+// positive when the dog closes, negative when it leaves. Facing alignment is the
+// cosine between the prior dog forward direction and the dog-to-sheep direction:
+// `1` when the dog looks straight at the sheep, `0` abeam, `-1` when it looks
+// directly away. Line of sight names the analytic paddock obstacle that hides
+// the dog, so an occlusion result can be attributed to a wall or a closed gate
+// rather than to an anonymous flag. Each applied term keeps its own acceleration
+// vector so one switch can be isolated without hiding it inside a combined
+// total; an occluded dog releases all three vectors rather than adding a fourth.
 struct SheepDogPressureEvidence {
     std::uint32_t subject_id = 0;
     bool stimulus_evaluated = false;
@@ -83,6 +87,8 @@ struct SheepDogPressureEvidence {
     double dog_relative_bearing_radians = 0.0;
     double dog_approach_speed = 0.0;
     double dog_facing_alignment = 0.0;
+    bool dog_line_of_sight_blocked = false;
+    PaddockObstacle dog_line_of_sight_occluder = PaddockObstacle::none;
     Vec3 pressure_acceleration{};
     Vec3 approach_acceleration{};
     Vec3 facing_acceleration{};

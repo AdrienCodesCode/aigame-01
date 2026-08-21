@@ -1,9 +1,8 @@
 #pragma once
 
 #include "game/math.hpp"
+#include "game/paddock_collision.hpp"
 
-#include <array>
-#include <cstddef>
 #include <cstdint>
 
 namespace wide_eye::game {
@@ -27,43 +26,12 @@ struct DogMoveInput {
 
 struct DogControllerConfiguration {
     DogState initial_state{};
-    bool gate_open = false;
 
     bool operator==(const DogControllerConfiguration&) const = default;
 };
 
 [[nodiscard]] DogState interpolate_dog_state(const DogState& previous, const DogState& current,
                                              double alpha) noexcept;
-
-struct AnalyticObstacle {
-    double minimum_x = 0.0;
-    double maximum_x = 0.0;
-    double minimum_z = 0.0;
-    double maximum_z = 0.0;
-};
-
-// Collision truth for the handcrafted paddock. These analytic bounds are
-// intentionally independent of voxel faces and renderer mesh topology.
-class PaddockCollisionField {
-  public:
-    static constexpr double kMinimumX = 0.0;
-    static constexpr double kMaximumX = 32.0;
-    static constexpr double kMinimumZ = 0.0;
-    static constexpr double kMaximumZ = 32.0;
-    static constexpr double kGroundHeight = 1.0;
-
-    explicit PaddockCollisionField(bool gate_open = false) noexcept;
-
-    [[nodiscard]] double ground_height(double x, double z) const noexcept;
-    [[nodiscard]] Vec3 move_cylinder(Vec3 start, Vec3 displacement, double radius) const noexcept;
-    [[nodiscard]] bool gate_open() const noexcept;
-    [[nodiscard]] std::size_t obstacle_count() const noexcept;
-
-  private:
-    std::array<AnalyticObstacle, 3> obstacles_{};
-    std::size_t obstacle_count_ = 0;
-    bool gate_open_ = false;
-};
 
 class DogController {
   public:
@@ -74,7 +42,9 @@ class DogController {
     static constexpr double kDeceleration = 30.0;
     static constexpr double kTurnRateRadiansPerSecond = 6.0;
 
-    explicit DogController(DogControllerConfiguration configuration) noexcept;
+    // Paddock gate state is world state owned by the scenario, so the motor
+    // receives it rather than storing it in its own configuration.
+    DogController(DogControllerConfiguration configuration, bool gate_open) noexcept;
 
     void fixed_update(const DogMoveInput& input, double fixed_delta_seconds) noexcept;
     void restart() noexcept;

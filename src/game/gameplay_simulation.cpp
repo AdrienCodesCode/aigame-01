@@ -92,10 +92,12 @@ void validate_social_response_configuration(const GameplayScenarioDefinition& sc
 
 void evaluate_dog_stimulus(const SheepState& prior_sheep, const DogState& prior_dog,
                            const GameplayScenarioDefinition& scenario,
+                           const PaddockCollisionField& paddock,
                            SheepDogPressureEvidence& dog_evidence) noexcept {
     const SheepDogPressureConfiguration& dog_pressure = scenario.sheep_dog_pressure;
     const SheepDogApproachConfiguration& dog_approach = scenario.sheep_dog_approach;
     const SheepDogFacingConfiguration& dog_facing = scenario.sheep_dog_facing;
+    const SheepDogLineOfSightConfiguration& line_of_sight = scenario.sheep_dog_line_of_sight;
     constexpr double kTwoPi = 6.28318530717958647692;
     const double dog_offset_x = prior_dog.position.x - prior_sheep.position.x;
     const double dog_offset_z = prior_dog.position.z - prior_sheep.position.z;
@@ -118,32 +120,56 @@ void evaluate_dog_stimulus(const SheepState& prior_sheep, const DogState& prior_
         const double forward_z = -std::cos(prior_dog.heading_radians);
         dog_evidence.dog_facing_alignment =
             std::clamp(forward_x * away_x + forward_z * away_z, -1.0, 1.0);
+        // Sight is tested from the immutable prior positions against the same
+        // analytic shapes the dog collides with, so a wall or closed gate that
+        // stops the dog also hides it.
+        const PaddockObstacle occluder =
+            paddock.blocking_obstacle(prior_sheep.position.x, prior_sheep.position.z,
+                                      prior_dog.position.x, prior_dog.position.z);
+        dog_evidence.dog_line_of_sight_blocked = occluder != PaddockObstacle::none;
+        dog_evidence.dog_line_of_sight_occluder = occluder;
+        // Visibility is binary and multiplies the other dog terms: an occluded
+        // dog releases them instead of adding a fourth vector, so the published
+        // per-term vectors stay the applied vectors. Multiplying by exactly 1.0
+        // leaves the accepted visible-case arithmetic unchanged.
+        const double visibility =
+            line_of_sight.enabled && dog_evidence.dog_line_of_sight_blocked ? 0.0 : 1.0;
 
-        const double falloff =
-            dog_distance < dog_pressure.radius ? 1.0 - dog_distance / dog_pressure.radius : 0.0;
-        if (dog_pressure.enabled) {
-            const double magnitude = falloff * dog_pressure.maximum_acceleration;
-            dog_evidence.pressure_acceleration = {.x = away_x * magnitude, .z = away_z * magnitude};
-        }
-        if (dog_approach.enabled && dog_evidence.dog_approach_speed > 0.0) {
-            // Only a closing dog adds pressure; a leaving dog releases it
-            // rather than pulling the sheep back.
-            const double response =
-                std::min(dog_evidence.dog_approach_speed / dog_approach.reference_speed, 1.0);
-            const double magnitude = falloff * dog_approach.maximum_acceleration * response;
-            dog_evidence.approach_acceleration = {.x = away_x * magnitude, .z = away_z * magnitude};
-        }
-        if (dog_facing.enabled && dog_evidence.dog_facing_alignment > 0.0) {
-            // Only a dog looking toward the sheep adds pressure; a dog
-            // looking away releases it rather than pulling the sheep back.
-            const double magnitude =
-                falloff * dog_facing.maximum_acceleration * dog_evidence.dog_facing_alignment;
-            dog_evidence.facing_acceleration = {.x = away_x * magnitude, .z = away_z * magnitude};
+        // A fully released term keeps its zeroed default rather than a scaled
+        // vector, because scaling an away direction by zero would publish a
+        // signed zero and make two identically released states differ in the
+        // canonical state dump.
+        if (visibility > 0.0) {
+            const double falloff =
+                dog_distance < dog_pressure.radius ? 1.0 - dog_distance / dog_pressure.radius : 0.0;
+            if (dog_pressure.enabled) {
+                const double magnitude = visibility * falloff * dog_pressure.maximum_acceleration;
+                dog_evidence.pressure_acceleration = {.x = away_x * magnitude,
+                                                      .z = away_z * magnitude};
+            }
+            if (dog_approach.enabled && dog_evidence.dog_approach_speed > 0.0) {
+                // Only a closing dog adds pressure; a leaving dog releases it
+                // rather than pulling the sheep back.
+                const double response =
+                    std::min(dog_evidence.dog_approach_speed / dog_approach.reference_speed, 1.0);
+                const double magnitude =
+                    visibility * falloff * dog_approach.maximum_acceleration * response;
+                dog_evidence.approach_acceleration = {.x = away_x * magnitude,
+                                                      .z = away_z * magnitude};
+            }
+            if (dog_facing.enabled && dog_evidence.dog_facing_alignment > 0.0) {
+                // Only a dog looking toward the sheep adds pressure; a dog
+                // looking away releases it rather than pulling the sheep back.
+                const double magnitude = visibility * falloff * dog_facing.maximum_acceleration *
+                                         dog_evidence.dog_facing_alignment;
+                dog_evidence.facing_acceleration = {.x = away_x * magnitude,
+                                                    .z = away_z * magnitude};
+            }
         }
     }
-    // Exact overlap has no geometric away direction. Publish the zero
-    // bearing/approach/facing/vector data instead of inventing a hidden
-    // random or ID-based turn.
+    // Exact overlap has no geometric away direction and nothing can stand
+    // between the pair. Publish the zero bearing/approach/facing/sight data
+    // instead of inventing a hidden random or ID-based turn.
 }
 
 void apply_separation(const SheepStateBuffer& prior, std::size_t index,
@@ -261,6 +287,7 @@ void apply_alignment(const SheepStateBuffer& prior, std::size_t index,
 
 void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot& next,
                               const GameplayScenarioDefinition& scenario,
+                              const PaddockCollisionField& paddock,
                               SheepSpatialGrid& grid) noexcept {
     constexpr std::uint64_t kTicksPerLeg = 60;
     constexpr std::uint64_t kLegCount = 4;
@@ -323,7 +350,7 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
         SheepSocialEvidence& evidence = next.sheep_social_evidence[index];
         SheepDogPressureEvidence& dog_evidence = next.sheep_dog_pressure_evidence[index];
 
-        evaluate_dog_stimulus(prior[index], previous.dog, scenario, dog_evidence);
+        evaluate_dog_stimulus(prior[index], previous.dog, scenario, paddock, dog_evidence);
         if (separation.enabled) {
             apply_separation(prior, index, separation, grid, separation_scratch, evidence);
         }
@@ -380,7 +407,7 @@ SheepState interpolate_sheep_state(const SheepState& previous, const SheepState&
 }
 
 GameplaySimulation::GameplaySimulation(GameplayScenarioDefinition scenario) noexcept
-    : scenario_{scenario}, dog_{scenario.dog} {
+    : scenario_{scenario}, dog_{scenario.dog, scenario.gate_open}, paddock_{scenario.gate_open} {
     if (scenario_.sheep_fixture == SheepFixture::local_social_response) {
         validate_social_response_configuration(scenario_);
     }
@@ -401,7 +428,7 @@ void GameplaySimulation::fixed_update(const GameplayTickInput& input) noexcept {
     }
     current_.tick += 1;
     current_.dog = dog_.state();
-    advance_sheep_from_prior(previous_, current_, scenario_, sheep_grid_);
+    advance_sheep_from_prior(previous_, current_, scenario_, paddock_, sheep_grid_);
 }
 
 void GameplaySimulation::restart() noexcept {

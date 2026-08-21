@@ -102,19 +102,43 @@ bool valid_dog_pressure_evidence(const GameplaySnapshot& snapshot) noexcept {
             evidence.dog_relative_bearing_radians > kPi ||
             !std::isfinite(evidence.dog_approach_speed) ||
             !std::isfinite(evidence.dog_facing_alignment) || evidence.dog_facing_alignment < -1.0 ||
-            evidence.dog_facing_alignment > 1.0 || !finite(evidence.pressure_acceleration) ||
-            !finite(evidence.approach_acceleration) || !finite(evidence.facing_acceleration)) {
+            evidence.dog_facing_alignment > 1.0 ||
+            !is_known_paddock_obstacle(evidence.dog_line_of_sight_occluder) ||
+            !finite(evidence.pressure_acceleration) || !finite(evidence.approach_acceleration) ||
+            !finite(evidence.facing_acceleration)) {
+            return false;
+        }
+        // A blocked sight line must name its occluder, and a clear one must name
+        // none, so the flag and the identified shape cannot disagree.
+        if (evidence.dog_line_of_sight_blocked !=
+            (evidence.dog_line_of_sight_occluder != PaddockObstacle::none)) {
             return false;
         }
         if (!evidence.stimulus_evaluated &&
             (evidence.dog_distance != 0.0 || evidence.dog_relative_bearing_radians != 0.0 ||
              evidence.dog_approach_speed != 0.0 || evidence.dog_facing_alignment != 0.0 ||
+             evidence.dog_line_of_sight_blocked ||
+             evidence.dog_line_of_sight_occluder != PaddockObstacle::none ||
              evidence.pressure_acceleration != Vec3{} || evidence.approach_acceleration != Vec3{} ||
              evidence.facing_acceleration != Vec3{})) {
             return false;
         }
     }
     return true;
+}
+
+std::string_view paddock_obstacle_name(PaddockObstacle obstacle) noexcept {
+    switch (obstacle) {
+    case PaddockObstacle::none:
+        return "none";
+    case PaddockObstacle::left_wall:
+        return "left_wall";
+    case PaddockObstacle::right_wall:
+        return "right_wall";
+    case PaddockObstacle::gate:
+        return "gate";
+    }
+    return "unknown";
 }
 
 std::string_view sheep_behavior_name(SheepBehaviorState behavior) noexcept {
@@ -315,7 +339,11 @@ bool append_dog_pressure_evidence(std::string& output, const SheepDogPressureEvi
     if (!append_double(output, evidence.dog_facing_alignment)) {
         return false;
     }
-    output += ",\"pressure_acceleration\":";
+    output += ",\"dog_line_of_sight_blocked\":";
+    output += evidence.dog_line_of_sight_blocked ? "true" : "false";
+    output += ",\"dog_line_of_sight_occluder\":\"";
+    output += paddock_obstacle_name(evidence.dog_line_of_sight_occluder);
+    output += "\",\"pressure_acceleration\":";
     if (!append_vec3(output, evidence.pressure_acceleration)) {
         return false;
     }

@@ -1,11 +1,11 @@
 # Gameplay replay and state-dump contracts
 
-**Status:** Version 1 seed/action/replay and version 7 dog, five-sheep, social-
+**Status:** Version 1 seed/action/replay and version 8 dog, five-sheep, social-
 evidence, and dog-stimulus-evidence state dump implemented; the presentation
 capture CLI can write a state dump, while JSON decoding and general replay/seed
 CLI integration remain pending
 
-**Last revised:** 2026-08-17
+**Last revised:** 2026-08-21
 
 The `game` boundary owns these contracts. They make a fixed-tick input sequence
 and its observed state inspectable without giving file or renderer code control
@@ -13,9 +13,13 @@ of `GameplaySimulation`.
 
 The seed identifies a complete gameplay scenario, not a dog-controller
 scenario. [`ADR 0004`](../decisions/0004-gameplay-scenario-ownership.md) records
-that ownership correction. That correction left the then-current names and
-numeric format versions unchanged because the serialized contract already
-represented the whole simulation; only the internal type ownership changed.
+that ownership correction, and
+[`ADR 0005`](../decisions/0005-paddock-collision-ownership.md) records the later
+move of the analytic paddock shapes and the gate flag out of the dog-owned
+header. Both corrections left the then-current scenario names, seeds, scenario
+versions, and serialized replay JSON unchanged because the serialized contract
+already represented the whole simulation; only the internal type ownership
+changed.
 
 The authoritative implementation is
 [`gameplay_replay.hpp`](../../src/game/gameplay_replay.hpp). The JSON writers and
@@ -34,14 +38,15 @@ The contracts use four independently named versions:
   authoritative tick;
 - replay format `1` binds the tick rate, seed contract, action-input version,
   and complete action sequence;
-- state-dump format `7` records the seed contract, tick rate, restart count, and
+- state-dump format `8` records the seed contract, tick rate, restart count, and
   published previous/current dog, five-sheep, social-evidence, and dog-stimulus-
   evidence snapshots. Version 1 was dog-only, version 2 added sheep state,
   version 3 added attraction evidence, version 4 added alignment evidence,
   version 5 added dog distance, relative bearing, and pressure acceleration,
-  version 6 added dog approach speed and a separate approach acceleration, and
-  version 7 added dog facing alignment and a separate facing acceleration. No
-  older version is silently reinterpreted.
+  version 6 added dog approach speed and a separate approach acceleration,
+  version 7 added dog facing alignment and a separate facing acceleration, and
+  version 8 added the dog line-of-sight blocked flag and the named analytic
+  paddock obstacle that blocks it. No older version is silently reinterpreted.
 
 A replay consumer must reject an unsupported version, a tick rate other than
 60 Hz, an unknown scenario, a zero scenario version, a scenario/version/seed
@@ -73,7 +78,7 @@ decoder, replay file path, checked-in replay fixture, and executable
 `--replay`/`--seed` flags are intentionally deferred. No untrusted or external
 JSON is accepted by the engine yet.
 
-## State dump version 7
+## State dump version 8
 
 The schema name is `wide-eye.gameplay-state`. The dump contains the scenario
 seed contract, fixed rate, restart count, and complete published previous and
@@ -87,15 +92,22 @@ alignment acceleration vectors. The writer validates subject mapping, bounds,
 unique known neighbor IDs, zeroed unused IDs, and finite vectors before
 encoding. A second fixed-size record per sheep states whether dog stimulus was
 evaluated, then publishes the prior-state planar dog distance, signed bearing
-relative to sheep heading, dog approach speed, dog facing alignment, and
+relative to sheep heading, dog approach speed, dog facing alignment, whether the
+sight line to the dog is blocked, the named paddock obstacle that blocks it, and
 separate pressure-, approach-, and facing-acceleration vectors. Approach speed
 is the component of prior dog velocity along the dog-to-sheep direction:
 positive when the dog closes, negative when it leaves. Facing alignment is the
 cosine between the prior dog forward direction and the dog-to-sheep direction:
 `1` looking straight at the sheep, `0` abeam, `-1` looking directly away. The
-writer requires unevaluated stimulus fields to remain zero and validates finite
-distance/approach data, a bearing within `[-π, π]`, and an alignment within
-`[-1, 1]` before encoding.
+occluder is `none`, `left_wall`, `right_wall`, or `gate`; the gate shape exists
+only while the scenario's gate is closed, and the sight line is the zero-width
+planar segment between the prior sheep and dog positions. Line of sight adds no
+acceleration vector of its own: when its term is enabled, an occluded dog
+releases the pressure, approach, and facing vectors instead. The writer requires
+unevaluated stimulus fields to remain zero, requires a blocked flag to name an
+obstacle and a clear flag to name `none`, and validates finite distance/approach
+data, a bearing within `[-π, π]`, and an alignment within `[-1, 1]` before
+encoding.
 
 IDs 1–5 initialize in a fixed contiguous buffer with `settled` behavior and zero
 arousal. The default scenarios keep them stationary. The version 1, seed-zero
@@ -128,9 +140,14 @@ identical in both cases, and differ only by the facing switch and required
 scenario ID. Both publish the same prior-state facing alignment; the on case
 adds a separate away-from-dog vector scaled by the positive part of that
 alignment, sharing the pressure radius and linear falloff, so a dog looking away
-releases rather than pulls. Line of sight, terrain, temperament, and
-behavior-state transitions remain absent, and the dog terms are summed without a
-combined-influence bound. A non-finite state is rejected because JSON has no
+releases rather than pulls. The paired `sheep-dog-line-of-sight-off` and
+`sheep-dog-line-of-sight-on` fixtures share one stationary dog placed north of
+the paddock wall line with the gate open, keep the accepted distance-only
+pressure enabled and identical in both cases, and differ only by the
+line-of-sight switch and required scenario ID. Both publish the same prior-state
+blocked flag and named occluder; only the on case releases the dog terms for an
+occluded sheep. Terrain, temperament, and behavior-state transitions remain
+absent, and the dog terms are still summed without a combined-influence bound. A non-finite state is rejected because JSON has no
 portable representation for NaN or infinity.
 
 The state dump is an observation, not a save format. It does not restore a
@@ -236,6 +253,37 @@ each passed 24/24 CTests; formatting and bounded clang-tidy passed. This is
 synthetic causal evidence, not calibrated sheep behavior or player-facing motion
 acceptance.
 
+**Observed result (2026-08-21):** required prior-state dog line-of-sight blocking
+and its named occluder advanced the state dump to version 8. In the paired
+line-of-sight oracle's first tick, the sheep with a clear line at distance `4`
+reproduced the accepted `(0, -1)` distance pressure exactly; the sheep at an
+exact distance of `5` behind the left wall published `left_wall` and received
+zero applied dog acceleration where the control published `(-0.3, 0.4)`; the
+mirrored sheep behind the right wall published `right_wall` against the
+control's `(0.3, 0.4)`; the sheep looking through the open gate at distance `5`
+kept its full `(0, 0.5)` pressure; and the sheep occluded from distance `10`
+published its blocked flag with no influence in either case. Closing the same
+fixture's gate without moving anything flipped only the gate-gap sheep to a
+`gate` occluder with zero pressure and left the other sight lines identical. A
+derived fixture with the approach and facing terms also enabled observed the
+occluded sheep publish `2.4` approach speed and `0.8` facing alignment while all
+three applied vectors went to zero together, and the visible sheep keep all
+three accepted vectors unchanged. The off case reproduced identical distance,
+bearing, approach, alignment, blocked, and occluder evidence with the accepted
+distance-only pressure applied through the wall, and published vectors matched
+applied acceleration in both cases. A direct comparison against a pre-change
+build found the canonical dumps of all fifteen earlier scenarios byte-identical
+over 240 scripted ticks each once the two new keys and the version number were
+removed, so version 8 adds fields without reinterpreting version 7 values. The oracle also proved that the same tick's
+dog-motor move did not alter prior-state sight evidence, that exact dog/sheep
+overlap invented no occluder, that reversed sheep storage preserved exact per-ID
+state and evidence, that restart was exact, and that 600 enabled ticks allocated
+no heap memory. On WSL Ubuntu 24.04.4 with Clang 18.1.3, development, Release,
+and ASan/UBSan configurations each passed 24/24 CTests; formatting and bounded
+clang-tidy passed. Visibility is binary, so pressure changes discontinuously as
+a sight line crosses an obstacle edge. This is synthetic causal evidence, not
+calibrated sheep behavior or player-facing motion acceptance.
+
 **Observed result (2026-08-16):** the earlier native Windows Release capture
 commands wrote canonical version 2 state at presentation ticks 1, 61, and 121.
 The independent normal, repeat-normal, and face-normal debug commands at tick 61
@@ -244,8 +292,8 @@ byte-identical state files with SHA-256
 `8b2921e4a87bc2e8b8b86e08f4f17d8b3a7bf7c9413293b90b03b728ec27a905`.
 This is local same-platform evidence, not a cross-platform identity claim.
 
-Native Linux graphics, a native Windows version 7 capture, JSON decoding, CLI
-replay/seed ingestion, persistent replay files, visibility/terrain/temperament
-pressure factors, combined-influence acceleration bounds, behavior transitions,
-objective outcomes, and cross-platform state or text identity remain untested or
+Native Linux graphics, a native Windows version 8 capture, JSON decoding, CLI
+replay/seed ingestion, persistent replay files, terrain and temperament pressure
+factors, combined-influence acceleration bounds, behavior transitions, objective
+outcomes, and cross-platform state or text identity remain untested or
 unimplemented.

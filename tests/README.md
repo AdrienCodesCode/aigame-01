@@ -61,12 +61,21 @@ an exact diagonal cosine, a half-turn heading control that swaps the front and
 back results without moving a position, published/applied sum equality, radius
 rejection, zero-direction exact-overlap handling, immutable-prior facing
 evidence, reversed-storage identity, state-dump evidence, restart, and zero
-allocations across 600 fixed updates;
+allocations across 600 fixed updates; paired dog-line-of-sight off/on fixtures
+that preserve the accepted distance-only pressure exactly, with identical
+prior-state blocked flags and named occluders, an unchanged clear-line response,
+released pressure behind each wall, a preserved response through the open gate
+gap, a gate-state control that hides only the sheep watching through the
+opening, a combined derived fixture in which the pressure, approach, and facing
+vectors are released together while their prior-state evidence is unchanged,
+published/applied equality in both members, zero-direction exact-overlap
+handling, immutable-prior sight evidence, reversed-storage identity, state-dump
+evidence, restart, and zero allocations across 600 fixed updates;
 repeated scripted `presentation-motion` state, all-five
 translation, midpoint turn interpolation, immutable-prior publication, exact
 restart, and one-to-one moving proxy poses without claiming flock behavior;
-independent version 1 seed, action-input, and replay contracts plus the version
-6 state-dump contract; canonical compact JSON; pre-mutation rejection of
+independent version 1 seed, action-input, and replay contracts plus the
+versioned state-dump contract; canonical compact JSON; pre-mutation rejection of
 unsupported versions, tick rates, scenario/seed mismatches, gaps, and invalid
 values; repeated local replay/state equality; window-state transitions; fatal
 project assertions; the dummy-driver SDL lifecycle; nearest-rank duration

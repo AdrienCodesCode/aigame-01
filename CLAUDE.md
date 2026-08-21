@@ -112,8 +112,9 @@ Ownership boundaries are enforced deliberately; read
 - `src/game` — authoritative fixed-tick rules: `GameplayScenarioDefinition`
   (version/seed/dog config/sheep fixture), `GameplaySimulation` (one domain
   input per tick, publishes read-only previous/current snapshots of the dog and
-  five sheep), `dog_controller`, `camera_controller`, `flock_observables`,
-  `sheep_spatial_grid`, `gameplay_replay`.
+  five sheep), `dog_controller`, `camera_controller`, `paddock_collision` (the
+  analytic paddock walls/gate used for both dog collision and sheep sight
+  lines), `flock_observables`, `sheep_spatial_grid`, `gameplay_replay`.
 
 Invariants that repeatedly matter:
 
@@ -128,7 +129,8 @@ Invariants that repeatedly matter:
   before any mutation.
 - Architectural changes of this kind get an ADR in [docs/decisions/](docs/decisions/)
   (0001 native foundation, 0002 chunk edge length, 0003 project-owned test
-  harness — no doctest, 0004 gameplay-scenario ownership).
+  harness — no doctest, 0004 gameplay-scenario ownership, 0005 game-owned
+  paddock collision and gate state).
 
 Dependencies: SDL 3.4.10 via `FetchContent` (most subsystems force-disabled in
 [cmake/WideEyeDependencies.cmake](cmake/WideEyeDependencies.cmake)) and a

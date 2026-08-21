@@ -170,7 +170,42 @@ constexpr SheepStateBuffer kDogFacingSheepStates{{
 constexpr DogState kFacingDogState{
     .position = {.x = 12.0, .y = 1.0, .z = 20.0}, .heading_radians = 0.0, .grounded = true};
 
-constexpr std::array<NamedGameplayScenario, 15> kGameplayScenarios{{
+// One stationary dog at (16, 13) just north of the paddock wall line isolates
+// line of sight against the analytic obstacles the dog itself collides with:
+// sheep 1 shares the open ground north of the walls on a clear line, sheep 2 and
+// sheep 4 stand south of the left and right walls at an exact 3-4-5 distance of
+// 5, sheep 3 stands south of the gate opening and sees the dog only while that
+// gate is open, and sheep 5 is hidden by the left wall from outside the pressure
+// radius. The dog heading looks south down the gate line so a derived fixture
+// can observe the approach and facing terms releasing together with pressure.
+constexpr SheepStateBuffer kDogLineOfSightSheepStates{{
+    {.id = 1,
+     .position = {.x = 16.0, .y = 1.0, .z = 9.0},
+     .heading_radians = 0.0,
+     .grounded = true},
+    {.id = 2,
+     .position = {.x = 13.0, .y = 1.0, .z = 17.0},
+     .heading_radians = 0.0,
+     .grounded = true},
+    {.id = 3,
+     .position = {.x = 16.0, .y = 1.0, .z = 18.0},
+     .heading_radians = 0.0,
+     .grounded = true},
+    {.id = 4,
+     .position = {.x = 19.0, .y = 1.0, .z = 17.0},
+     .heading_radians = 0.0,
+     .grounded = true},
+    {.id = 5,
+     .position = {.x = 10.0, .y = 1.0, .z = 21.0},
+     .heading_radians = 0.0,
+     .grounded = true},
+}};
+
+constexpr DogState kLineOfSightDogState{.position = {.x = 16.0, .y = 1.0, .z = 13.0},
+                                        .heading_radians = 3.14159265358979323846,
+                                        .grounded = true};
+
+constexpr std::array<NamedGameplayScenario, 17> kGameplayScenarios{{
     {
         .name = "paddock-start",
         .definition = {.id = GameplayScenarioId::paddock_start,
@@ -205,8 +240,8 @@ constexpr std::array<NamedGameplayScenario, 15> kGameplayScenarios{{
         .definition = {.id = GameplayScenarioId::open_gate,
                        .dog = {.initial_state = {.position = {.x = 16.0, .y = 1.0, .z = 20.0},
                                                  .heading_radians = 0.0,
-                                                 .grounded = true},
-                               .gate_open = true}},
+                                                 .grounded = true}},
+                       .gate_open = true},
     },
     {
         .name = "sheep-only-separation",
@@ -299,6 +334,25 @@ constexpr std::array<NamedGameplayScenario, 15> kGameplayScenarios{{
                        .initial_sheep = kDogFacingSheepStates,
                        .sheep_dog_pressure = {.enabled = true},
                        .sheep_dog_facing = {.enabled = true}},
+    },
+    {
+        .name = "sheep-dog-line-of-sight-off",
+        .definition = {.id = GameplayScenarioId::sheep_dog_line_of_sight_off,
+                       .dog = {.initial_state = kLineOfSightDogState},
+                       .gate_open = true,
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kDogLineOfSightSheepStates,
+                       .sheep_dog_pressure = {.enabled = true}},
+    },
+    {
+        .name = "sheep-dog-line-of-sight-on",
+        .definition = {.id = GameplayScenarioId::sheep_dog_line_of_sight_on,
+                       .dog = {.initial_state = kLineOfSightDogState},
+                       .gate_open = true,
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kDogLineOfSightSheepStates,
+                       .sheep_dog_pressure = {.enabled = true},
+                       .sheep_dog_line_of_sight = {.enabled = true}},
     },
 }};
 

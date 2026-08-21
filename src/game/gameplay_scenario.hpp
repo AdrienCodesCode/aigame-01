@@ -25,6 +25,8 @@ enum class GameplayScenarioId : std::uint8_t {
     sheep_dog_approach_on,
     sheep_dog_facing_off,
     sheep_dog_facing_on,
+    sheep_dog_line_of_sight_off,
+    sheep_dog_line_of_sight_on,
 };
 
 enum class SheepFixture : std::uint8_t {
@@ -94,6 +96,17 @@ struct SheepDogFacingConfiguration {
     bool operator==(const SheepDogFacingConfiguration&) const = default;
 };
 
+// Line of sight is a fourth separate dog-stimulus variable. It adds no vector of
+// its own: an occluded dog releases the pressure, approach, and facing terms, so
+// the published per-term vectors stay the applied vectors. Visibility is binary
+// against the same analytic paddock obstacles the dog collides with, because a
+// soft falloff would need a shape this project has not observed yet.
+struct SheepDogLineOfSightConfiguration {
+    bool enabled = false;
+
+    bool operator==(const SheepDogLineOfSightConfiguration&) const = default;
+};
+
 // Owns the complete deterministic starting contract for one game scenario.
 // Controller-specific configuration stays nested under its subsystem, while
 // sheep, objective, and future fixture state remain owned at the game level.
@@ -102,6 +115,9 @@ struct GameplayScenarioDefinition {
     std::uint32_t version = 1;
     std::uint64_t seed = 0;
     DogControllerConfiguration dog{};
+    // Paddock gate state is world state: the dog motor collides with it and the
+    // sheep line-of-sight query needs it, so neither owns it.
+    bool gate_open = false;
     SheepFixture sheep_fixture = SheepFixture::stationary;
     SheepStateBuffer initial_sheep = kDefaultGameplaySheepStates;
     SheepSeparationConfiguration sheep_separation{};
@@ -110,6 +126,7 @@ struct GameplayScenarioDefinition {
     SheepDogPressureConfiguration sheep_dog_pressure{};
     SheepDogApproachConfiguration sheep_dog_approach{};
     SheepDogFacingConfiguration sheep_dog_facing{};
+    SheepDogLineOfSightConfiguration sheep_dog_line_of_sight{};
 
     bool operator==(const GameplayScenarioDefinition&) const = default;
 };
