@@ -29,6 +29,8 @@ enum class GameplayScenarioId : std::uint8_t {
     sheep_dog_line_of_sight_on,
     sheep_paddock_collision_closed_gate,
     sheep_paddock_collision_open_gate,
+    sheep_temperament_neutral,
+    sheep_temperament_varied,
 };
 
 enum class SheepFixture : std::uint8_t {
@@ -109,6 +111,25 @@ struct SheepDogLineOfSightConfiguration {
     bool operator==(const SheepDogLineOfSightConfiguration&) const = default;
 };
 
+// Temperament is the fifth dog-stimulus variable and the only one that is a
+// property of the sheep rather than of the dog. Like line of sight it adds no
+// vector of its own: it scales the pressure, approach, and facing responses a
+// sheep produces from an unchanged stimulus, so a nervous and a stubborn sheep
+// standing at the same distance and bearing publish the same geometry and move
+// differently. `ordinary` is not configurable because it is defined as exactly
+// neutral: it multiplies by `1.0` and therefore reproduces the accepted
+// arithmetic bit for bit. The two configured factors are exact powers of two so
+// the per-temperament ratio is exactly representable and a paired oracle can pin
+// it with equality rather than a tolerance. Their magnitudes are a provisional
+// legibility choice — doubling and halving — not a measured or biological value.
+struct SheepTemperamentConfiguration {
+    bool enabled = false;
+    double nervous_response_scale = 2.0;
+    double stubborn_response_scale = 0.5;
+
+    bool operator==(const SheepTemperamentConfiguration&) const = default;
+};
+
 // Owns the complete deterministic starting contract for one game scenario.
 // Controller-specific configuration stays nested under its subsystem, while
 // sheep, objective, and future fixture state remain owned at the game level.
@@ -129,6 +150,7 @@ struct GameplayScenarioDefinition {
     SheepDogApproachConfiguration sheep_dog_approach{};
     SheepDogFacingConfiguration sheep_dog_facing{};
     SheepDogLineOfSightConfiguration sheep_dog_line_of_sight{};
+    SheepTemperamentConfiguration sheep_temperament{};
 
     bool operator==(const GameplayScenarioDefinition&) const = default;
 };

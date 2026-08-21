@@ -27,6 +27,30 @@ enum class SheepBehaviorState : std::uint8_t {
     return false;
 }
 
+// Persistent per-sheep response label. The accepted design makes the dog's
+// effective pressure depend on "the sheep's temperament", so temperament is a
+// property of the sheep and travels with it in the authoritative buffer rather
+// than living in a dog, fixture-index, or presentation structure. Unlike
+// `SheepBehaviorState`, which the unimplemented transitions will drive, this
+// label never changes during a run: it is part of the scenario's starting
+// contract. The three names are game-readable design categories, not validated
+// biological ones.
+enum class SheepTemperament : std::uint8_t {
+    ordinary,
+    nervous,
+    stubborn,
+};
+
+[[nodiscard]] constexpr bool is_known_sheep_temperament(SheepTemperament temperament) noexcept {
+    switch (temperament) {
+    case SheepTemperament::ordinary:
+    case SheepTemperament::nervous:
+    case SheepTemperament::stubborn:
+        return true;
+    }
+    return false;
+}
+
 struct SheepState {
     std::uint32_t id = 0;
     Vec3 position{};
@@ -34,6 +58,7 @@ struct SheepState {
     double heading_radians = 0.0;
     double arousal = 0.0;
     SheepBehaviorState behavior = SheepBehaviorState::settled;
+    SheepTemperament temperament = SheepTemperament::ordinary;
     bool grounded = false;
 
     bool operator==(const SheepState&) const = default;
@@ -86,9 +111,13 @@ using SheepSocialEvidenceBuffer = std::array<SheepSocialEvidence, kGameplaySheep
 // `1` when the dog looks straight at the sheep, `0` abeam, `-1` when it looks
 // directly away. Line of sight names the analytic paddock obstacle that hides
 // the dog, so an occlusion result can be attributed to a wall or a closed gate
-// rather than to an anonymous flag. Each applied term keeps its own acceleration
-// vector so one switch can be isolated without hiding it inside a combined
-// total; an occluded dog releases all three vectors rather than adding a fourth.
+// rather than to an anonymous flag. The temperament response scale is the factor
+// the prior sheep's temperament applied to every dog term this tick, published
+// so a sheep that moves differently from an identically placed neighbour is
+// explainable from the dump instead of from reading the scenario table. Each
+// applied term keeps its own acceleration vector so one switch can be isolated
+// without hiding it inside a combined total; an occluded dog releases all three
+// vectors rather than adding a fourth.
 struct SheepDogPressureEvidence {
     std::uint32_t subject_id = 0;
     bool stimulus_evaluated = false;
@@ -98,6 +127,7 @@ struct SheepDogPressureEvidence {
     double dog_facing_alignment = 0.0;
     bool dog_line_of_sight_blocked = false;
     PaddockObstacle dog_line_of_sight_occluder = PaddockObstacle::none;
+    double temperament_response_scale = 0.0;
     Vec3 pressure_acceleration{};
     Vec3 approach_acceleration{};
     Vec3 facing_acceleration{};

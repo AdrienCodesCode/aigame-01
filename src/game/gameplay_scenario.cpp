@@ -250,7 +250,48 @@ constexpr SheepStateBuffer kPaddockCollisionSheepStates{{
 constexpr DogState kPaddockCollisionDogState{
     .position = {.x = 16.0, .y = 1.0, .z = 28.0}, .heading_radians = 0.0, .grounded = true};
 
-constexpr std::array<NamedGameplayScenario, 19> kGameplayScenarios{{
+// One stationary dog at (16, 26) with five sheep on an exact 5-unit ring around
+// it isolates temperament: every sheep sees the same prior-state distance, the
+// same falloff, and the same dog, so the only thing that can make two of them
+// move differently is the temperament each one carries. Each offset is an exact
+// 3-4-5 or 0-5-5 triangle, and the dog heading of zero looks straight down the
+// -z axis at the ring so a derived fixture can enable the approach and facing
+// terms without moving anything. The ring sits five units north of the wall
+// line, so no sheep starts within its own body radius of an obstacle face. The
+// nervous and stubborn sheep are placed in mirrored pairs across the gate line,
+// so a per-temperament result cannot be an artifact of one bearing.
+constexpr SheepStateBuffer kTemperamentSheepStates{{
+    {.id = 1,
+     .position = {.x = 16.0, .y = 1.0, .z = 21.0},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::ordinary,
+     .grounded = true},
+    {.id = 2,
+     .position = {.x = 13.0, .y = 1.0, .z = 22.0},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::nervous,
+     .grounded = true},
+    {.id = 3,
+     .position = {.x = 19.0, .y = 1.0, .z = 22.0},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::stubborn,
+     .grounded = true},
+    {.id = 4,
+     .position = {.x = 12.0, .y = 1.0, .z = 23.0},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::stubborn,
+     .grounded = true},
+    {.id = 5,
+     .position = {.x = 20.0, .y = 1.0, .z = 23.0},
+     .heading_radians = 0.0,
+     .temperament = SheepTemperament::nervous,
+     .grounded = true},
+}};
+
+constexpr DogState kTemperamentDogState{
+    .position = {.x = 16.0, .y = 1.0, .z = 26.0}, .heading_radians = 0.0, .grounded = true};
+
+constexpr std::array<NamedGameplayScenario, 21> kGameplayScenarios{{
     {
         .name = "paddock-start",
         .definition = {.id = GameplayScenarioId::paddock_start,
@@ -413,6 +454,23 @@ constexpr std::array<NamedGameplayScenario, 19> kGameplayScenarios{{
                        .gate_open = true,
                        .sheep_fixture = SheepFixture::local_social_response,
                        .initial_sheep = kPaddockCollisionSheepStates},
+    },
+    {
+        .name = "sheep-temperament-neutral",
+        .definition = {.id = GameplayScenarioId::sheep_temperament_neutral,
+                       .dog = {.initial_state = kTemperamentDogState},
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kTemperamentSheepStates,
+                       .sheep_dog_pressure = {.enabled = true}},
+    },
+    {
+        .name = "sheep-temperament-varied",
+        .definition = {.id = GameplayScenarioId::sheep_temperament_varied,
+                       .dog = {.initial_state = kTemperamentDogState},
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kTemperamentSheepStates,
+                       .sheep_dog_pressure = {.enabled = true},
+                       .sheep_temperament = {.enabled = true}},
     },
 }};
 

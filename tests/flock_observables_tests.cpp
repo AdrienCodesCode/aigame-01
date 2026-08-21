@@ -113,6 +113,12 @@ int main() {
                "unknown_behavior_rejected")) {
         return EXIT_FAILURE;
     }
+    invalid = cross;
+    invalid[0].temperament = static_cast<wide_eye::game::SheepTemperament>(255);
+    if (!check(!wide_eye::game::compute_five_sheep_observables(invalid, chosen, 1.0),
+               "unknown_temperament_rejected")) {
+        return EXIT_FAILURE;
+    }
 
     std::cout << "flock_observables_result=pass\n";
     return EXIT_SUCCESS;

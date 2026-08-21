@@ -253,7 +253,13 @@ int main() {
                 wide_eye::game::is_known_sheep_behavior(
                     wide_eye::game::SheepBehaviorState::recovering) &&
                 !wide_eye::game::is_known_sheep_behavior(
-                    static_cast<wide_eye::game::SheepBehaviorState>(255)),
+                    static_cast<wide_eye::game::SheepBehaviorState>(255)) &&
+                wide_eye::game::is_known_sheep_temperament(
+                    wide_eye::game::SheepTemperament::ordinary) &&
+                wide_eye::game::is_known_sheep_temperament(
+                    wide_eye::game::SheepTemperament::stubborn) &&
+                !wide_eye::game::is_known_sheep_temperament(
+                    static_cast<wide_eye::game::SheepTemperament>(255)),
             "sheep_behavior_domain_is_closed")) {
         return EXIT_FAILURE;
     }
@@ -299,6 +305,7 @@ int main() {
         const wide_eye::game::SheepState& sheep = initial.sheep[index];
         initial_sheep_valid = initial_sheep_valid && sheep.id == index + 1 &&
                               sheep.behavior == wide_eye::game::SheepBehaviorState::settled &&
+                              sheep.temperament == wide_eye::game::SheepTemperament::ordinary &&
                               sheep.arousal == 0.0 && sheep.velocity == wide_eye::game::Vec3{} &&
                               sheep.grounded;
         if (index > 0) {
@@ -1769,6 +1776,440 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // Temperament. The accepted design makes the dog's effective pressure depend
+    // on distance, approach speed, facing, terrain, and the sheep's temperament,
+    // so temperament is a response scale carried by the sheep rather than a
+    // fourth social term. The paired fixture stands five sheep on one exact
+    // 5-unit ring around a stationary dog: every sheep sees the same stimulus,
+    // so the only thing that can separate two of them is the temperament each
+    // one carries.
+    constexpr double kNervousResponseScale = 2.0;
+    constexpr double kStubbornResponseScale = 0.5;
+    constexpr double kTemperamentRingDistance = 5.0;
+    // The accepted 6-unit radius and 3.0 maximum give an ordinary sheep exactly
+    // (1 - 5/6) * 3 = 0.5 of pressure at that ring.
+    constexpr double kOrdinaryRingPressure = 0.5;
+    constexpr std::uint64_t kTemperamentDriftTicks = 120;
+    const auto temperament_neutral_scenario =
+        wide_eye::game::find_gameplay_scenario("sheep-temperament-neutral");
+    const auto temperament_varied_scenario =
+        wide_eye::game::find_gameplay_scenario("sheep-temperament-varied");
+    auto temperament_varied_as_control =
+        temperament_varied_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
+    if (temperament_neutral_scenario.has_value()) {
+        temperament_varied_as_control.id = temperament_neutral_scenario->id;
+    }
+    temperament_varied_as_control.sheep_temperament.enabled = false;
+    if (!check(
+            temperament_neutral_scenario.has_value() && temperament_varied_scenario.has_value() &&
+                temperament_neutral_scenario->id ==
+                    wide_eye::game::GameplayScenarioId::sheep_temperament_neutral &&
+                temperament_varied_scenario->id ==
+                    wide_eye::game::GameplayScenarioId::sheep_temperament_varied &&
+                temperament_varied_as_control == *temperament_neutral_scenario &&
+                temperament_varied_scenario->sheep_temperament.enabled &&
+                !temperament_neutral_scenario->sheep_temperament.enabled &&
+                temperament_varied_scenario->sheep_temperament.nervous_response_scale ==
+                    kNervousResponseScale &&
+                temperament_varied_scenario->sheep_temperament.stubborn_response_scale ==
+                    kStubbornResponseScale &&
+                temperament_neutral_scenario->version == 1 &&
+                temperament_neutral_scenario->seed == 0 &&
+                temperament_neutral_scenario->sheep_dog_pressure.enabled &&
+                temperament_neutral_scenario->sheep_dog_pressure ==
+                    temperament_varied_scenario->sheep_dog_pressure &&
+                !temperament_neutral_scenario->sheep_separation.enabled &&
+                !temperament_neutral_scenario->sheep_attraction.enabled &&
+                !temperament_neutral_scenario->sheep_alignment.enabled &&
+                !temperament_neutral_scenario->sheep_dog_approach.enabled &&
+                !temperament_neutral_scenario->sheep_dog_facing.enabled &&
+                !temperament_neutral_scenario->sheep_dog_line_of_sight.enabled &&
+                temperament_neutral_scenario->dog.initial_state.velocity == wide_eye::game::Vec3{},
+            "paired_temperament_fixture_differs_only_by_temperament_switch")) {
+        return EXIT_FAILURE;
+    }
+
+    // Temperament belongs to the sheep, so both members of the pair carry the
+    // same assignment and only the switch decides whether it does anything.
+    const auto& temperament_fixture = temperament_varied_scenario->initial_sheep;
+    if (!check(temperament_fixture == temperament_neutral_scenario->initial_sheep &&
+                   sheep_with_id(temperament_fixture, 1).temperament ==
+                       wide_eye::game::SheepTemperament::ordinary &&
+                   sheep_with_id(temperament_fixture, 2).temperament ==
+                       wide_eye::game::SheepTemperament::nervous &&
+                   sheep_with_id(temperament_fixture, 3).temperament ==
+                       wide_eye::game::SheepTemperament::stubborn &&
+                   sheep_with_id(temperament_fixture, 4).temperament ==
+                       wide_eye::game::SheepTemperament::stubborn &&
+                   sheep_with_id(temperament_fixture, 5).temperament ==
+                       wide_eye::game::SheepTemperament::nervous,
+               "temperament_is_part_of_the_shared_scenario_fixture")) {
+        return EXIT_FAILURE;
+    }
+
+    wide_eye::game::GameplaySimulation temperament_neutral{*temperament_neutral_scenario};
+    wide_eye::game::GameplaySimulation temperament_varied{*temperament_varied_scenario};
+    const auto temperament_initial = temperament_varied.current_snapshot();
+    temperament_neutral.fixed_update({});
+    temperament_varied.fixed_update({});
+    const auto& temperament_neutral_after_one = temperament_neutral.current_snapshot();
+    const auto& temperament_varied_after_one = temperament_varied.current_snapshot();
+    const auto expected_temperament_scale = [](wide_eye::game::SheepTemperament temperament) {
+        switch (temperament) {
+        case wide_eye::game::SheepTemperament::nervous:
+            return kNervousResponseScale;
+        case wide_eye::game::SheepTemperament::stubborn:
+            return kStubbornResponseScale;
+        case wide_eye::game::SheepTemperament::ordinary:
+            break;
+        }
+        return 1.0;
+    };
+    if (!check(temperament_varied.previous_snapshot() == temperament_initial,
+               "temperament_reads_immutable_prior_snapshot")) {
+        return EXIT_FAILURE;
+    }
+
+    for (const auto& varied_evidence : temperament_varied_after_one.sheep_dog_pressure_evidence) {
+        const std::uint32_t subject_id = varied_evidence.subject_id;
+        const auto& neutral_evidence =
+            evidence_with_id(temperament_neutral_after_one.sheep_dog_pressure_evidence, subject_id);
+        const auto& prior_member = sheep_with_id(temperament_initial.sheep, subject_id);
+        const double scale = expected_temperament_scale(prior_member.temperament);
+        const auto applied = [&prior_member](const wide_eye::game::SheepState& member) {
+            return wide_eye::game::Vec3{.x = (member.velocity.x - prior_member.velocity.x) /
+                                             wide_eye::game::GameplaySimulation::kFixedDeltaSeconds,
+                                        .z =
+                                            (member.velocity.z - prior_member.velocity.z) /
+                                            wide_eye::game::GameplaySimulation::kFixedDeltaSeconds};
+        };
+        const auto varied_applied =
+            applied(sheep_with_id(temperament_varied_after_one.sheep, subject_id));
+        const auto neutral_applied =
+            applied(sheep_with_id(temperament_neutral_after_one.sheep, subject_id));
+        const double neutral_magnitude = std::hypot(neutral_evidence.pressure_acceleration.x,
+                                                    neutral_evidence.pressure_acceleration.z);
+        const double varied_magnitude = std::hypot(varied_evidence.pressure_acceleration.x,
+                                                   varied_evidence.pressure_acceleration.z);
+        if (!check(varied_evidence.stimulus_evaluated &&
+                       varied_evidence.dog_distance == kTemperamentRingDistance &&
+                       neutral_evidence.dog_distance == kTemperamentRingDistance &&
+                       neutral_evidence.dog_relative_bearing_radians ==
+                           varied_evidence.dog_relative_bearing_radians &&
+                       neutral_evidence.dog_approach_speed == varied_evidence.dog_approach_speed &&
+                       neutral_evidence.dog_facing_alignment ==
+                           varied_evidence.dog_facing_alignment &&
+                       neutral_evidence.dog_line_of_sight_blocked ==
+                           varied_evidence.dog_line_of_sight_blocked &&
+                       neutral_evidence.dog_line_of_sight_occluder ==
+                           varied_evidence.dog_line_of_sight_occluder,
+                   "temperament_leaves_the_published_dog_stimulus_identical") ||
+            !check(neutral_evidence.temperament_response_scale == 1.0 &&
+                       varied_evidence.temperament_response_scale == scale,
+                   "published_temperament_scale_names_the_factor_that_was_applied") ||
+            // Exact equality, not a tolerance: the configured factors are powers
+            // of two, so a scaled response is the neutral response with one
+            // exponent changed and an ordinary sheep is bit-for-bit unchanged.
+            !check(varied_evidence.pressure_acceleration.x ==
+                           scale * neutral_evidence.pressure_acceleration.x &&
+                       varied_evidence.pressure_acceleration.z ==
+                           scale * neutral_evidence.pressure_acceleration.z,
+                   "temperament_scales_the_accepted_pressure_by_exactly_its_factor") ||
+            !check(std::abs(neutral_magnitude - kOrdinaryRingPressure) < 1.0e-12 &&
+                       std::abs(varied_magnitude - scale * kOrdinaryRingPressure) < 1.0e-12,
+                   "every_ring_sheep_responds_at_its_temperament_share_of_one_pressure") ||
+            !check(std::abs(varied_applied.x - varied_evidence.pressure_acceleration.x) < 1.0e-12 &&
+                       std::abs(varied_applied.z - varied_evidence.pressure_acceleration.z) <
+                           1.0e-12 &&
+                       std::abs(neutral_applied.x - neutral_evidence.pressure_acceleration.x) <
+                           1.0e-12 &&
+                       std::abs(neutral_applied.z - neutral_evidence.pressure_acceleration.z) <
+                           1.0e-12,
+                   "published_temperament_terms_match_applied_acceleration")) {
+            return EXIT_FAILURE;
+        }
+    }
+
+    // Copies, not references: the restart oracle below rewinds this simulation,
+    // and these records are still reported at the end of the run.
+    const auto ordinary_pressure =
+        evidence_with_id(temperament_varied_after_one.sheep_dog_pressure_evidence, 1);
+    const auto near_nervous_pressure =
+        evidence_with_id(temperament_varied_after_one.sheep_dog_pressure_evidence, 2);
+    const auto near_stubborn_pressure =
+        evidence_with_id(temperament_varied_after_one.sheep_dog_pressure_evidence, 3);
+    const auto far_stubborn_pressure =
+        evidence_with_id(temperament_varied_after_one.sheep_dog_pressure_evidence, 4);
+    const auto far_nervous_pressure =
+        evidence_with_id(temperament_varied_after_one.sheep_dog_pressure_evidence, 5);
+    if (!check(ordinary_pressure.pressure_acceleration ==
+                   evidence_with_id(temperament_neutral_after_one.sheep_dog_pressure_evidence, 1)
+                       .pressure_acceleration,
+               "an_ordinary_sheep_reproduces_the_accepted_pressure_bit_for_bit") ||
+        // The nervous and stubborn sheep are mirrored across the gate line, so
+        // the exact 4:1 ratio between them cannot be an artifact of one bearing.
+        !check(near_nervous_pressure.pressure_acceleration.x ==
+                       -(kNervousResponseScale / kStubbornResponseScale) *
+                           near_stubborn_pressure.pressure_acceleration.x &&
+                   near_nervous_pressure.pressure_acceleration.z ==
+                       (kNervousResponseScale / kStubbornResponseScale) *
+                           near_stubborn_pressure.pressure_acceleration.z &&
+                   far_nervous_pressure.pressure_acceleration.x ==
+                       -(kNervousResponseScale / kStubbornResponseScale) *
+                           far_stubborn_pressure.pressure_acceleration.x &&
+                   far_nervous_pressure.pressure_acceleration.z ==
+                       (kNervousResponseScale / kStubbornResponseScale) *
+                           far_stubborn_pressure.pressure_acceleration.z,
+               "mirrored_bearings_swap_the_response_with_the_temperament")) {
+        return EXIT_FAILURE;
+    }
+
+    // "Ordinary is exactly neutral" is a claim about arithmetic, not about
+    // tuning: a fixture whose sheep are all ordinary must produce the same
+    // authoritative state with the factor switched on as with it switched off,
+    // for every tick, including every published evidence field.
+    auto all_ordinary_scenario = *temperament_varied_scenario;
+    for (auto& member : all_ordinary_scenario.initial_sheep) {
+        member.temperament = wide_eye::game::SheepTemperament::ordinary;
+    }
+    auto all_ordinary_control_scenario = all_ordinary_scenario;
+    all_ordinary_control_scenario.id = temperament_neutral_scenario->id;
+    all_ordinary_control_scenario.sheep_temperament.enabled = false;
+    wide_eye::game::GameplaySimulation all_ordinary{all_ordinary_scenario};
+    wide_eye::game::GameplaySimulation all_ordinary_control{all_ordinary_control_scenario};
+    bool all_ordinary_is_neutral = true;
+    for (std::uint64_t tick = 0; tick < kTemperamentDriftTicks; ++tick) {
+        all_ordinary.fixed_update({});
+        all_ordinary_control.fixed_update({});
+        all_ordinary_is_neutral =
+            all_ordinary_is_neutral &&
+            all_ordinary.current_snapshot() == all_ordinary_control.current_snapshot();
+    }
+    if (!check(all_ordinary_is_neutral,
+               "an_all_ordinary_flock_is_identical_with_the_factor_on_or_off")) {
+        return EXIT_FAILURE;
+    }
+
+    // The vector-level ratio should also be visible as motion: over the same
+    // ticks, from the same bearing, the nervous sheep must end further from the
+    // dog than its mirrored stubborn twin, with neither having touched anything
+    // so the comparison stays pure steering.
+    wide_eye::game::GameplaySimulation temperament_drift{*temperament_varied_scenario};
+    bool temperament_drift_is_contact_free = true;
+    for (std::uint64_t tick = 0; tick < kTemperamentDriftTicks; ++tick) {
+        temperament_drift.fixed_update({});
+        for (const auto& contact : temperament_drift.current_snapshot().sheep_collision_evidence) {
+            temperament_drift_is_contact_free =
+                temperament_drift_is_contact_free && !contact.clipped_x && !contact.clipped_z &&
+                contact.obstacle == wide_eye::game::PaddockObstacle::none;
+        }
+    }
+    const auto& drift_dog = temperament_drift.current_snapshot().dog;
+    const auto dog_range = [&drift_dog](const wide_eye::game::SheepState& member) {
+        return std::hypot(member.position.x - drift_dog.position.x,
+                          member.position.z - drift_dog.position.z);
+    };
+    const double nervous_range =
+        dog_range(sheep_with_id(temperament_drift.current_snapshot().sheep, 2));
+    const double stubborn_range =
+        dog_range(sheep_with_id(temperament_drift.current_snapshot().sheep, 3));
+    if (!check(temperament_drift_is_contact_free && stubborn_range > kTemperamentRingDistance &&
+                   nervous_range > stubborn_range,
+               "a_nervous_sheep_outruns_its_mirrored_stubborn_twin")) {
+        return EXIT_FAILURE;
+    }
+
+    // Temperament scales the whole dog response, not only the distance term, so
+    // a derived fixture that also enables approach and facing must scale all
+    // three vectors by the same published factor while the stimulus that
+    // produced them stays identical.
+    auto combined_temperament_varied_scenario = *temperament_varied_scenario;
+    combined_temperament_varied_scenario.dog.initial_state.velocity = {.z = -3.0};
+    combined_temperament_varied_scenario.sheep_dog_approach.enabled = true;
+    combined_temperament_varied_scenario.sheep_dog_facing.enabled = true;
+    auto combined_temperament_neutral_scenario = combined_temperament_varied_scenario;
+    combined_temperament_neutral_scenario.id = temperament_neutral_scenario->id;
+    combined_temperament_neutral_scenario.sheep_temperament.enabled = false;
+    wide_eye::game::GameplaySimulation combined_temperament_varied{
+        combined_temperament_varied_scenario};
+    wide_eye::game::GameplaySimulation combined_temperament_neutral{
+        combined_temperament_neutral_scenario};
+    combined_temperament_varied.fixed_update({});
+    combined_temperament_neutral.fixed_update({});
+    bool combined_temperament_scales_every_term = true;
+    for (const std::uint32_t subject_id : {1U, 2U, 3U, 4U, 5U}) {
+        const auto& varied_evidence = evidence_with_id(
+            combined_temperament_varied.current_snapshot().sheep_dog_pressure_evidence, subject_id);
+        const auto& neutral_evidence = evidence_with_id(
+            combined_temperament_neutral.current_snapshot().sheep_dog_pressure_evidence,
+            subject_id);
+        const double scale =
+            expected_temperament_scale(sheep_with_id(temperament_fixture, subject_id).temperament);
+        combined_temperament_scales_every_term =
+            combined_temperament_scales_every_term &&
+            neutral_evidence.dog_approach_speed == varied_evidence.dog_approach_speed &&
+            neutral_evidence.dog_facing_alignment == varied_evidence.dog_facing_alignment &&
+            neutral_evidence.pressure_acceleration != wide_eye::game::Vec3{} &&
+            neutral_evidence.approach_acceleration != wide_eye::game::Vec3{} &&
+            neutral_evidence.facing_acceleration != wide_eye::game::Vec3{} &&
+            varied_evidence.pressure_acceleration.x ==
+                scale * neutral_evidence.pressure_acceleration.x &&
+            varied_evidence.pressure_acceleration.z ==
+                scale * neutral_evidence.pressure_acceleration.z &&
+            varied_evidence.approach_acceleration.x ==
+                scale * neutral_evidence.approach_acceleration.x &&
+            varied_evidence.approach_acceleration.z ==
+                scale * neutral_evidence.approach_acceleration.z &&
+            varied_evidence.facing_acceleration.x ==
+                scale * neutral_evidence.facing_acceleration.x &&
+            varied_evidence.facing_acceleration.z == scale * neutral_evidence.facing_acceleration.z;
+    }
+    const auto& combined_head_on = evidence_with_id(
+        combined_temperament_varied.current_snapshot().sheep_dog_pressure_evidence, 1);
+    const auto& combined_diagonal = evidence_with_id(
+        combined_temperament_varied.current_snapshot().sheep_dog_pressure_evidence, 2);
+    if (!check(combined_temperament_scales_every_term,
+               "temperament_scales_pressure_approach_and_facing_by_one_factor") ||
+        !check(combined_head_on.dog_approach_speed == 3.0 &&
+                   combined_head_on.dog_facing_alignment == 1.0 &&
+                   std::abs(combined_diagonal.dog_approach_speed - 2.4) < 1.0e-12 &&
+                   std::abs(combined_diagonal.dog_facing_alignment - 0.8) < 1.0e-12,
+               "temperament_does_not_alter_the_measured_approach_or_facing_stimulus")) {
+        return EXIT_FAILURE;
+    }
+
+    // Deliberate scope: the design names temperament as a factor of the dog's
+    // effective pressure and does not give the flock-neighbour terms one, so a
+    // derived fixture with every social term enabled must publish identical
+    // social evidence while the dog vectors still differ.
+    auto social_temperament_varied_scenario = *temperament_varied_scenario;
+    social_temperament_varied_scenario.sheep_separation.enabled = true;
+    social_temperament_varied_scenario.sheep_attraction.enabled = true;
+    social_temperament_varied_scenario.sheep_alignment.enabled = true;
+    auto social_temperament_neutral_scenario = social_temperament_varied_scenario;
+    social_temperament_neutral_scenario.id = temperament_neutral_scenario->id;
+    social_temperament_neutral_scenario.sheep_temperament.enabled = false;
+    wide_eye::game::GameplaySimulation social_temperament_varied{
+        social_temperament_varied_scenario};
+    wide_eye::game::GameplaySimulation social_temperament_neutral{
+        social_temperament_neutral_scenario};
+    social_temperament_varied.fixed_update({});
+    social_temperament_neutral.fixed_update({});
+    bool temperament_leaves_social_terms_alone = true;
+    for (const auto& varied_social :
+         social_temperament_varied.current_snapshot().sheep_social_evidence) {
+        temperament_leaves_social_terms_alone =
+            temperament_leaves_social_terms_alone &&
+            varied_social ==
+                evidence_with_id(
+                    social_temperament_neutral.current_snapshot().sheep_social_evidence,
+                    varied_social.subject_id);
+    }
+    const auto& social_ordinary_evidence =
+        evidence_with_id(social_temperament_varied.current_snapshot().sheep_social_evidence, 1);
+    const auto& social_nervous_dog = evidence_with_id(
+        social_temperament_varied.current_snapshot().sheep_dog_pressure_evidence, 2);
+    const auto& social_neutral_dog = evidence_with_id(
+        social_temperament_neutral.current_snapshot().sheep_dog_pressure_evidence, 2);
+    if (!check(temperament_leaves_social_terms_alone,
+               "temperament_leaves_every_social_term_identical") ||
+        !check(social_ordinary_evidence.attraction_candidate_count == 2 &&
+                   social_ordinary_evidence.attraction_acceleration != wide_eye::game::Vec3{} &&
+                   social_nervous_dog.pressure_acceleration.z ==
+                       kNervousResponseScale * social_neutral_dog.pressure_acceleration.z,
+               "the_social_comparison_is_not_vacuous")) {
+        return EXIT_FAILURE;
+    }
+
+    // The dog motor moves within the same tick. The published scale and the
+    // vectors it scaled must still describe the prior state that caused them.
+    // The dog already faces -z here, so driving it that way moves it on the
+    // first tick instead of spending the tick turning around.
+    wide_eye::game::GameplaySimulation temperament_same_tick_move{*temperament_varied_scenario};
+    temperament_same_tick_move.fixed_update(
+        {.dog_move = wide_eye::game::DogMoveInput{.world_z = -1.0}});
+    if (!check(temperament_same_tick_move.current_snapshot().dog.position.z <
+                       temperament_varied_scenario->dog.initial_state.position.z &&
+                   evidence_with_id(
+                       temperament_same_tick_move.current_snapshot().sheep_dog_pressure_evidence,
+                       2) == near_nervous_pressure,
+               "same_tick_dog_motor_move_does_not_alter_prior_state_temperament_evidence")) {
+        return EXIT_FAILURE;
+    }
+
+    auto reversed_temperament_scenario = *temperament_varied_scenario;
+    std::reverse(reversed_temperament_scenario.initial_sheep.begin(),
+                 reversed_temperament_scenario.initial_sheep.end());
+    wide_eye::game::GameplaySimulation reversed_temperament{reversed_temperament_scenario};
+    reversed_temperament.fixed_update({});
+    for (const auto& member : temperament_varied_after_one.sheep) {
+        if (!check(member ==
+                       sheep_with_id(reversed_temperament.current_snapshot().sheep, member.id),
+                   "temperament_result_is_stable_by_id_under_reversed_storage") ||
+            !check(evidence_with_id(temperament_varied_after_one.sheep_dog_pressure_evidence,
+                                    member.id) ==
+                       evidence_with_id(
+                           reversed_temperament.current_snapshot().sheep_dog_pressure_evidence,
+                           member.id),
+                   "temperament_evidence_is_stable_under_reversed_storage")) {
+            return EXIT_FAILURE;
+        }
+    }
+
+    const auto temperament_state = wide_eye::game::gameplay_state_dump_json(temperament_varied);
+    if (!check(
+            temperament_state &&
+                temperament_state.text.find("\"temperament\":\"ordinary\"") != std::string::npos &&
+                temperament_state.text.find("\"temperament\":\"nervous\"") != std::string::npos &&
+                temperament_state.text.find("\"temperament\":\"stubborn\"") != std::string::npos &&
+                temperament_state.text.find("\"temperament_response_scale\":2") !=
+                    std::string::npos &&
+                temperament_state.text.find("\"temperament_response_scale\":0.5") !=
+                    std::string::npos &&
+                temperament_state.text.find("\"temperament_response_scale\":1") !=
+                    std::string::npos,
+            "state_dump_contains_sheep_temperament_and_applied_scale")) {
+        return EXIT_FAILURE;
+    }
+
+    auto unknown_temperament_scenario = *temperament_varied_scenario;
+    unknown_temperament_scenario.initial_sheep[0].temperament =
+        static_cast<wide_eye::game::SheepTemperament>(255);
+    const wide_eye::game::GameplaySimulation unknown_temperament_simulation{
+        unknown_temperament_scenario};
+    if (!check(wide_eye::game::gameplay_state_dump_json(unknown_temperament_simulation).error ==
+                   wide_eye::game::GameplayContractError::non_finite_state,
+               "state_dump_rejects_unknown_sheep_temperament")) {
+        return EXIT_FAILURE;
+    }
+
+    wide_eye::game::GameplaySimulation allocation_temperament{*temperament_varied_scenario};
+    const std::size_t temperament_allocations_before = g_allocation_count;
+    for (std::uint32_t tick = 0; tick < 600; ++tick) {
+        allocation_temperament.fixed_update({});
+    }
+    const std::size_t temperament_allocations = g_allocation_count - temperament_allocations_before;
+    if (!check(temperament_allocations == 0, "temperament_fixed_updates_do_not_allocate")) {
+        return EXIT_FAILURE;
+    }
+
+    for (std::uint32_t tick = 0; tick < 120; ++tick) {
+        temperament_varied.fixed_update({});
+    }
+    temperament_varied.restart();
+    bool temperament_restart_restores_labels = true;
+    for (const auto& member : temperament_varied.current_snapshot().sheep) {
+        temperament_restart_restores_labels =
+            temperament_restart_restores_labels &&
+            member.temperament == sheep_with_id(temperament_fixture, member.id).temperament;
+    }
+    if (!check(temperament_varied.current_snapshot() == temperament_initial &&
+                   temperament_varied.previous_snapshot() == temperament_initial &&
+                   temperament_restart_restores_labels,
+               "temperament_restart_restores_the_fixture_including_labels")) {
+        return EXIT_FAILURE;
+    }
+
     wide_eye::game::GameplaySimulation replay_a{*scenario};
     wide_eye::game::GameplaySimulation replay_b{*scenario};
     const wide_eye::game::GameplayReplay replay = sample_replay(replay_a);
@@ -1776,7 +2217,7 @@ int main() {
     if (!check(wide_eye::game::kGameplaySeedFormatVersion == 1 &&
                    wide_eye::game::kGameplayActionInputFormatVersion == 1 &&
                    wide_eye::game::kGameplayReplayFormatVersion == 1 &&
-                   wide_eye::game::kGameplayStateDumpFormatVersion == 9,
+                   wide_eye::game::kGameplayStateDumpFormatVersion == 10,
                "contract_versions_are_explicit") ||
         !check(replay_text &&
                    replay_text.text ==
@@ -1801,7 +2242,7 @@ int main() {
     const auto state_b = wide_eye::game::gameplay_state_dump_json(replay_b);
     if (!check(state_a && state_b && state_a.text == state_b.text,
                "canonical_state_dump_repeats") ||
-        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":9,"
+        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":10,"
                                         "\"tick_rate\":60,\"scenario\":{"),
                "state_dump_schema_header") ||
         !check(state_a.text.find("\"current\":{\"tick\":3") != std::string::npos,
@@ -1809,6 +2250,7 @@ int main() {
         !check(state_a.text.find("\"sheep\":[{\"id\":1") != std::string::npos &&
                    state_a.text.find("\"id\":5") != std::string::npos &&
                    state_a.text.find("\"behavior\":\"settled\"") != std::string::npos &&
+                   state_a.text.find("\"temperament\":\"ordinary\"") != std::string::npos &&
                    state_a.text.find("\"sheep_social_evidence\":[{\"subject_id\":1") !=
                        std::string::npos,
                "state_dump_contains_five_sheep_state")) {
@@ -1918,65 +2360,85 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    std::cout << "authoritative_tick_hz=" << wide_eye::game::GameplaySimulation::kTicksPerSecond
-              << '\n'
-              << "fine_render_frames=" << fine_frames.size() << '\n'
-              << "coarse_render_frames=" << coarse_frames.size() << '\n'
-              << "authoritative_ticks=" << fine.snapshot.tick << '\n'
-              << "cadence_state_equal=yes\n"
-              << "replay_contract_version=" << wide_eye::game::kGameplayReplayFormatVersion << '\n'
-              << "state_dump_contract_version=" << wide_eye::game::kGameplayStateDumpFormatVersion
-              << '\n'
-              << "steady_state_allocations=" << steady_state_allocations << '\n'
-              << "presentation_motion_fixture=scripted_non_behavior\n"
-              << "sheep_only_separation_fixture=close_range_repulsion\n"
-              << "separation_steady_state_allocations=" << separation_allocations << '\n'
-              << "sheep_only_attraction_fixture=bounded_selected_neighbors\n"
-              << "attraction_steady_state_allocations=" << attraction_allocations << '\n'
-              << "alignment_pair_ticks=" << kAlignmentComparisonTicks << '\n'
-              << "alignment_off_polarization=" << alignment_off_observables->polarization << '\n'
-              << "alignment_on_polarization=" << alignment_on_observables->polarization << '\n'
-              << "alignment_steady_state_allocations=" << alignment_allocations << '\n'
-              << "dog_pressure_fixture=distance_only_paired_control\n"
-              << "dog_pressure_steady_state_allocations=" << dog_pressure_allocations << '\n'
-              << "dog_approach_fixture=closing_speed_paired_control\n"
-              << "dog_approach_head_on_speed=" << head_on_approach.dog_approach_speed << '\n'
-              << "dog_approach_diagonal_speed=" << diagonal_approach.dog_approach_speed << '\n'
-              << "dog_approach_steady_state_allocations=" << approach_allocations << '\n'
-              << "dog_facing_fixture=heading_cosine_paired_control\n"
-              << "dog_facing_ahead_alignment=" << ahead_facing.dog_facing_alignment << '\n'
-              << "dog_facing_diagonal_alignment=" << diagonal_facing.dog_facing_alignment << '\n'
-              << "dog_facing_steady_state_allocations=" << facing_allocations << '\n'
-              << "dog_line_of_sight_fixture=analytic_occluder_paired_control\n"
-              << "dog_line_of_sight_clear_pressure_z=" << clear_sight.pressure_acceleration.z
-              << '\n'
-              << "dog_line_of_sight_control_left_wall_pressure_x=" << blocked_left_pressure.x
-              << '\n'
-              << "dog_line_of_sight_occluded_pressure="
-              << std::hypot(left_wall_sight.pressure_acceleration.x,
-                            left_wall_sight.pressure_acceleration.z)
-              << '\n'
-              << "dog_line_of_sight_gate_gap_pressure_z=" << gate_gap_sight.pressure_acceleration.z
-              << '\n'
-              << "dog_line_of_sight_closed_gate_blocks_gate_gap=yes\n"
-              << "dog_line_of_sight_steady_state_allocations=" << sight_allocations << '\n'
-              << "sheep_paddock_collision_fixture=paired_gate_state_control\n"
-              << "sheep_paddock_collision_radius=" << wide_eye::game::kSheepCollisionRadius << '\n'
-              << "sheep_left_wall_contact_tick=" << left_wall_contact.tick << '\n'
-              << "sheep_left_wall_rest_z=" << left_wall_contact.state.position.z << '\n'
-              << "sheep_closed_gate_rest_z=" << gate_contact.state.position.z << '\n'
-              << "sheep_right_wall_free_axis_velocity_x=" << right_wall_contact.state.velocity.x
-              << '\n'
-              << "sheep_outer_bound_rest_x=" << bound_contact.state.position.x << '\n'
-              << "sheep_open_gate_final_z=" << open_gate_sheep_two.position.z << '\n'
-              << "sheep_untouched_control_final_x="
-              << sheep_with_id(closed_gate_run.final_snapshot.sheep, 4).position.x << '\n'
-              << "sheep_dog_driven_gate_contact_tick=" << driven_contact.tick << '\n'
-              << "sheep_dog_driven_gate_contact_ticks=" << driven_contact.contact_ticks << '\n'
-              << "sheep_dog_driven_pinned_pressure_z=" << driven_pressure.pressure_acceleration.z
-              << '\n'
-              << "sheep_collision_steady_state_allocations=" << collision_allocations << '\n'
-              << "repeated_local_replay_equal=yes\n"
-              << "gameplay_simulation_result=pass\n";
+    std::cout
+        << "authoritative_tick_hz=" << wide_eye::game::GameplaySimulation::kTicksPerSecond << '\n'
+        << "fine_render_frames=" << fine_frames.size() << '\n'
+        << "coarse_render_frames=" << coarse_frames.size() << '\n'
+        << "authoritative_ticks=" << fine.snapshot.tick << '\n'
+        << "cadence_state_equal=yes\n"
+        << "replay_contract_version=" << wide_eye::game::kGameplayReplayFormatVersion << '\n'
+        << "state_dump_contract_version=" << wide_eye::game::kGameplayStateDumpFormatVersion << '\n'
+        << "steady_state_allocations=" << steady_state_allocations << '\n'
+        << "presentation_motion_fixture=scripted_non_behavior\n"
+        << "sheep_only_separation_fixture=close_range_repulsion\n"
+        << "separation_steady_state_allocations=" << separation_allocations << '\n'
+        << "sheep_only_attraction_fixture=bounded_selected_neighbors\n"
+        << "attraction_steady_state_allocations=" << attraction_allocations << '\n'
+        << "alignment_pair_ticks=" << kAlignmentComparisonTicks << '\n'
+        << "alignment_off_polarization=" << alignment_off_observables->polarization << '\n'
+        << "alignment_on_polarization=" << alignment_on_observables->polarization << '\n'
+        << "alignment_steady_state_allocations=" << alignment_allocations << '\n'
+        << "dog_pressure_fixture=distance_only_paired_control\n"
+        << "dog_pressure_steady_state_allocations=" << dog_pressure_allocations << '\n'
+        << "dog_approach_fixture=closing_speed_paired_control\n"
+        << "dog_approach_head_on_speed=" << head_on_approach.dog_approach_speed << '\n'
+        << "dog_approach_diagonal_speed=" << diagonal_approach.dog_approach_speed << '\n'
+        << "dog_approach_steady_state_allocations=" << approach_allocations << '\n'
+        << "dog_facing_fixture=heading_cosine_paired_control\n"
+        << "dog_facing_ahead_alignment=" << ahead_facing.dog_facing_alignment << '\n'
+        << "dog_facing_diagonal_alignment=" << diagonal_facing.dog_facing_alignment << '\n'
+        << "dog_facing_steady_state_allocations=" << facing_allocations << '\n'
+        << "dog_line_of_sight_fixture=analytic_occluder_paired_control\n"
+        << "dog_line_of_sight_clear_pressure_z=" << clear_sight.pressure_acceleration.z << '\n'
+        << "dog_line_of_sight_control_left_wall_pressure_x=" << blocked_left_pressure.x << '\n'
+        << "dog_line_of_sight_occluded_pressure="
+        << std::hypot(left_wall_sight.pressure_acceleration.x,
+                      left_wall_sight.pressure_acceleration.z)
+        << '\n'
+        << "dog_line_of_sight_gate_gap_pressure_z=" << gate_gap_sight.pressure_acceleration.z
+        << '\n'
+        << "dog_line_of_sight_closed_gate_blocks_gate_gap=yes\n"
+        << "dog_line_of_sight_steady_state_allocations=" << sight_allocations << '\n'
+        << "sheep_paddock_collision_fixture=paired_gate_state_control\n"
+        << "sheep_paddock_collision_radius=" << wide_eye::game::kSheepCollisionRadius << '\n'
+        << "sheep_left_wall_contact_tick=" << left_wall_contact.tick << '\n'
+        << "sheep_left_wall_rest_z=" << left_wall_contact.state.position.z << '\n'
+        << "sheep_closed_gate_rest_z=" << gate_contact.state.position.z << '\n'
+        << "sheep_right_wall_free_axis_velocity_x=" << right_wall_contact.state.velocity.x << '\n'
+        << "sheep_outer_bound_rest_x=" << bound_contact.state.position.x << '\n'
+        << "sheep_open_gate_final_z=" << open_gate_sheep_two.position.z << '\n'
+        << "sheep_untouched_control_final_x="
+        << sheep_with_id(closed_gate_run.final_snapshot.sheep, 4).position.x << '\n'
+        << "sheep_dog_driven_gate_contact_tick=" << driven_contact.tick << '\n'
+        << "sheep_dog_driven_gate_contact_ticks=" << driven_contact.contact_ticks << '\n'
+        << "sheep_dog_driven_pinned_pressure_z=" << driven_pressure.pressure_acceleration.z << '\n'
+        << "sheep_collision_steady_state_allocations=" << collision_allocations << '\n'
+        << "sheep_temperament_fixture=equal_stimulus_ring_paired_control\n"
+        << "sheep_temperament_ring_distance=" << ordinary_pressure.dog_distance << '\n'
+        << "sheep_temperament_ordinary_scale=" << ordinary_pressure.temperament_response_scale
+        << '\n'
+        << "sheep_temperament_nervous_scale=" << near_nervous_pressure.temperament_response_scale
+        << '\n'
+        << "sheep_temperament_stubborn_scale=" << near_stubborn_pressure.temperament_response_scale
+        << '\n'
+        << "sheep_temperament_ordinary_pressure="
+        << std::hypot(ordinary_pressure.pressure_acceleration.x,
+                      ordinary_pressure.pressure_acceleration.z)
+        << '\n'
+        << "sheep_temperament_nervous_pressure="
+        << std::hypot(near_nervous_pressure.pressure_acceleration.x,
+                      near_nervous_pressure.pressure_acceleration.z)
+        << '\n'
+        << "sheep_temperament_stubborn_pressure="
+        << std::hypot(near_stubborn_pressure.pressure_acceleration.x,
+                      near_stubborn_pressure.pressure_acceleration.z)
+        << '\n'
+        << "sheep_temperament_drift_ticks=" << kTemperamentDriftTicks << '\n'
+        << "sheep_temperament_nervous_dog_range=" << nervous_range << '\n'
+        << "sheep_temperament_stubborn_dog_range=" << stubborn_range << '\n'
+        << "sheep_temperament_scales_social_terms=no\n"
+        << "sheep_temperament_steady_state_allocations=" << temperament_allocations << '\n'
+        << "repeated_local_replay_equal=yes\n"
+        << "gameplay_simulation_result=pass\n";
     return EXIT_SUCCESS;
 }

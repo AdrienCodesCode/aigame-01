@@ -12,7 +12,7 @@ namespace wide_eye::game {
 inline constexpr std::uint32_t kGameplaySeedFormatVersion = 1;
 inline constexpr std::uint32_t kGameplayActionInputFormatVersion = 1;
 inline constexpr std::uint32_t kGameplayReplayFormatVersion = 1;
-inline constexpr std::uint32_t kGameplayStateDumpFormatVersion = 9;
+inline constexpr std::uint32_t kGameplayStateDumpFormatVersion = 10;
 
 // Identifies the complete deterministic starting contract independently of a
 // render frame or wall clock. Scenario parameters remain owned by the named

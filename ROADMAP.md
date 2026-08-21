@@ -8,9 +8,9 @@
 - **Verified completed state:**
   - the accepted native C++23/SDL3/OpenGL foundation, bounded voxel paddock,
     and fixed 60 Hz gameplay;
-  - versioned seed/action/replay contracts and the version 9
-    dog-plus-five-sheep/social, dog-stimulus, and sheep-collision-evidence state
-    output;
+  - versioned seed/action/replay contracts and the version 10
+    dog-plus-five-sheep/social, dog-stimulus, sheep-temperament, and
+    sheep-collision-evidence state output;
   - five contiguous authoritative sheep, snapshot-driven procedural proxies,
     and an owner-accepted presentation/measurement packet;
   - fixed five-sheep observables and a deterministic allocation-free uniform
@@ -34,7 +34,10 @@
     collides with, so a wall or a closed gate physically stops a moving sheep,
     the open gate is the only way through the wall line, a clipped axis loses its
     velocity on the contact tick, and every sheep publishes which axes were
-    refused and which named obstacle refused them.
+    refused and which named obstacle refused them; and
+  - authoritative ordinary, nervous, and stubborn temperaments carried by the
+    sheep themselves, applied as a paired, independently switchable response
+    scale on the dog stimulus only, with the applied factor published per sheep.
 
   Detailed evidence remains with the checked Phase 3 items and their owning
   source, decision, format, test, and artifact records; completed Phase 0–2
@@ -78,7 +81,36 @@
   executables plus CTest remain the accepted Tracer 2 harness under
   [ADR 0003](docs/decisions/0003-project-owned-test-harness.md); framework
   adoption is deferred until a concrete maintenance cost justifies it.
-- **Verification run (2026-08-21, sheep collision authority):** on WSL Ubuntu
+- **Verification run (2026-08-21, sheep temperaments):** on WSL Ubuntu 24.04.4
+  with Clang 18.1.3, development, Release, and ASan/UBSan configurations each
+  built and passed 24/24 CTests; project formatting and bounded clang-tidy passed,
+  the QA tracker check passed, and `git diff --check` reported nothing. The
+  gameplay-simulation oracle observed the paired temperament fixture publish one
+  identical `5`-unit dog distance for all five sheep, give every sheep the `0.5`
+  of pressure with a `1` scale in the neutral member, and in the varied member
+  publish `2` and `0.5` scales with exactly `1` and `0.25` of applied pressure
+  against the ordinary `0.5`, each varied vector equal to its neutral vector times
+  the published factor in both components. Enabling approach and facing scaled all
+  three vectors by that one factor while the `3.0`/`2.4` approach speeds and
+  `1.0`/`0.8` facing alignments stayed unchanged; enabling every social term left
+  all social evidence identical; an all-ordinary flock was identical with the
+  factor on and off across 120 ticks; and over those ticks the nervous sheep
+  drifted to `6.43757` from the dog against its mirrored stubborn twin's
+  `5.46321` with no contact. The published terms matched applied acceleration, the
+  same tick's dog-motor move left prior-state evidence unchanged, the writer
+  rejected an unknown temperament, reversed storage and restart were exact, and
+  600 ticks allocated no heap memory. A comparison against a `HEAD` worktree build
+  found all 19 pre-existing scenarios byte-identical over 240 scripted ticks each
+  once the two new keys and the version number were removed. Native
+  Windows/Linux graphics and the presentation performance scenarios were not
+  rerun because no presentation path changed and this host exposes only OpenGL
+  4.5. Evidence:
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp) and the
+  ignored
+  [oracle output](artifacts/phase3/2026-08-21/sheep-temperaments-headless/gameplay-simulation-oracle.txt)
+  and
+  [accepted-scenario comparison](artifacts/phase3/2026-08-21/sheep-temperaments-headless/accepted-scenario-state-diff.txt).
+- **Prior verification run (2026-08-21, sheep collision authority):** on WSL Ubuntu
   24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
   each built and passed 24/24 CTests; project formatting and bounded clang-tidy
   passed and `git diff --check` reported nothing. The gameplay-simulation oracle
@@ -185,10 +217,19 @@
   authoritative headless sheep behavior rather than pixels. Native Linux
   graphics, the named Iris Xe target, and a physical controller remain
   unverified. Damping, combined-influence acceleration bounds, bounded
-  speed/turning, terrain and temperament pressure factors,
+  speed/turning, the terrain pressure factor,
   behavior transitions, objectives, success/failure, HUD, and fresh-player
   evidence remain unimplemented. The distance, approach, and facing dog terms
-  are currently summed without a combined bound. Dog visibility is binary, so
+  are currently summed without a combined bound, so a temperament that multiplies
+  each of them multiplies an unbounded sum; the paired-fixture oracles that pin
+  exact per-term and per-temperament accelerations will need re-deriving when that
+  bound lands. Temperament is a persistent per-sheep response scale on the dog
+  stimulus only: it does not modulate the social terms, does not change the shared
+  pressure radius or falloff, and does not yet interact with arousal, behavior
+  transitions, or terrain. Its `2.0` and `0.5` factors are a provisional
+  legibility choice rather than a measured or tuned value, and the three names
+  are game-readable design labels, not validated biological categories. Dog
+  visibility is binary, so
   pressure changes discontinuously as a sight line crosses an obstacle edge, and
   a sight line that exactly grazes an obstacle edge counts as blocked. A terrain
   factor is deferred to Phase 5 because the handcrafted paddock has one constant
@@ -205,12 +246,12 @@
   `sheep-dog-facing-on`) after the tick at which a sheep first touches a wall;
   their accepted 60-tick and first-tick measurements are unaffected, but any
   later comparison against those fixtures must be re-derived.
-- **Next action:** implement ordinary, nervous, and stubborn temperaments as the
-  next isolated variable, including the temperament factor of the dog-pressure
-  item, with paired fixtures and explicit per-sheep evidence. Keep the accepted
-  social, dog-stimulus, and collision behavior unchanged where temperament is
-  neutral, and do not add terrain, combined-influence bounds, behavior
-  transitions, or presentation in the same coherent outcome.
+- **Next action:** implement obstacle/drop avoidance and bounded
+  acceleration/turning, including the combined-influence acceleration bound
+  across all social and dog terms. Decide the combination rule — clamp,
+  prioritized weighting, or another explicit scheme — before implementing it, and
+  re-derive the paired-fixture oracles that pin exact per-term accelerations,
+  including the per-temperament ratios, once the bound lands.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
@@ -225,7 +266,8 @@
   [`gameplay_replay.hpp`](src/game/gameplay_replay.hpp),
   [`flock_observables.hpp`](src/game/flock_observables.hpp),
   [`sheep_state.hpp`](src/game/sheep_state.hpp),
-  [`sheep_spatial_grid.hpp`](src/game/sheep_spatial_grid.hpp), and their
+  [`sheep_spatial_grid.hpp`](src/game/sheep_spatial_grid.hpp),
+  [replay/state contract](docs/formats/GAMEPLAY_REPLAY_AND_STATE.md), and their
   focused tests.
 - **Last reviewed:** 2026-08-21.
 - **Primary playtest question:** Can a first-time player intentionally steer five
@@ -640,9 +682,20 @@ scope. Evidence: the archived
   discontinuously as a sight line crosses an obstacle edge. Terrain is deferred
   to Phase 5 because the handcrafted paddock has one constant ground height, so
   a terrain factor would have nothing to read here.
-  The roadmap item remains unchecked: terrain and
-  temperament are still absent, the distance, approach, and facing terms are
-  summed without a combined-influence bound, and these synthetic fixtures are not
+  Partial observed result (2026-08-21): the temperament factor of this item now
+  exists. Each sheep carries an `ordinary`, `nervous`, or `stubborn` temperament
+  in the authoritative buffer, and the paired, independently switchable
+  `sheep-temperament-neutral` and `sheep-temperament-varied` fixtures observed it
+  scale the pressure, approach, and facing responses by an exact published factor
+  — `1.0`, `2.0`, and `0.5` — while leaving the distance, bearing, approach
+  speed, facing alignment, and sight line that produced them identical. The full
+  evidence is recorded on the temperament item below. This item still stays
+  unchecked for two reasons. Terrain is deferred to Phase 5, because the
+  handcrafted paddock has one constant ground height and a terrain factor would
+  have nothing to read here. And the distance, approach, and facing terms are
+  still summed without a combined-influence acceleration bound, so a temperament
+  that multiplies each of them multiplies an unbounded sum; the bound is the next
+  roadmap item, and these synthetic fixtures remain causal evidence rather than
   player-facing motion acceptance. Evidence:
   [ADR 0005](docs/decisions/0005-paddock-collision-ownership.md),
   [`paddock_collision.hpp`](src/game/paddock_collision.hpp),
@@ -747,7 +800,82 @@ scope. Evidence: the archived
   explicit scheme) before implementing it, and plan for the paired-fixture
   oracles that pin exact per-term accelerations to be re-derived when the
   bound lands; until then the terms remain summed without a combined bound.
-- [ ] Implement ordinary, nervous, and stubborn temperaments.
+- [x] Implement ordinary, nervous, and stubborn temperaments.
+  Observed result (2026-08-21): temperament is now a `SheepTemperament` field of
+  `SheepState`, so it is authoritative game state that travels with the sheep,
+  belongs to the scenario's starting contract, survives restart, and appears in
+  the state dump. The accepted design makes the dog's effective pressure depend
+  on "distance, approach speed, facing, terrain, and the sheep's temperament", so
+  temperament is implemented as a named response scale on the dog stimulus and on
+  nothing else: `ordinary` is exactly neutral at `1.0`, `nervous` responds at
+  `2.0`, and `stubborn` at `0.5`. The scale is the last factor of every dog
+  magnitude, so the ordinary path multiplies by exactly `1.0`. The two configured
+  factors are powers of two deliberately, so a scaled response is the neutral
+  response with one exponent changed and the oracle can pin the ratio with
+  equality instead of a tolerance. Range is not changed: the pressure, approach,
+  and facing terms keep the one shared radius and linear falloff, so the radius
+  boundary stays continuous and a temperament difference cannot be confused with
+  a geometry difference. Version 1, seed-zero `sheep-temperament-neutral` and
+  `sheep-temperament-varied` share one fixture that stands five sheep on an exact
+  5-unit ring around a stationary dog, carry the same per-sheep temperaments, keep
+  the accepted distance-only pressure enabled and identical, and differ only by
+  the temperament switch plus the required scenario ID. Every sheep therefore
+  sees the same distance and the same falloff, and only its bearing differs, so a
+  difference in response magnitude can only come from temperament. The focused
+  oracle observed the neutral member give
+  all five the same `0.5` of pressure with a published `1` scale; switching the
+  factor on left every published distance (`5`), bearing, approach speed, facing
+  alignment, and sight line identical and changed only the response, giving `1`
+  of pressure to each nervous sheep and `0.25` to each stubborn one against the
+  ordinary `0.5`. Each varied vector equalled its neutral vector times the
+  published factor exactly in both components, the ordinary sheep's vector was
+  bit-for-bit unchanged, and the mirrored nervous/stubborn pairs on either side of
+  the gate line held the same exact `4:1` ratio, so the result is not an artifact
+  of one bearing. A derived fixture with approach and facing also enabled scaled
+  all three vectors by that one published factor while its `3.0` and `2.4`
+  approach speeds and `1.0` and `0.8` facing alignments stayed unchanged. A
+  derived fixture with separation, attraction, and alignment enabled published
+  identical social evidence in both members while the dog vectors still differed,
+  which is the deliberate narrow choice: the design names temperament as a factor
+  of the dog's effective pressure and gives the flock-neighbour terms no such
+  factor. A flock whose sheep are all ordinary produced identical authoritative
+  state on every one of 120 ticks with the factor switched on and off. Over the
+  same 120 ticks the nervous sheep drifted to `6.43757` from the dog while its
+  mirrored stubborn twin reached `5.46321`, with no sheep contacting anything, so
+  the vector ratio is visible as motion and not only as evidence. The published
+  terms still summed to the applied acceleration, the same tick's dog-motor move
+  left prior-state temperament evidence unchanged, reversed storage preserved
+  exact per-ID state and evidence, restart restored the fixture including its
+  labels, and 600 enabled ticks allocated no heap memory. Required evidence
+  advanced the state dump to version 10, which adds the per-sheep temperament
+  label and the applied response scale; the writer rejects an unknown
+  temperament, requires an evaluated stimulus to publish a finite positive scale,
+  and requires an unevaluated one to leave it zero. A direct comparison against a
+  `HEAD` worktree build ran all 19 pre-existing scenarios for 240 ticks each
+  under one scripted moving-dog input and found every canonical state dump
+  byte-identical once the two new keys and the version number were removed. On
+  WSL Ubuntu 24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan
+  configurations each built and passed 24/24 CTests; project formatting and
+  bounded clang-tidy passed and `git diff --check` reported nothing. Native
+  Windows/Linux graphics, the presentation performance scenarios, and human
+  visual review were not rerun because this outcome changes authoritative
+  headless sheep behavior rather than pixels, and this host exposes only OpenGL
+  4.5. The `2.0` and `0.5` factors are a provisional legibility choice — doubling
+  and halving — not a measured, tuned, or biological value, and these three names
+  are game-readable design labels rather than validated categories. Temperament
+  does not yet interact with behavior transitions, arousal, or terrain, and this
+  is synthetic causal evidence, not player-facing motion acceptance. Evidence:
+  [`sheep_state.hpp`](src/game/sheep_state.hpp),
+  [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
+  [`gameplay_scenario.cpp`](src/game/gameplay_scenario.cpp),
+  [`gameplay_simulation.cpp`](src/game/gameplay_simulation.cpp),
+  [`gameplay_replay.cpp`](src/game/gameplay_replay.cpp),
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp),
+  [`GAMEPLAY_REPLAY_AND_STATE.md`](docs/formats/GAMEPLAY_REPLAY_AND_STATE.md),
+  and the ignored
+  [oracle output](artifacts/phase3/2026-08-21/sheep-temperaments-headless/gameplay-simulation-oracle.txt)
+  and
+  [accepted-scenario comparison](artifacts/phase3/2026-08-21/sheep-temperaments-headless/accepted-scenario-state-diff.txt).
 - [ ] Implement settled, alert, driven, and recovering transitions plus an
   explicitly non-physiological arousal/recovery proxy.
 - [ ] Add debug arrows/labels for every influence, chosen neighbor, arousal,

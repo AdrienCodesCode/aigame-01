@@ -1,9 +1,9 @@
 # Gameplay replay and state-dump contracts
 
-**Status:** Version 1 seed/action/replay and version 9 dog, five-sheep, social-
-evidence, dog-stimulus-evidence, and sheep-collision-evidence state dump
-implemented; the presentation capture CLI can write a state dump, while JSON
-decoding and general replay/seed CLI integration remain pending
+**Status:** Version 1 seed/action/replay and version 10 dog, five-sheep, social-
+evidence, dog-stimulus-evidence, sheep-temperament, and sheep-collision-evidence
+state dump implemented; the presentation capture CLI can write a state dump,
+while JSON decoding and general replay/seed CLI integration remain pending
 
 **Last revised:** 2026-08-21
 
@@ -38,7 +38,7 @@ The contracts use four independently named versions:
   authoritative tick;
 - replay format `1` binds the tick rate, seed contract, action-input version,
   and complete action sequence;
-- state-dump format `9` records the seed contract, tick rate, restart count, and
+- state-dump format `10` records the seed contract, tick rate, restart count, and
   published previous/current dog, five-sheep, social-evidence, dog-stimulus-
   evidence, and sheep-collision-evidence snapshots. Version 1 was dog-only,
   version 2 added sheep state, version 3 added attraction evidence, version 4
@@ -46,8 +46,10 @@ The contracts use four independently named versions:
   pressure acceleration, version 6 added dog approach speed and a separate
   approach acceleration, version 7 added dog facing alignment and a separate
   facing acceleration, version 8 added the dog line-of-sight blocked flag and the
-  named analytic paddock obstacle that blocks it, and version 9 added the
-  per-sheep paddock-contact record. No older version is silently reinterpreted.
+  named analytic paddock obstacle that blocks it, version 9 added the
+  per-sheep paddock-contact record, and version 10 added the per-sheep
+  temperament label and the temperament response scale it applied to the dog
+  terms. No older version is silently reinterpreted.
 
 A replay consumer must reject an unsupported version, a tick rate other than
 60 Hz, an unknown scenario, a zero scenario version, a scenario/version/seed
@@ -79,14 +81,16 @@ decoder, replay file path, checked-in replay fixture, and executable
 `--replay`/`--seed` flags are intentionally deferred. No untrusted or external
 JSON is accepted by the engine yet.
 
-## State dump version 9
+## State dump version 10
 
 The schema name is `wide-eye.gameplay-state`. The dump contains the scenario
 seed contract, fixed rate, restart count, and complete published previous and
 current snapshots. Each snapshot contains the dog position, velocity, heading,
 and grounded state plus exactly five sheep. Every sheep record contains ID,
-position, velocity, heading, arousal, explicit behavior state, and grounded
-state. A parallel fixed-size evidence record maps to each sheep by subject ID
+position, velocity, heading, arousal, explicit behavior state, explicit
+temperament, and grounded state. Temperament is `ordinary`, `nervous`, or
+`stubborn`; it is part of the scenario's starting contract, does not change
+during a run, and an unknown value is rejected before encoding. A parallel fixed-size evidence record maps to each sheep by subject ID
 and contains the exact attraction and alignment selected-neighbor IDs, selected
 and in-radius candidate counts, and separate separation, attraction, and
 alignment acceleration vectors. The writer validates subject mapping, bounds,
@@ -94,8 +98,9 @@ unique known neighbor IDs, zeroed unused IDs, and finite vectors before
 encoding. A second fixed-size record per sheep states whether dog stimulus was
 evaluated, then publishes the prior-state planar dog distance, signed bearing
 relative to sheep heading, dog approach speed, dog facing alignment, whether the
-sight line to the dog is blocked, the named paddock obstacle that blocks it, and
-separate pressure-, approach-, and facing-acceleration vectors. Approach speed
+sight line to the dog is blocked, the named paddock obstacle that blocks it, the
+temperament response scale that sheep applied, and separate pressure-,
+approach-, and facing-acceleration vectors. Approach speed
 is the component of prior dog velocity along the dog-to-sheep direction:
 positive when the dog closes, negative when it leaves. Facing alignment is the
 cosine between the prior dog forward direction and the dog-to-sheep direction:
@@ -104,11 +109,19 @@ occluder is `none`, `left_wall`, `right_wall`, or `gate`; the gate shape exists
 only while the scenario's gate is closed, and the sight line is the zero-width
 planar segment between the prior sheep and dog positions. Line of sight adds no
 acceleration vector of its own: when its term is enabled, an occluded dog
-releases the pressure, approach, and facing vectors instead. The writer requires
+releases the pressure, approach, and facing vectors instead. Temperament also
+adds no vector of its own: the response scale is the last factor of every dog
+magnitude, so an `ordinary` sheep multiplies by exactly `1.0` and reproduces the
+version 9 arithmetic bit for bit while a `nervous` or `stubborn` sheep publishes
+the same stimulus and a proportionally larger or smaller response. The scale is a
+property of the prior sheep rather than of the geometry, so it is published
+whenever stimulus was evaluated, including at exact dog/sheep overlap where every
+geometric term is zero. The writer requires
 unevaluated stimulus fields to remain zero, requires a blocked flag to name an
-obstacle and a clear flag to name `none`, and validates finite distance/approach
-data, a bearing within `[-π, π]`, and an alignment within `[-1, 1]` before
-encoding.
+obstacle and a clear flag to name `none`, requires an evaluated stimulus to
+publish a finite, strictly positive response scale, and validates finite
+distance/approach data, a bearing within `[-π, π]`, and an alignment within
+`[-1, 1]` before encoding.
 
 A third fixed-size record per sheep publishes what the paddock did to that
 sheep's displacement this tick: `clipped_x` and `clipped_z` name the axes whose
@@ -172,10 +185,17 @@ motion, and they differ only by the world gate state and the required scenario
 ID. One sheep runs at the left wall, one runs at the gate line and is the paired
 variable, one arrives diagonally at the right wall so one axis is blocked while
 the other keeps running, one never touches anything, and one runs at the
-paddock's own outer bound. Terrain, temperament, and behavior-state transitions
-remain absent, and the dog terms are still summed without a combined-influence
-bound. A non-finite state is rejected because JSON has no
-portable representation for NaN or infinity.
+paddock's own outer bound. The paired `sheep-temperament-neutral` and
+`sheep-temperament-varied` fixtures stand five sheep on one exact 5-unit ring
+around a stationary dog, keep the accepted distance-only pressure enabled and
+identical in both cases, carry the same per-sheep temperaments, and differ only
+by the temperament switch and the required scenario ID. Every sheep therefore
+publishes the same prior-state distance and falloff, and only its bearing
+differs; only the on case scales each sheep's dog response by the factor its
+temperament names. Terrain and
+behavior-state transitions remain absent, and the dog terms are still summed
+without a combined-influence bound. A non-finite state is rejected because JSON
+has no portable representation for NaN or infinity.
 
 The state dump is an observation, not a save format. It does not restore a
 simulation, promise save compatibility, include renderer state, or establish
@@ -346,6 +366,44 @@ passed. A sheep whose cylinder already overlaps an obstacle is not pushed out,
 the same limitation the dog motor has. This is synthetic causal evidence, not
 calibrated sheep behavior or player-facing motion acceptance.
 
+**Observed result (2026-08-21):** required per-sheep temperament and the
+temperament response scale advanced the state dump to version 10. In the paired
+temperament fixture, whose five sheep stand on one exact 5-unit ring around a
+stationary dog so every sheep sees the same distance and falloff, the neutral
+member gave
+every sheep the exact same `0.5` of pressure and published a `1` response scale.
+Switching the factor on left every published distance, bearing, approach speed,
+facing alignment, and sight line identical and changed only the response: the
+ordinary sheep's vector was bit-for-bit unchanged, each nervous sheep published a
+`2` scale and exactly twice the neutral vector in both components, and each
+stubborn sheep published a `0.5` scale and exactly half of it, giving `1` and
+`0.25` of applied pressure against the ordinary `0.5`. Because the two configured
+factors are powers of two those ratios are exact equalities rather than
+tolerances, and the mirrored nervous/stubborn pairs on either side of the gate
+line held the same exact `4:1` ratio, so the result is not an artifact of one
+bearing. A derived fixture with the approach and facing terms also enabled scaled
+all three vectors by the same published factor while the `3.0` and `2.4` approach
+speeds and the `1.0` and `0.8` facing alignments stayed unchanged. A derived
+fixture with separation, attraction, and alignment enabled published identical
+social evidence in both members, so temperament modulates the dog stimulus only.
+A flock whose sheep are all ordinary produced identical authoritative state on
+every one of 120 ticks with the factor switched on and off. Over the same 120
+ticks the nervous sheep drifted to `6.43757` from the dog while its mirrored
+stubborn twin reached `5.46321`, with no sheep contacting anything. A direct
+comparison against a pre-change build ran all nineteen earlier scenarios for 240
+scripted ticks each and found the canonical dumps byte-identical once the two new
+keys and the version number were removed, so version 10 adds fields without
+reinterpreting version 9 values. The oracle also proved that the same tick's
+dog-motor move did not alter prior-state temperament evidence, that the writer
+rejects an unknown temperament, that reversed sheep storage preserved exact
+per-ID state and evidence, that restart restored the fixture including its
+labels, and that 600 enabled ticks allocated no heap memory. On WSL Ubuntu
+24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
+each passed 24/24 CTests; formatting and bounded clang-tidy passed. The doubling
+and halving factors are a provisional legibility choice, not a measured or
+biological value, and this is synthetic causal evidence rather than player-facing
+motion acceptance.
+
 **Observed result (2026-08-16):** the earlier native Windows Release capture
 commands wrote canonical version 2 state at presentation ticks 1, 61, and 121.
 The independent normal, repeat-normal, and face-normal debug commands at tick 61
@@ -354,8 +412,8 @@ byte-identical state files with SHA-256
 `8b2921e4a87bc2e8b8b86e08f4f17d8b3a7bf7c9413293b90b03b728ec27a905`.
 This is local same-platform evidence, not a cross-platform identity claim.
 
-Native Linux graphics, a native Windows version 9 capture, JSON decoding, CLI
-replay/seed ingestion, persistent replay files, terrain and temperament pressure
-factors, combined-influence acceleration bounds, behavior transitions, objective
+Native Linux graphics, a native Windows version 10 capture, JSON decoding, CLI
+replay/seed ingestion, persistent replay files, the terrain pressure factor,
+combined-influence acceleration bounds, behavior transitions, objective
 outcomes, and cross-platform state or text identity remain untested or
 unimplemented.

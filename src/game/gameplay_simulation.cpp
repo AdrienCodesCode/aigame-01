@@ -72,6 +72,7 @@ void validate_social_response_configuration(const GameplayScenarioDefinition& sc
     const SheepDogPressureConfiguration& dog_pressure = scenario.sheep_dog_pressure;
     const SheepDogApproachConfiguration& dog_approach = scenario.sheep_dog_approach;
     const SheepDogFacingConfiguration& dog_facing = scenario.sheep_dog_facing;
+    const SheepTemperamentConfiguration& temperament = scenario.sheep_temperament;
     if (separation.enabled) {
         WIDE_EYE_ASSERT(std::isfinite(separation.radius) && separation.radius > 0.0,
                         "sheep separation radius must be finite and positive");
@@ -124,6 +125,39 @@ void validate_social_response_configuration(const GameplayScenarioDefinition& sc
                             dog_facing.maximum_acceleration >= 0.0,
                         "sheep dog-facing acceleration must be finite and non-negative");
     }
+    if (temperament.enabled) {
+        // A zero or negative factor would not be a temperament: it would silence
+        // or invert the dog terms, and the published scale could no longer be
+        // read as "how much of the ordinary response this sheep produced".
+        WIDE_EYE_ASSERT(std::isfinite(temperament.nervous_response_scale) &&
+                            temperament.nervous_response_scale > 0.0,
+                        "sheep nervous response scale must be finite and positive");
+        WIDE_EYE_ASSERT(std::isfinite(temperament.stubborn_response_scale) &&
+                            temperament.stubborn_response_scale > 0.0,
+                        "sheep stubborn response scale must be finite and positive");
+    }
+}
+
+// How much of the ordinary dog response this sheep produces. `ordinary` is
+// exactly neutral by definition rather than by configuration, and a scenario
+// with the factor switched off is neutral for every sheep, so a paired control
+// reproduces the accepted arithmetic bit for bit while still carrying the same
+// temperaments in its fixture.
+[[nodiscard]] double
+sheep_temperament_response_scale(SheepTemperament temperament,
+                                 const SheepTemperamentConfiguration& configuration) noexcept {
+    if (!configuration.enabled) {
+        return 1.0;
+    }
+    switch (temperament) {
+    case SheepTemperament::ordinary:
+        break;
+    case SheepTemperament::nervous:
+        return configuration.nervous_response_scale;
+    case SheepTemperament::stubborn:
+        return configuration.stubborn_response_scale;
+    }
+    return 1.0;
 }
 
 void evaluate_dog_stimulus(const SheepState& prior_sheep, const DogState& prior_dog,
@@ -140,6 +174,13 @@ void evaluate_dog_stimulus(const SheepState& prior_sheep, const DogState& prior_
     const double dog_distance = std::hypot(dog_offset_x, dog_offset_z);
     dog_evidence.stimulus_evaluated = true;
     dog_evidence.dog_distance = dog_distance;
+    // Temperament is a property of the prior sheep rather than of the geometry,
+    // so it is published as soon as the stimulus is evaluated. That keeps it
+    // readable even where an exact overlap leaves every geometric term zero, and
+    // it keeps "evaluated" and "scaled by something meaningful" the same thing.
+    const double response_scale =
+        sheep_temperament_response_scale(prior_sheep.temperament, scenario.sheep_temperament);
+    dog_evidence.temperament_response_scale = response_scale;
     if (dog_distance > 0.0) {
         dog_evidence.dog_relative_bearing_radians = std::remainder(
             std::atan2(dog_offset_x, -dog_offset_z) - prior_sheep.heading_radians, kTwoPi);
@@ -175,11 +216,18 @@ void evaluate_dog_stimulus(const SheepState& prior_sheep, const DogState& prior_
         // vector, because scaling an away direction by zero would publish a
         // signed zero and make two identically released states differ in the
         // canonical state dump.
+        //
+        // The temperament scale is the last factor of every magnitude, so an
+        // ordinary sheep multiplies by exactly 1.0 and reproduces the accepted
+        // arithmetic bit for bit. It scales the response only: distance,
+        // bearing, approach speed, facing alignment, and the sight line are the
+        // stimulus and stay identical between two differently tempered sheep.
         if (visibility > 0.0) {
             const double falloff =
                 dog_distance < dog_pressure.radius ? 1.0 - dog_distance / dog_pressure.radius : 0.0;
             if (dog_pressure.enabled) {
-                const double magnitude = visibility * falloff * dog_pressure.maximum_acceleration;
+                const double magnitude =
+                    visibility * falloff * dog_pressure.maximum_acceleration * response_scale;
                 dog_evidence.pressure_acceleration = {.x = away_x * magnitude,
                                                       .z = away_z * magnitude};
             }
@@ -188,8 +236,8 @@ void evaluate_dog_stimulus(const SheepState& prior_sheep, const DogState& prior_
                 // rather than pulling the sheep back.
                 const double response =
                     std::min(dog_evidence.dog_approach_speed / dog_approach.reference_speed, 1.0);
-                const double magnitude =
-                    visibility * falloff * dog_approach.maximum_acceleration * response;
+                const double magnitude = visibility * falloff * dog_approach.maximum_acceleration *
+                                         response * response_scale;
                 dog_evidence.approach_acceleration = {.x = away_x * magnitude,
                                                       .z = away_z * magnitude};
             }
@@ -197,7 +245,7 @@ void evaluate_dog_stimulus(const SheepState& prior_sheep, const DogState& prior_
                 // Only a dog looking toward the sheep adds pressure; a dog
                 // looking away releases it rather than pulling the sheep back.
                 const double magnitude = visibility * falloff * dog_facing.maximum_acceleration *
-                                         dog_evidence.dog_facing_alignment;
+                                         dog_evidence.dog_facing_alignment * response_scale;
                 dog_evidence.facing_acceleration = {.x = away_x * magnitude,
                                                     .z = away_z * magnitude};
             }
@@ -446,6 +494,9 @@ SheepState interpolate_sheep_state(const SheepState& previous, const SheepState&
             kTwoPi),
         .arousal = interpolate(previous.arousal, current.arousal),
         .behavior = current.behavior,
+        // Temperament is a fixed label rather than a continuous quantity, so
+        // presentation reads the current one exactly as it reads behavior.
+        .temperament = current.temperament,
         .grounded = current.grounded,
     };
 }

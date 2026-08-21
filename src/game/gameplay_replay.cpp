@@ -36,7 +36,7 @@ bool finite(const DogState& state) noexcept {
 bool valid_state(const SheepState& state) noexcept {
     return finite(state.position) && finite(state.velocity) &&
            std::isfinite(state.heading_radians) && std::isfinite(state.arousal) &&
-           is_known_sheep_behavior(state.behavior);
+           is_known_sheep_behavior(state.behavior) && is_known_sheep_temperament(state.temperament);
 }
 
 bool valid_social_evidence(const GameplaySnapshot& snapshot) noexcept {
@@ -104,8 +104,15 @@ bool valid_dog_pressure_evidence(const GameplaySnapshot& snapshot) noexcept {
             !std::isfinite(evidence.dog_facing_alignment) || evidence.dog_facing_alignment < -1.0 ||
             evidence.dog_facing_alignment > 1.0 ||
             !is_known_paddock_obstacle(evidence.dog_line_of_sight_occluder) ||
+            !std::isfinite(evidence.temperament_response_scale) ||
             !finite(evidence.pressure_acceleration) || !finite(evidence.approach_acceleration) ||
             !finite(evidence.facing_acceleration)) {
+            return false;
+        }
+        // An evaluated stimulus always applied some fraction of the ordinary
+        // response, so a zero or negative published scale would describe a
+        // response that cannot exist rather than a stubborn one.
+        if (evidence.stimulus_evaluated && evidence.temperament_response_scale <= 0.0) {
             return false;
         }
         // A blocked sight line must name its occluder, and a clear one must name
@@ -119,6 +126,7 @@ bool valid_dog_pressure_evidence(const GameplaySnapshot& snapshot) noexcept {
              evidence.dog_approach_speed != 0.0 || evidence.dog_facing_alignment != 0.0 ||
              evidence.dog_line_of_sight_blocked ||
              evidence.dog_line_of_sight_occluder != PaddockObstacle::none ||
+             evidence.temperament_response_scale != 0.0 ||
              evidence.pressure_acceleration != Vec3{} || evidence.approach_acceleration != Vec3{} ||
              evidence.facing_acceleration != Vec3{})) {
             return false;
@@ -169,6 +177,18 @@ std::string_view sheep_behavior_name(SheepBehaviorState behavior) noexcept {
         return "driven";
     case SheepBehaviorState::recovering:
         return "recovering";
+    }
+    return "unknown";
+}
+
+std::string_view sheep_temperament_name(SheepTemperament temperament) noexcept {
+    switch (temperament) {
+    case SheepTemperament::ordinary:
+        return "ordinary";
+    case SheepTemperament::nervous:
+        return "nervous";
+    case SheepTemperament::stubborn:
+        return "stubborn";
     }
     return "unknown";
 }
@@ -273,6 +293,8 @@ bool append_sheep_state(std::string& output, const SheepState& sheep) {
     }
     output += ",\"behavior\":\"";
     output += sheep_behavior_name(sheep.behavior);
+    output += "\",\"temperament\":\"";
+    output += sheep_temperament_name(sheep.temperament);
     output += "\",\"grounded\":";
     output += sheep.grounded ? "true" : "false";
     output += '}';
@@ -361,7 +383,11 @@ bool append_dog_pressure_evidence(std::string& output, const SheepDogPressureEvi
     output += evidence.dog_line_of_sight_blocked ? "true" : "false";
     output += ",\"dog_line_of_sight_occluder\":\"";
     output += paddock_obstacle_name(evidence.dog_line_of_sight_occluder);
-    output += "\",\"pressure_acceleration\":";
+    output += "\",\"temperament_response_scale\":";
+    if (!append_double(output, evidence.temperament_response_scale)) {
+        return false;
+    }
+    output += ",\"pressure_acceleration\":";
     if (!append_vec3(output, evidence.pressure_acceleration)) {
         return false;
     }

@@ -185,9 +185,19 @@ acceleration vector. Paired `sheep-paddock-collision-closed-gate` and
 differ only by the world gate state, so the analytic paddock is the only thing
 that can change a sheep's straight-line motion. A sheep whose cylinder already
 overlaps an obstacle is not pushed out, and sheep-versus-sheep and
-sheep-versus-dog body collision are absent. Damping, bounded speed/turning,
-combined-influence acceleration bounds, terrain and temperament pressure
-factors, and behavior-state transitions remain deferred. Flock-level
+sheep-versus-dog body collision are absent. Each sheep also carries an
+`ordinary`, `nervous`, or `stubborn` temperament in the authoritative buffer,
+because the accepted design makes the dog's effective pressure depend on it. Like
+line of sight it adds no vector of its own: it is the last factor of every dog
+magnitude, so an ordinary sheep multiplies by exactly `1.0` and reproduces the
+accepted arithmetic bit for bit while a nervous or stubborn sheep publishes the
+same stimulus and a proportionally larger or smaller response. It scales the dog
+terms only; the social terms have no temperament factor, and each sheep publishes
+the scale that was applied. Paired `sheep-temperament-neutral` and
+`sheep-temperament-varied` fixtures stand five sheep on one exact 5-unit ring
+around a stationary dog and differ only by the temperament switch. Damping,
+bounded speed/turning, combined-influence acceleration bounds, the terrain
+pressure factor, and behavior-state transitions remain deferred. Flock-level
 dog-relative and response-timing observables also remain deferred until their
 required behavior
 scenarios exist. The dog is a kinematic upright
@@ -202,7 +212,8 @@ meshes; the same game-owned field answers the sheep sight-line query. Version 1,
 `sheep-dog-approach-off`, `sheep-dog-approach-on`, `sheep-dog-facing-off`,
 `sheep-dog-facing-on`, `sheep-dog-line-of-sight-off`,
 `sheep-dog-line-of-sight-on`, `sheep-paddock-collision-closed-gate`,
-`sheep-paddock-collision-open-gate`,
+`sheep-paddock-collision-open-gate`, `sheep-temperament-neutral`,
+`sheep-temperament-varied`,
 `wall-contact`, `closed-gate`, and `open-gate` gameplay definitions provide
 deterministic initialization and exact restart. The
 gameplay camera owns orbit yaw/pitch independently of dog facing; orchestration

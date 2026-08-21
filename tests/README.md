@@ -70,7 +70,22 @@ opening, a combined derived fixture in which the pressure, approach, and facing
 vectors are released together while their prior-state evidence is unchanged,
 published/applied equality in both members, zero-direction exact-overlap
 handling, immutable-prior sight evidence, reversed-storage identity, state-dump
-evidence, restart, and zero allocations across 600 fixed updates;
+evidence, restart, and zero allocations across 600 fixed updates; paired
+sheep-paddock-collision closed-gate/open-gate fixtures in which the analytic
+paddock stops a driven sheep at exactly the obstacle face plus the sheep body
+radius, clears only the refused axis's velocity while the free axis keeps
+moving, names the wall or gate that refused it, distinguishes the paddock's
+outer bounds from a named obstacle, lets the same sheep through when only the
+world gate state differs, leaves a non-contacting sheep bit-identical to
+unclipped integration, keeps a live dog-pressure vector published while the
+sheep is held, and preserves reversed-storage identity, restart, and zero
+allocations across 600 fixed updates; paired temperament neutral/varied
+fixtures on one exact five-unit ring in which ordinary reproduces the accepted
+response bit for bit, nervous and stubborn scale every dog term by exactly the
+configured factors under identical published geometry, the social terms are
+unchanged in both members, and the published scale, published/applied equality,
+unknown-temperament rejection, reversed-storage identity, restart, and zero
+allocations across 600 fixed updates all hold;
 repeated scripted `presentation-motion` state, all-five
 translation, midpoint turn interpolation, immutable-prior publication, exact
 restart, and one-to-one moving proxy poses without claiming flock behavior;

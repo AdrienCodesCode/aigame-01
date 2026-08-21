@@ -16,7 +16,7 @@ namespace {
            std::isfinite(sheep.position.z) && std::isfinite(sheep.velocity.x) &&
            std::isfinite(sheep.velocity.y) && std::isfinite(sheep.velocity.z) &&
            std::isfinite(sheep.heading_radians) && std::isfinite(sheep.arousal) &&
-           is_known_sheep_behavior(sheep.behavior);
+           is_known_sheep_behavior(sheep.behavior) && is_known_sheep_temperament(sheep.temperament);
 }
 
 } // namespace
