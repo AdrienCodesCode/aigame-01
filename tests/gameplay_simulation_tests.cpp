@@ -162,6 +162,17 @@ evidence_with_id(const wide_eye::game::SheepCombinedInfluenceEvidenceBuffer& evi
     return *member;
 }
 
+const wide_eye::game::SheepMotionLimitEvidence&
+evidence_with_id(const wide_eye::game::SheepMotionLimitEvidenceBuffer& evidence, std::uint32_t id) {
+    const auto member = std::find_if(evidence.begin(), evidence.end(), [id](const auto& candidate) {
+        return candidate.subject_id == id;
+    });
+    if (member == evidence.end()) {
+        std::abort();
+    }
+    return *member;
+}
+
 // The unbounded sum the combined-influence bound acts on, added in the same left
 // to right order the simulation adds it so an oracle can compare exactly instead
 // of within a tolerance.
@@ -643,6 +654,483 @@ CombinedInfluenceOracle run_combined_influence_oracle(
     if (!check(combined_on->current_snapshot() == combined_initial &&
                    combined_on->previous_snapshot() == combined_initial,
                "combined_influence_restart_restores_the_paired_fixture")) {
+        return result;
+    }
+
+    result.passed = true;
+    return result;
+}
+
+// What the motion-limit oracle observed, returned so the run report can name the
+// numbers without keeping the fixtures alive in `main`.
+struct MotionLimitOracle {
+    bool passed = false;
+    double maximum_speed = 0.0;
+    double maximum_turn_rate = 0.0;
+    double turn_budget = 0.0;
+    std::uint64_t reversal_ticks = 0;
+    std::uint64_t reversal_completion_tick = 0;
+    double reversal_heading_before_completion = 0.0;
+    std::uint64_t drift_ticks = 0;
+    wide_eye::game::SheepMotionLimitEvidence axis_clamp{};
+    wide_eye::game::SheepMotionLimitEvidence diagonal_clamp{};
+    wide_eye::game::SheepMotionLimitEvidence under_limit{};
+    wide_eye::game::SheepMotionLimitEvidence stationary{};
+    wide_eye::game::SheepMotionLimitEvidence reversal{};
+    double unlimited_axis_speed = 0.0;
+    double accumulation_maximum = 0.0;
+    double unlimited_peak_speed = 0.0;
+    double limited_peak_speed = 0.0;
+    std::size_t allocations = 0;
+};
+
+MotionLimitOracle run_motion_limit_oracle() {
+    MotionLimitOracle result;
+    // Bounded speed and turning. The combined-influence bound limits how hard a
+    // sheep may be accelerated; it does not limit how fast that acceleration can
+    // make a sheep travel, and nothing at all decided which way a sheep faced.
+    // These two limits act on the result of integration instead: the planar
+    // speed is clamped with its direction preserved, and the heading is rotated
+    // toward the direction of that motion by at most one turn budget per tick.
+    // The paired fixture enables no steering term at all, so every number below
+    // is exact arithmetic on the fixture's own initial velocities rather than a
+    // tolerance around an integrated one.
+    constexpr double kMaximumSpeed = 5.0;
+    constexpr double kMaximumTurnRate = 3.75;
+    constexpr double kOverLimitSpeed = 12.5;
+    constexpr double kOverLimitScale = 0.4;
+    constexpr double kUnderLimitSpeed = 2.0;
+    constexpr double kStationaryHeading = 1.0;
+    constexpr double kPi = 3.14159265358979323846;
+    constexpr double kTwoPi = 6.28318530717958647692;
+    constexpr std::uint64_t kBudgetTicks = 50;
+    constexpr std::uint64_t kMotionLimitDriftTicks = 60;
+    constexpr std::uint64_t kBearingTicks = 4;
+    constexpr double kAccumulationMaximumSpeed = 2.0;
+    constexpr std::uint64_t kAccumulationTicks = 240;
+    const double turn_budget =
+        kMaximumTurnRate * wide_eye::game::GameplaySimulation::kFixedDeltaSeconds;
+    result.maximum_speed = kMaximumSpeed;
+    result.maximum_turn_rate = kMaximumTurnRate;
+    result.turn_budget = turn_budget;
+    result.reversal_ticks = kBudgetTicks;
+    result.drift_ticks = kMotionLimitDriftTicks;
+    result.accumulation_maximum = kAccumulationMaximumSpeed;
+
+    const auto limit_off_scenario =
+        wide_eye::game::find_gameplay_scenario("sheep-motion-limit-off");
+    const auto limit_on_scenario = wide_eye::game::find_gameplay_scenario("sheep-motion-limit-on");
+    auto limit_on_as_control =
+        limit_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
+    if (limit_off_scenario.has_value()) {
+        limit_on_as_control.id = limit_off_scenario->id;
+    }
+    limit_on_as_control.sheep_motion_limit.enabled = false;
+    if (!check(limit_off_scenario.has_value() && limit_on_scenario.has_value() &&
+                   limit_off_scenario->id ==
+                       wide_eye::game::GameplayScenarioId::sheep_motion_limit_off &&
+                   limit_on_scenario->id ==
+                       wide_eye::game::GameplayScenarioId::sheep_motion_limit_on &&
+                   limit_on_as_control == *limit_off_scenario &&
+                   limit_on_scenario->sheep_motion_limit.enabled &&
+                   !limit_off_scenario->sheep_motion_limit.enabled &&
+                   limit_on_scenario->sheep_motion_limit.maximum_speed == kMaximumSpeed &&
+                   limit_on_scenario->sheep_motion_limit.maximum_turn_rate_radians_per_second ==
+                       kMaximumTurnRate &&
+                   limit_off_scenario->version == 1 && limit_off_scenario->seed == 0,
+               "paired_motion_limit_fixture_differs_only_by_the_limit_switch") ||
+        // The fixture must isolate the two limits: any enabled steering term
+        // would make the observed velocities integration results rather than the
+        // fixture's own exact numbers.
+        !check(!limit_off_scenario->sheep_separation.enabled &&
+                   !limit_off_scenario->sheep_attraction.enabled &&
+                   !limit_off_scenario->sheep_alignment.enabled &&
+                   !limit_off_scenario->sheep_dog_pressure.enabled &&
+                   !limit_off_scenario->sheep_dog_approach.enabled &&
+                   !limit_off_scenario->sheep_dog_facing.enabled &&
+                   !limit_off_scenario->sheep_dog_line_of_sight.enabled &&
+                   !limit_off_scenario->sheep_temperament.enabled &&
+                   !limit_off_scenario->sheep_combined_influence.enabled,
+               "the_motion_limit_fixture_enables_no_steering_term") ||
+        // The magnitudes are chosen, not arbitrary. A sheep must outrun a walking
+        // dog and never outrun a sprinting one, and it must not turn as fast as
+        // the dog that is cutting across it.
+        !check(kMaximumSpeed > wide_eye::game::DogController::kWalkSpeed &&
+                   kMaximumSpeed < wide_eye::game::DogController::kSprintSpeed &&
+                   kMaximumTurnRate < wide_eye::game::DogController::kTurnRateRadiansPerSecond,
+               "sheep_limits_sit_inside_the_accepted_dog_motor_limits") ||
+        // The per-tick budget is an exact binary fraction, which is what lets
+        // every turn observation below be an equality instead of a tolerance.
+        !check(turn_budget == 0.0625, "the_per_tick_turn_budget_is_exactly_one_sixteenth_radian")) {
+        return result;
+    }
+
+    const SimulationHandle limit_off = make_simulation(*limit_off_scenario);
+    const SimulationHandle limit_on = make_simulation(*limit_on_scenario);
+    const auto limit_initial = limit_on->current_snapshot();
+    limit_off->fixed_update({});
+    limit_on->fixed_update({});
+    const auto limit_off_after_one = limit_off->current_snapshot();
+    const auto limit_on_after_one = limit_on->current_snapshot();
+    if (!check(limit_on->previous_snapshot() == limit_initial,
+               "motion_limits_read_the_immutable_prior_snapshot")) {
+        return result;
+    }
+
+    for (const auto& on_limit : limit_on_after_one.sheep_motion_limit_evidence) {
+        const std::uint32_t subject_id = on_limit.subject_id;
+        const auto& off_limit =
+            evidence_with_id(limit_off_after_one.sheep_motion_limit_evidence, subject_id);
+        const auto& prior_member = sheep_with_id(limit_initial.sheep, subject_id);
+        const auto& on_member = sheep_with_id(limit_on_after_one.sheep, subject_id);
+        const double on_speed = std::hypot(on_member.velocity.x, on_member.velocity.z);
+        if ( // Neither limit may rewrite a steering term. Every published social,
+             // dog, and combined-influence record must be identical between the
+             // two members; only the motion the sheep ended up with differs.
+            !check(
+                evidence_with_id(limit_on_after_one.sheep_social_evidence, subject_id) ==
+                        evidence_with_id(limit_off_after_one.sheep_social_evidence, subject_id) &&
+                    evidence_with_id(limit_on_after_one.sheep_dog_pressure_evidence, subject_id) ==
+                        evidence_with_id(limit_off_after_one.sheep_dog_pressure_evidence,
+                                         subject_id) &&
+                    evidence_with_id(limit_on_after_one.sheep_combined_influence_evidence,
+                                     subject_id) ==
+                        evidence_with_id(limit_off_after_one.sheep_combined_influence_evidence,
+                                         subject_id),
+                "the_limits_leave_every_published_steering_record_identical") ||
+            !check(on_limit.limit_evaluated && !off_limit.limit_evaluated &&
+                       off_limit ==
+                           wide_eye::game::SheepMotionLimitEvidence{.subject_id = subject_id},
+                   "the_off_member_publishes_an_unevaluated_zeroed_limit_record") ||
+            !check(on_limit.applied_speed_scale > 0.0 && on_limit.applied_speed_scale <= 1.0 &&
+                       on_limit.applied_speed <= on_limit.integrated_speed &&
+                       on_limit.applied_speed <= kMaximumSpeed,
+                   "no_limited_sheep_ends_a_tick_faster_than_the_maximum") ||
+            // The published applied speed is the speed integration actually left
+            // the sheep with, before collision may refuse an axis.
+            !check(std::abs(on_speed - on_limit.applied_speed) < 1.0e-12,
+                   "published_applied_speed_is_the_speed_the_sheep_kept") ||
+            // Heading may only ever move by one budget, whichever member.
+            !check(std::abs(on_limit.heading_change_radians) <= turn_budget &&
+                       (on_limit.motion_heading_followed ||
+                        on_member.heading_radians == prior_member.heading_radians),
+                   "a_heading_moves_by_at_most_one_turn_budget_and_only_when_moving")) {
+            return result;
+        }
+    }
+
+    // Copies, not references: the restart oracle below rewinds this simulation.
+    result.axis_clamp = evidence_with_id(limit_on_after_one.sheep_motion_limit_evidence, 1);
+    result.diagonal_clamp = evidence_with_id(limit_on_after_one.sheep_motion_limit_evidence, 2);
+    result.under_limit = evidence_with_id(limit_on_after_one.sheep_motion_limit_evidence, 3);
+    result.stationary = evidence_with_id(limit_on_after_one.sheep_motion_limit_evidence, 4);
+    result.reversal = evidence_with_id(limit_on_after_one.sheep_motion_limit_evidence, 5);
+    const auto& axis_on = sheep_with_id(limit_on_after_one.sheep, 1);
+    const auto& axis_off = sheep_with_id(limit_off_after_one.sheep, 1);
+    const auto& diagonal_on = sheep_with_id(limit_on_after_one.sheep, 2);
+    const auto& diagonal_off = sheep_with_id(limit_off_after_one.sheep, 2);
+    result.unlimited_axis_speed = std::hypot(axis_off.velocity.x, axis_off.velocity.z);
+    // Exact equalities rather than tolerances: the fixture drives one sheep at
+    // exactly two and a half times the maximum along one axis, so the clamp's
+    // scale is exactly 0.4 and the clamped speed is exactly the maximum.
+    if (!check(result.axis_clamp.integrated_speed == kOverLimitSpeed &&
+                   result.axis_clamp.applied_speed_scale == kOverLimitScale &&
+                   result.axis_clamp.applied_speed == kMaximumSpeed &&
+                   axis_on.velocity == wide_eye::game::Vec3{.z = kMaximumSpeed},
+               "an_over_limit_sheep_keeps_exactly_the_maximum_speed") ||
+        // Direction preservation on the axis case: no x component appears and
+        // the z sign is unchanged, so the clamp changed magnitude only.
+        !check(axis_on.velocity.x == 0.0 && axis_off.velocity.x == 0.0 &&
+                   axis_off.velocity.z == kOverLimitSpeed && axis_on.velocity.z > 0.0 &&
+                   sheep_with_id(limit_off_after_one.sheep, 1).position.z >
+                       sheep_with_id(limit_on_after_one.sheep, 1).position.z,
+               "clamping_changes_speed_without_changing_direction") ||
+        // The clamp is not an axis artifact: the 3-4-5 diagonal sheep lands on
+        // exactly (3, 4) and keeps its direction, measured as a zero cross
+        // product against the unclamped velocity.
+        !check(result.diagonal_clamp.integrated_speed == kOverLimitSpeed &&
+                   result.diagonal_clamp.applied_speed_scale == kOverLimitScale &&
+                   result.diagonal_clamp.applied_speed == kMaximumSpeed &&
+                   diagonal_on.velocity == wide_eye::game::Vec3{.x = 3.0, .z = 4.0} &&
+                   diagonal_on.velocity.x * diagonal_off.velocity.z -
+                           diagonal_on.velocity.z * diagonal_off.velocity.x ==
+                       0.0,
+               "the_clamp_preserves_direction_off_axis_too") ||
+        // An under-limit sheep already facing its motion must be untouched: same
+        // scale of exactly one, and a state bit-identical to the off member.
+        !check(result.under_limit.integrated_speed == kUnderLimitSpeed &&
+                   result.under_limit.applied_speed_scale == 1.0 &&
+                   result.under_limit.applied_speed == kUnderLimitSpeed &&
+                   result.under_limit.heading_change_radians == 0.0 &&
+                   sheep_with_id(limit_on_after_one.sheep, 3) ==
+                       sheep_with_id(limit_off_after_one.sheep, 3),
+               "an_under_limit_sheep_is_untouched_with_scale_exactly_one") ||
+        // A sheep that is not moving keeps the way it was facing rather than
+        // snapping to the zero heading `atan2(0, 0)` would produce.
+        !check(!result.stationary.motion_heading_followed &&
+                   result.stationary.integrated_speed == 0.0 &&
+                   result.stationary.applied_speed_scale == 1.0 &&
+                   result.stationary.motion_heading_radians == 0.0 &&
+                   result.stationary.heading_change_radians == 0.0 &&
+                   sheep_with_id(limit_on_after_one.sheep, 4).heading_radians ==
+                       kStationaryHeading &&
+                   sheep_with_id(limit_on_after_one.sheep, 4) ==
+                       sheep_with_id(limit_off_after_one.sheep, 4),
+               "a_stationary_sheep_keeps_its_heading_instead_of_facing_noise") ||
+        // The reversing sheep is under the speed maximum, so the turn rate is the
+        // only limit acting on it, and one tick moves its heading by exactly one
+        // budget toward the direction it is actually travelling.
+        !check(result.reversal.applied_speed_scale == 1.0 &&
+                   result.reversal.motion_heading_followed &&
+                   result.reversal.motion_heading_radians == kPi &&
+                   result.reversal.heading_change_radians == turn_budget &&
+                   sheep_with_id(limit_on_after_one.sheep, 5).heading_radians == turn_budget &&
+                   sheep_with_id(limit_off_after_one.sheep, 5).heading_radians == 0.0,
+               "a_reversed_sheep_turns_by_exactly_one_budget_per_tick") ||
+        // An already aligned sheep is not rotated at all, so following motion
+        // costs nothing once the heading has caught up.
+        !check(result.axis_clamp.motion_heading_followed &&
+                   result.axis_clamp.motion_heading_radians == kPi &&
+                   result.axis_clamp.heading_change_radians == 0.0 &&
+                   axis_on.heading_radians == kPi,
+               "a_sheep_already_facing_its_motion_is_not_rotated")) {
+        return result;
+    }
+
+    // The turn rate is a per-tick budget, not a first-tick one. The reversing
+    // sheep must spend exactly one budget on every tick until the remaining
+    // rotation is smaller than a budget, then land exactly on its motion
+    // direction and stay there.
+    const SimulationHandle limit_turn = make_simulation(*limit_on_scenario);
+    bool reversal_spends_exactly_one_budget = true;
+    bool reversal_bearing_uses_the_prior_heading = true;
+    bool reversal_bearing_differs_from_the_new_heading = true;
+    for (std::uint64_t tick = 1; tick <= kBudgetTicks; ++tick) {
+        limit_turn->fixed_update({});
+        const auto& previous = limit_turn->previous_snapshot();
+        const auto& current = limit_turn->current_snapshot();
+        const auto& member = sheep_with_id(current.sheep, 5);
+        const auto& evidence = evidence_with_id(current.sheep_motion_limit_evidence, 5);
+        reversal_spends_exactly_one_budget =
+            reversal_spends_exactly_one_budget && evidence.heading_change_radians == turn_budget &&
+            member.heading_radians == static_cast<double>(tick) * turn_budget;
+        if (tick > kBearingTicks) {
+            continue;
+        }
+        // The published dog bearing is relative to the prior sheep heading. A
+        // heading that now changes during the same tick must not reach back and
+        // alter it.
+        const auto& prior_member = sheep_with_id(previous.sheep, 5);
+        const double dog_offset_x = previous.dog.position.x - prior_member.position.x;
+        const double dog_offset_z = previous.dog.position.z - prior_member.position.z;
+        const double dog_direction = std::atan2(dog_offset_x, -dog_offset_z);
+        const double from_prior_heading =
+            std::remainder(dog_direction - prior_member.heading_radians, kTwoPi);
+        const double from_new_heading =
+            std::remainder(dog_direction - member.heading_radians, kTwoPi);
+        const auto& dog_evidence = evidence_with_id(current.sheep_dog_pressure_evidence, 5);
+        reversal_bearing_uses_the_prior_heading =
+            reversal_bearing_uses_the_prior_heading &&
+            dog_evidence.dog_relative_bearing_radians == from_prior_heading;
+        reversal_bearing_differs_from_the_new_heading =
+            reversal_bearing_differs_from_the_new_heading &&
+            dog_evidence.dog_relative_bearing_radians != from_new_heading;
+    }
+    result.reversal_heading_before_completion =
+        sheep_with_id(limit_turn->current_snapshot().sheep, 5).heading_radians;
+    // Copies, not references: the snapshot these describe is overwritten by the
+    // very next tick this oracle runs.
+    limit_turn->fixed_update({});
+    const wide_eye::game::SheepState completed =
+        sheep_with_id(limit_turn->current_snapshot().sheep, 5);
+    const wide_eye::game::SheepMotionLimitEvidence completed_evidence =
+        evidence_with_id(limit_turn->current_snapshot().sheep_motion_limit_evidence, 5);
+    result.reversal_completion_tick = kBudgetTicks + 1;
+    limit_turn->fixed_update({});
+    const wide_eye::game::SheepState settled =
+        sheep_with_id(limit_turn->current_snapshot().sheep, 5);
+    const wide_eye::game::SheepMotionLimitEvidence settled_evidence =
+        evidence_with_id(limit_turn->current_snapshot().sheep_motion_limit_evidence, 5);
+    if (!check(reversal_spends_exactly_one_budget,
+               "a_far_target_costs_exactly_one_budget_on_every_tick") ||
+        !check(reversal_bearing_uses_the_prior_heading &&
+                   reversal_bearing_differs_from_the_new_heading,
+               "a_turning_sheep_still_publishes_its_bearing_against_the_prior_heading") ||
+        // The last step of the turn is shorter than a budget, so the sheep lands
+        // exactly on its motion direction rather than overshooting it.
+        !check(completed.heading_radians == kPi &&
+                   completed_evidence.heading_change_radians ==
+                       kPi - static_cast<double>(kBudgetTicks) * turn_budget &&
+                   completed_evidence.heading_change_radians < turn_budget,
+               "a_target_within_one_budget_is_reached_exactly") ||
+        !check(settled.heading_radians == kPi && settled_evidence.heading_change_radians == 0.0,
+               "an_arrived_heading_stays_on_its_motion_direction")) {
+        return result;
+    }
+
+    // The off member must reproduce today's behavior exactly: with no steering
+    // term enabled and no limits, every sheep keeps its fixture velocity and its
+    // fixture heading for the whole window, and neither member touches the
+    // paddock, so the difference between them is the limits alone.
+    const SimulationHandle limit_drift_off = make_simulation(*limit_off_scenario);
+    const SimulationHandle limit_drift_on = make_simulation(*limit_on_scenario);
+    bool off_member_is_unchanged = true;
+    bool limit_drift_is_contact_free = true;
+    bool limited_speed_holds_every_tick = true;
+    for (std::uint64_t tick = 0; tick < kMotionLimitDriftTicks; ++tick) {
+        limit_drift_off->fixed_update({});
+        limit_drift_on->fixed_update({});
+        const auto& off_snapshot = limit_drift_off->current_snapshot();
+        const auto& on_snapshot = limit_drift_on->current_snapshot();
+        for (const auto& member : off_snapshot.sheep) {
+            const auto& fixture_member =
+                sheep_with_id(limit_off_scenario->initial_sheep, member.id);
+            off_member_is_unchanged = off_member_is_unchanged &&
+                                      member.velocity == fixture_member.velocity &&
+                                      member.heading_radians == fixture_member.heading_radians;
+        }
+        for (const auto& member : on_snapshot.sheep) {
+            limited_speed_holds_every_tick =
+                limited_speed_holds_every_tick &&
+                std::hypot(member.velocity.x, member.velocity.z) <= kMaximumSpeed + 1.0e-12;
+        }
+        for (const auto& contact : off_snapshot.sheep_collision_evidence) {
+            limit_drift_is_contact_free =
+                limit_drift_is_contact_free && !contact.clipped_x && !contact.clipped_z;
+        }
+        for (const auto& contact : on_snapshot.sheep_collision_evidence) {
+            limit_drift_is_contact_free =
+                limit_drift_is_contact_free && !contact.clipped_x && !contact.clipped_z;
+        }
+    }
+    if (!check(off_member_is_unchanged,
+               "the_off_member_reproduces_unbounded_speed_and_a_fixed_heading") ||
+        !check(limited_speed_holds_every_tick && limit_drift_is_contact_free,
+               "the_speed_maximum_holds_on_every_tick_without_paddock_contact") ||
+        // Visible as motion, not only as evidence: the limited sheep is left
+        // behind by its unlimited twin over the same window.
+        !check(sheep_with_id(limit_drift_off->current_snapshot().sheep, 1).position.z >
+                   sheep_with_id(limit_drift_on->current_snapshot().sheep, 1).position.z,
+               "a_limited_sheep_travels_less_far_than_its_unlimited_twin")) {
+        return result;
+    }
+
+    // The heading floor is a real boundary rather than a comment: a sheep moving
+    // below it keeps its heading, and the same sheep moving just above it turns.
+    auto below_floor_scenario = *limit_on_scenario;
+    below_floor_scenario.initial_sheep[3].velocity.x =
+        wide_eye::game::kSheepHeadingMotionSpeedFloor / 1000.0;
+    auto above_floor_scenario = *limit_on_scenario;
+    above_floor_scenario.initial_sheep[3].velocity.x =
+        wide_eye::game::kSheepHeadingMotionSpeedFloor * 1000.0;
+    const SimulationHandle below_floor = make_simulation(below_floor_scenario);
+    const SimulationHandle above_floor = make_simulation(above_floor_scenario);
+    below_floor->fixed_update({});
+    above_floor->fixed_update({});
+    const auto& below_evidence =
+        evidence_with_id(below_floor->current_snapshot().sheep_motion_limit_evidence, 4);
+    const auto& above_evidence =
+        evidence_with_id(above_floor->current_snapshot().sheep_motion_limit_evidence, 4);
+    if (!check(!below_evidence.motion_heading_followed && below_evidence.applied_speed > 0.0 &&
+                   sheep_with_id(below_floor->current_snapshot().sheep, 4).heading_radians ==
+                       kStationaryHeading,
+               "motion_below_the_heading_floor_leaves_the_heading_alone") ||
+        !check(above_evidence.motion_heading_followed &&
+                   above_evidence.heading_change_radians == turn_budget &&
+                   sheep_with_id(above_floor->current_snapshot().sheep, 4).heading_radians ==
+                       kStationaryHeading + turn_budget,
+               "motion_above_the_heading_floor_turns_the_heading")) {
+        return result;
+    }
+
+    // The fixture above starts a sheep over the maximum; this observes the case
+    // the limit exists for, where integration accumulates the speed. The
+    // accepted combined-influence arrangement is driven for four seconds with a
+    // lowered maximum, so the clamp binds on a speed the steering terms produced.
+    auto accumulation_scenario =
+        wide_eye::game::find_gameplay_scenario("sheep-combined-influence-on")
+            .value_or(wide_eye::game::GameplayScenarioDefinition{});
+    const SimulationHandle accumulation_control = make_simulation(accumulation_scenario);
+    accumulation_scenario.sheep_motion_limit = {.enabled = true,
+                                                .maximum_speed = kAccumulationMaximumSpeed};
+    const SimulationHandle accumulation_limited = make_simulation(accumulation_scenario);
+    bool accumulation_is_contact_free = true;
+    for (std::uint64_t tick = 0; tick < kAccumulationTicks; ++tick) {
+        accumulation_control->fixed_update({});
+        accumulation_limited->fixed_update({});
+        for (const auto& member : accumulation_control->current_snapshot().sheep) {
+            result.unlimited_peak_speed = std::max(
+                result.unlimited_peak_speed, std::hypot(member.velocity.x, member.velocity.z));
+        }
+        for (const auto& member : accumulation_limited->current_snapshot().sheep) {
+            result.limited_peak_speed = std::max(result.limited_peak_speed,
+                                                 std::hypot(member.velocity.x, member.velocity.z));
+        }
+        for (const auto& contact :
+             accumulation_limited->current_snapshot().sheep_collision_evidence) {
+            accumulation_is_contact_free =
+                accumulation_is_contact_free && !contact.clipped_x && !contact.clipped_z;
+        }
+    }
+    if (!check(result.unlimited_peak_speed > kAccumulationMaximumSpeed &&
+                   result.limited_peak_speed <= kAccumulationMaximumSpeed + 1.0e-12 &&
+                   accumulation_is_contact_free,
+               "an_accumulated_speed_is_clamped_where_the_control_runs_past_the_maximum")) {
+        return result;
+    }
+
+    auto reversed_limit_scenario = *limit_on_scenario;
+    std::reverse(reversed_limit_scenario.initial_sheep.begin(),
+                 reversed_limit_scenario.initial_sheep.end());
+    const SimulationHandle reversed_limit = make_simulation(reversed_limit_scenario);
+    reversed_limit->fixed_update({});
+    for (const auto& member : limit_on_after_one.sheep) {
+        if (!check(member == sheep_with_id(reversed_limit->current_snapshot().sheep, member.id),
+                   "motion_limit_result_is_stable_by_id_under_reversed_storage") ||
+            !check(
+                evidence_with_id(limit_on_after_one.sheep_motion_limit_evidence, member.id) ==
+                    evidence_with_id(reversed_limit->current_snapshot().sheep_motion_limit_evidence,
+                                     member.id),
+                "motion_limit_evidence_is_stable_under_reversed_storage")) {
+            return result;
+        }
+    }
+
+    const auto limit_state = wide_eye::game::gameplay_state_dump_json(*limit_on);
+    const auto control_state = wide_eye::game::gameplay_state_dump_json(*limit_off);
+    if (!check(limit_state &&
+                   limit_state.text.find(
+                       "\"sheep_motion_limit_evidence\":[{\"subject_id\":1,"
+                       "\"limit_evaluated\":true,\"integrated_speed\":12.5,"
+                       "\"applied_speed_scale\":0.40000000000000002,\"applied_speed\":5,"
+                       "\"motion_heading_followed\":true,\"motion_heading_radians\":"
+                       "3.1415926535897931,\"heading_change_radians\":0}") != std::string::npos,
+               "state_dump_contains_the_motion_limit_evidence") ||
+        !check(control_state && control_state.text.find(
+                                    "\"limit_evaluated\":false,\"integrated_speed\":0,"
+                                    "\"applied_speed_scale\":0,\"applied_speed\":0,"
+                                    "\"motion_heading_followed\":false,") != std::string::npos,
+               "a_fixture_without_the_limits_publishes_an_unevaluated_record")) {
+        return result;
+    }
+
+    const SimulationHandle allocation_limit = make_simulation(*limit_on_scenario);
+    const std::size_t limit_allocations_before = g_allocation_count;
+    for (std::uint32_t tick = 0; tick < 600; ++tick) {
+        allocation_limit->fixed_update({});
+    }
+    result.allocations = g_allocation_count - limit_allocations_before;
+    if (!check(result.allocations == 0, "motion_limit_fixed_updates_do_not_allocate")) {
+        return result;
+    }
+
+    for (std::uint32_t tick = 0; tick < 120; ++tick) {
+        limit_on->fixed_update({});
+    }
+    limit_on->restart();
+    if (!check(limit_on->current_snapshot() == limit_initial &&
+                   limit_on->previous_snapshot() == limit_initial,
+               "motion_limit_restart_restores_the_paired_fixture")) {
         return result;
     }
 
@@ -2658,6 +3146,12 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // The motion-limit oracle owns its own frame for the same reason.
+    const MotionLimitOracle motion_limit = run_motion_limit_oracle();
+    if (!motion_limit.passed) {
+        return EXIT_FAILURE;
+    }
+
     wide_eye::game::GameplaySimulation replay_a{*scenario};
     wide_eye::game::GameplaySimulation replay_b{*scenario};
     const wide_eye::game::GameplayReplay replay = sample_replay(replay_a);
@@ -2665,7 +3159,7 @@ int main() {
     if (!check(wide_eye::game::kGameplaySeedFormatVersion == 1 &&
                    wide_eye::game::kGameplayActionInputFormatVersion == 1 &&
                    wide_eye::game::kGameplayReplayFormatVersion == 1 &&
-                   wide_eye::game::kGameplayStateDumpFormatVersion == 11,
+                   wide_eye::game::kGameplayStateDumpFormatVersion == 12,
                "contract_versions_are_explicit") ||
         !check(replay_text &&
                    replay_text.text ==
@@ -2690,7 +3184,7 @@ int main() {
     const auto state_b = wide_eye::game::gameplay_state_dump_json(replay_b);
     if (!check(state_a && state_b && state_a.text == state_b.text,
                "canonical_state_dump_repeats") ||
-        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":11,"
+        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":12,"
                                         "\"tick_rate\":60,\"scenario\":{"),
                "state_dump_schema_header") ||
         !check(state_a.text.find("\"current\":{\"tick\":3") != std::string::npos,
@@ -2916,6 +3410,43 @@ int main() {
         << '\n'
         << "sheep_combined_influence_steady_state_allocations=" << combined_influence.allocations
         << '\n'
+        << "sheep_motion_limit_fixture=exact_velocity_paired_control\n"
+        << "sheep_motion_limit_maximum_speed=" << motion_limit.maximum_speed << '\n'
+        << "sheep_motion_limit_maximum_turn_rate=" << motion_limit.maximum_turn_rate << '\n'
+        << "sheep_motion_limit_turn_budget_radians=" << motion_limit.turn_budget << '\n'
+        << "sheep_motion_limit_heading_floor=" << wide_eye::game::kSheepHeadingMotionSpeedFloor
+        << '\n'
+        << "sheep_motion_limit_axis_integrated_speed=" << motion_limit.axis_clamp.integrated_speed
+        << '\n'
+        << "sheep_motion_limit_axis_applied_scale=" << motion_limit.axis_clamp.applied_speed_scale
+        << '\n'
+        << "sheep_motion_limit_axis_applied_speed=" << motion_limit.axis_clamp.applied_speed << '\n'
+        << "sheep_motion_limit_unlimited_axis_speed=" << motion_limit.unlimited_axis_speed << '\n'
+        << "sheep_motion_limit_diagonal_applied_scale="
+        << motion_limit.diagonal_clamp.applied_speed_scale << '\n'
+        << "sheep_motion_limit_diagonal_applied_speed=" << motion_limit.diagonal_clamp.applied_speed
+        << '\n'
+        << "sheep_motion_limit_under_limit_applied_scale="
+        << motion_limit.under_limit.applied_speed_scale << '\n'
+        << "sheep_motion_limit_stationary_heading_followed="
+        << (motion_limit.stationary.motion_heading_followed ? "yes" : "no") << '\n'
+        << "sheep_motion_limit_reversal_motion_heading="
+        << motion_limit.reversal.motion_heading_radians << '\n'
+        << "sheep_motion_limit_reversal_first_change="
+        << motion_limit.reversal.heading_change_radians << '\n'
+        << "sheep_motion_limit_reversal_budget_ticks=" << motion_limit.reversal_ticks << '\n'
+        << "sheep_motion_limit_reversal_heading_before_completion="
+        << motion_limit.reversal_heading_before_completion << '\n'
+        << "sheep_motion_limit_reversal_completion_tick=" << motion_limit.reversal_completion_tick
+        << '\n'
+        << "sheep_motion_limit_drift_ticks=" << motion_limit.drift_ticks << '\n'
+        << "sheep_motion_limit_accumulation_maximum=" << motion_limit.accumulation_maximum << '\n'
+        << "sheep_motion_limit_accumulation_unlimited_peak=" << motion_limit.unlimited_peak_speed
+        << '\n'
+        << "sheep_motion_limit_accumulation_limited_peak=" << motion_limit.limited_peak_speed
+        << '\n'
+        << "sheep_motion_limit_turn_limits_motion=no\n"
+        << "sheep_motion_limit_steady_state_allocations=" << motion_limit.allocations << '\n'
         << "repeated_local_replay_equal=yes\n"
         << "gameplay_simulation_result=pass\n";
     return EXIT_SUCCESS;

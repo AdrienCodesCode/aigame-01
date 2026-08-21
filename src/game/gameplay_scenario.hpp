@@ -33,6 +33,8 @@ enum class GameplayScenarioId : std::uint8_t {
     sheep_temperament_varied,
     sheep_combined_influence_off,
     sheep_combined_influence_on,
+    sheep_motion_limit_off,
+    sheep_motion_limit_on,
 };
 
 enum class SheepFixture : std::uint8_t {
@@ -153,6 +155,38 @@ struct SheepCombinedInfluenceConfiguration {
     bool operator==(const SheepCombinedInfluenceConfiguration&) const = default;
 };
 
+// The two limits that act on the result of integration rather than on any
+// steering term. The combined bound above limits how hard a sheep may be
+// accelerated; it does not limit how fast a sheep may end up moving, because
+// acceleration applied for long enough accumulates without limit, and it does
+// not limit how quickly a sheep may change which way it faces.
+//
+// `maximum_speed` is `5.0` world units/s: faster than the dog's accepted `4.5`
+// walk, so a frightened sheep escapes a walking dog and the player has to
+// sprint, and slower than the dog's accepted `8.0` sprint, so the dog can always
+// overtake and flank the flock. A herding game in which a sheep can outrun the
+// dog has no core loop.
+//
+// `maximum_turn_rate_radians_per_second` is `3.75`, against the dog motor's
+// accepted `6.0`. The rule is that a sheep may not turn as fast as the dog
+// herding it, because cutting across a turning animal is the player's main
+// lever. Among the rates below the dog's whose per-tick budget at 60 Hz is an
+// exactly representable binary fraction, `3.75` is the largest: its budget is
+// exactly `1/16` radian per tick, which lets a paired oracle pin the turn with
+// equality rather than with a tolerance.
+//
+// Both magnitudes are provisional legibility choices, not measured or tuned
+// values. The turn rate limits the sheep's heading only; see
+// [ADR 0007](../../docs/decisions/0007-bounded-sheep-speed-and-turning.md) for
+// why motion is deliberately not constrained to that heading yet.
+struct SheepMotionLimitConfiguration {
+    bool enabled = false;
+    double maximum_speed = 5.0;
+    double maximum_turn_rate_radians_per_second = 3.75;
+
+    bool operator==(const SheepMotionLimitConfiguration&) const = default;
+};
+
 // Owns the complete deterministic starting contract for one game scenario.
 // Controller-specific configuration stays nested under its subsystem, while
 // sheep, objective, and future fixture state remain owned at the game level.
@@ -175,6 +209,7 @@ struct GameplayScenarioDefinition {
     SheepDogLineOfSightConfiguration sheep_dog_line_of_sight{};
     SheepTemperamentConfiguration sheep_temperament{};
     SheepCombinedInfluenceConfiguration sheep_combined_influence{};
+    SheepMotionLimitConfiguration sheep_motion_limit{};
 
     bool operator==(const GameplayScenarioDefinition&) const = default;
 };

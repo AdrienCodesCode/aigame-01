@@ -128,3 +128,24 @@ Whichever is chosen, the fix should add the missing signal as well as the
 missing headroom: there is currently no check that the harness runs within a
 stated stack budget, and a silent SIGSEGV with no output is what made this cost
 two debugging cycles to identify.
+
+## Update — 2026-08-21, bounded speed and turning
+
+Observed result (same host, build, and method): the requirement grew again, and
+not through fixture count. Adding the motion-limit evidence buffer to the
+published snapshot moved `sizeof(GameplaySnapshot)` from 1912 to 2152 bytes and
+`sizeof(GameplaySimulation)` from 116,976 to 117,480, which is multiplied by the
+roughly seventy simulations `main` still holds by value. The new oracle itself
+contributes nothing: it lives in its own function and holds every fixture by
+`std::unique_ptr`.
+
+Measured on the 100 KiB grid: `ulimit -s 7400` exits 0, `7300` segfaults —
+previously `7400` passed and `7200` segfaulted.
+
+Inference, and the reason this update is worth recording: the growth rate is now
+dominated by snapshot size rather than by how many fixtures a test declares. Any
+future outcome that publishes a new per-sheep evidence array pays roughly 240
+bytes × 70 ≈ 17 KiB of stack whether or not it adds a single fixture, so holding
+new fixtures on the heap is no longer sufficient to keep the headroom from
+shrinking. That strengthens the case for candidate direction 1 or 3 above over
+continuing to mitigate per outcome.

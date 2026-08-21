@@ -181,6 +181,49 @@ struct SheepCombinedInfluenceEvidence {
 using SheepCombinedInfluenceEvidenceBuffer =
     std::array<SheepCombinedInfluenceEvidence, kGameplaySheepCount>;
 
+// Planar speed below which a sheep is treated as standing still for the purpose
+// of choosing which way it faces. A sheep whose steering terms exactly cancel
+// ends the tick with a velocity of exactly zero, and `atan2(0, 0)` is `0`, so
+// without this floor an idle sheep would snap to face north; a residue left by
+// two order-one terms cancelling is around `1e-16` and its direction is pure
+// rounding noise. At `1e-9` world units/s a sheep covers `1.7e-11` units in one
+// tick and under a micrometre in an hour of play, so no observable motion is
+// discarded by keeping the previous heading instead. This is a numerical-noise
+// floor rather than a design parameter, so it is a sheep rule here rather than a
+// scenario-owned value.
+inline constexpr double kSheepHeadingMotionSpeedFloor = 1.0e-9;
+
+// Read-only evidence for the two limits that act on the result of integration
+// rather than on any steering term. The combined-influence bound above limits
+// how hard a sheep may be accelerated; these limit how fast it may end up
+// moving and how quickly it may turn. `integrated_speed` is the planar speed the
+// applied acceleration produced, before the clamp, and `applied_speed_scale` is
+// the factor the clamp applied to it — exactly `1.0` whenever the clamp did not
+// bind, so an under-limit sheep is arithmetically untouched. `applied_speed` is
+// the speed integration actually left the sheep with, before collision refuses
+// any axis.
+//
+// Heading follows motion rather than steering: `motion_heading_radians` is the
+// direction of that applied velocity and `heading_change_radians` is the signed
+// rotation the turn rate allowed toward it this tick.
+// `motion_heading_followed` is false for a sheep moving slower than
+// `kSheepHeadingMotionSpeedFloor`, which keeps its previous heading instead of
+// facing numerical noise, and both heading fields then stay zero.
+struct SheepMotionLimitEvidence {
+    std::uint32_t subject_id = 0;
+    bool limit_evaluated = false;
+    bool motion_heading_followed = false;
+    double integrated_speed = 0.0;
+    double applied_speed_scale = 0.0;
+    double applied_speed = 0.0;
+    double motion_heading_radians = 0.0;
+    double heading_change_radians = 0.0;
+
+    bool operator==(const SheepMotionLimitEvidence&) const = default;
+};
+
+using SheepMotionLimitEvidenceBuffer = std::array<SheepMotionLimitEvidence, kGameplaySheepCount>;
+
 inline constexpr SheepStateBuffer kDefaultGameplaySheepStates{{
     {.id = 1,
      .position = {.x = 14.5, .y = 1.0, .z = 20.0},

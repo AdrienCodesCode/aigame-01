@@ -1,10 +1,10 @@
 # Gameplay replay and state-dump contracts
 
-**Status:** Version 1 seed/action/replay and version 11 dog, five-sheep, social-
-evidence, dog-stimulus-evidence, sheep-temperament, sheep-collision-evidence, and
-combined-influence-bound state dump implemented; the presentation capture CLI can
-write a state dump, while JSON decoding and general replay/seed CLI integration
-remain pending
+**Status:** Version 1 seed/action/replay and version 12 dog, five-sheep, social-
+evidence, dog-stimulus-evidence, sheep-temperament, sheep-collision-evidence,
+combined-influence-bound, and sheep-motion-limit state dump implemented; the
+presentation capture CLI can write a state dump, while JSON decoding and general
+replay/seed CLI integration remain pending
 
 **Last revised:** 2026-08-21
 
@@ -39,10 +39,10 @@ The contracts use four independently named versions:
   authoritative tick;
 - replay format `1` binds the tick rate, seed contract, action-input version,
   and complete action sequence;
-- state-dump format `11` records the seed contract, tick rate, restart count, and
+- state-dump format `12` records the seed contract, tick rate, restart count, and
   published previous/current dog, five-sheep, social-evidence, dog-stimulus-
-  evidence, sheep-collision-evidence, and combined-influence-bound snapshots.
-  Version 1 was dog-only,
+  evidence, sheep-collision-evidence, combined-influence-bound, and
+  sheep-motion-limit snapshots. Version 1 was dog-only,
   version 2 added sheep state, version 3 added attraction evidence, version 4
   added alignment evidence, version 5 added dog distance, relative bearing, and
   pressure acceleration, version 6 added dog approach speed and a separate
@@ -53,8 +53,11 @@ The contracts use four independently named versions:
   temperament label and the temperament response scale it applied to the dog
   terms, and version 11 added the per-sheep combined-influence record: the
   pre-bound summed magnitude of every steering term, the scale the bound applied
-  to that sum, and the acceleration integration actually used. No older version
-  is silently reinterpreted.
+  to that sum, and the acceleration integration actually used, and version 12
+  added the per-sheep motion-limit record: the integrated planar speed, the scale
+  the speed clamp applied to it, the speed the sheep kept, and the direction of
+  motion the heading turned toward with the rotation the turn rate allowed. No
+  older version is silently reinterpreted.
 
 A replay consumer must reject an unsupported version, a tick rate other than
 60 Hz, an unknown scenario, a zero scenario version, a scenario/version/seed
@@ -86,7 +89,7 @@ decoder, replay file path, checked-in replay fixture, and executable
 `--replay`/`--seed` flags are intentionally deferred. No untrusted or external
 JSON is accepted by the engine yet.
 
-## State dump version 11
+## State dump version 12
 
 The schema name is `wide-eye.gameplay-state`. The dump contains the scenario
 seed contract, fixed rate, restart count, and complete published previous and
@@ -166,6 +169,36 @@ applied before integration and before collision;
 [`ADR 0006`](../decisions/0006-combined-influence-acceleration-bound.md) records
 the combination rule and the alternatives rejected for now.
 
+A fifth fixed-size record per sheep publishes the two limits that act on the
+result of integration rather than on any steering term. `limit_evaluated` states
+whether the tick applied them at all; a fixture with the term switched off, and a
+stationary or scripted fixture, leaves every other field zero.
+`integrated_speed` is the planar speed the applied acceleration produced,
+`applied_speed_scale` is the factor the speed clamp applied to it, and
+`applied_speed` is the speed integration left the sheep with before collision may
+refuse an axis. The clamp preserves direction by scaling both planar components,
+and `applied_speed_scale` is exactly `1.0` whenever the clamp did not bind, so an
+under-limit sheep is arithmetically untouched rather than multiplied by one.
+`motion_heading_radians` is the direction of that applied velocity and
+`heading_change_radians` is the signed rotation the turn rate allowed toward it
+this tick, along the shorter arc and never larger than
+`turn_rate * fixed_delta`. `motion_heading_followed` is `false` for a sheep whose
+applied speed is at or below the named sheep heading-motion floor: it keeps its
+previous heading instead of facing the direction rounding invented for a
+cancelled-out velocity, and both heading fields then stay zero. The heading is
+derived from the *prior* heading, so `dog_relative_bearing_radians` above — which
+is relative to that prior heading — is never altered retroactively by the same
+tick's rotation. The turn rate limits the sheep's heading only: motion is not
+constrained to that heading, so a sheep pushed sideways still moves sideways
+while its facing catches up. The writer requires an evaluated record to publish a
+scale within `(0, 1]` and a result no faster than the integration that produced
+it, requires a record that did not follow motion to publish no motion direction,
+requires both angles to lie within `[-pi, pi]`, and requires an unevaluated
+record to leave every field zero.
+[`ADR 0007`](../decisions/0007-bounded-sheep-speed-and-turning.md) records both
+magnitudes, the heading floor, and why motion is deliberately not slaved to
+heading yet.
+
 IDs 1–5 initialize in a fixed contiguous buffer with `settled` behavior and zero
 arousal. The default scenarios keep them stationary. The version 1, seed-zero
 `presentation-motion` fixture moves them through a deterministic scripted path
@@ -224,10 +257,17 @@ approach reference speed and looking down the same axis, keep separation,
 pressure, approach, facing, and temperament enabled and identical in both cases,
 and differ only by the bound switch and the required scenario ID. Both publish
 identical per-term vectors and identical pre-bound summed magnitudes; only the on
-case scales the sum. Terrain and behavior-state transitions remain absent, and
-bounded sheep speed and bounded turning are still unimplemented. A non-finite
-state is rejected because JSON has no portable representation for NaN or
-infinity.
+case scales the sum. The paired `sheep-motion-limit-off` and
+`sheep-motion-limit-on` fixtures enable no steering term at all and instead give
+five sheep exact initial velocities and headings, so nothing but the two limits
+can change a sheep's motion and every published number is exact arithmetic on the
+fixture's own values: one sheep runs at two and a half times the maximum along
+one axis, one at the same speed on an exact 3-4-5 diagonal, one under the maximum
+already facing its motion, one standing still with a non-zero heading, and one
+travelling in exactly the opposite direction to its heading. Terrain,
+behavior-state transitions, damping, and obstacle and drop avoidance remain
+absent. A non-finite state is rejected because JSON has no portable
+representation for NaN or infinity.
 
 The state dump is an observation, not a save format. It does not restore a
 simulation, promise save compatibility, include renderer state, or establish
@@ -478,6 +518,48 @@ maximum and is a provisional legibility choice, not a measured or tuned value,
 and this is synthetic causal evidence rather than player-facing motion
 acceptance.
 
+**Observed result (2026-08-21):** the required per-sheep motion-limit record
+advanced the state dump to version 12 when the result of integration gained a
+speed clamp and the sheep heading began following its own motion. The paired
+motion-limit fixture enables no steering term, so every observation below is
+exact arithmetic on the fixture's own initial velocities rather than on an
+integrated one. A sheep travelling straight down `+z` at exactly `12.5` world
+units/s — two and a half times the `5.0` maximum — published an integrated speed
+of exactly `12.5`, an applied scale of exactly `0.4`, an applied speed of exactly
+`5.0`, and a velocity of exactly `(0, 5)`, with `x` exactly zero in both members,
+so the clamp changed speed without changing direction. A second sheep on an exact
+3-4-5 diagonal at the same `12.5` landed on exactly `(3, 4)` with a zero cross
+product against its unclamped velocity, so the clamp is not an axis artifact. In
+the same tick the under-limit sheep at `2.0` published a scale of exactly `1` and
+was bit-identical to the off member, and the stationary sheep kept its heading of
+exactly `1` radian while publishing `motion_heading_followed` false. A sheep
+travelling at `3.0` in exactly the opposite direction to its heading rotated by
+exactly `0.0625` radian — one turn budget — on each of 50 consecutive ticks,
+reaching exactly `3.125`, then landed on exactly `pi` on tick 51 because the
+remaining `0.016592653589793116` was smaller than a budget, and published a
+change of exactly zero afterwards. For the first four of those ticks the
+published `dog_relative_bearing_radians` was exactly the bearing computed from
+the *prior* heading and differed from the bearing computed from the rotated one,
+so a heading that changes during a tick does not alter that tick's published
+stimulus. Every published social, dog-stimulus, and combined-influence record was
+identical between the two members. Over 60 ticks the off member kept every
+fixture velocity and every fixture heading unchanged while no sheep in either
+member touched the paddock. A derived scenario that drove the accepted
+combined-influence arrangement for 240 ticks with the maximum lowered to `2.0`
+peaked at `2` against its unlimited control's `4.09362`, so the clamp also holds
+against a speed that integration accumulated. A direct comparison against a
+pre-change build ran all twenty-three earlier scenarios for 240 scripted ticks
+each and found every canonical dump byte-identical once the new key and the
+version number were removed, so version 12 adds fields without reinterpreting
+version 11 values. The oracle also proved that reversed sheep storage preserved
+exact per-ID state and evidence, that restart was exact, that a fixture without
+the limits publishes an unevaluated zeroed record, and that 600 enabled ticks
+allocated no heap memory. On WSL Ubuntu 24.04.4 with Clang 18.1.3, development,
+Release, and ASan/UBSan configurations each passed 24/24 CTests; formatting and
+bounded clang-tidy passed. The `5.0` maximum speed and `3.75` maximum turn rate
+are provisional legibility choices, not measured or tuned values, and this is
+synthetic causal evidence rather than player-facing motion acceptance.
+
 **Observed result (2026-08-16):** the earlier native Windows Release capture
 commands wrote canonical version 2 state at presentation ticks 1, 61, and 121.
 The independent normal, repeat-normal, and face-normal debug commands at tick 61
@@ -486,8 +568,7 @@ byte-identical state files with SHA-256
 `8b2921e4a87bc2e8b8b86e08f4f17d8b3a7bf7c9413293b90b03b728ec27a905`.
 This is local same-platform evidence, not a cross-platform identity claim.
 
-Native Linux graphics, a native Windows version 11 capture, JSON decoding, CLI
+Native Linux graphics, a native Windows version 12 capture, JSON decoding, CLI
 replay/seed ingestion, persistent replay files, the terrain pressure factor,
-bounded sheep speed and turning, obstacle and drop avoidance, behavior
-transitions, objective outcomes, and cross-platform state or text identity remain
-untested or unimplemented.
+damping, obstacle and drop avoidance, behavior transitions, objective outcomes,
+and cross-platform state or text identity remain untested or unimplemented.

@@ -6,13 +6,6 @@
 namespace wide_eye::game {
 namespace {
 
-[[nodiscard]] double approach_angle(double current, double target, double maximum_change) noexcept {
-    constexpr double kTwoPi = 6.28318530717958647692;
-    const double shortest_delta = std::remainder(target - current, kTwoPi);
-    return std::remainder(current + std::clamp(shortest_delta, -maximum_change, maximum_change),
-                          kTwoPi);
-}
-
 [[nodiscard]] double finite_unit_input(double value) noexcept {
     return std::isfinite(value) ? std::clamp(value, -1.0, 1.0) : 0.0;
 }

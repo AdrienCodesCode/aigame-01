@@ -94,6 +94,17 @@ scale of exactly one, a sum exactly at the bound is left alone, the published
 scale times the summed terms is the applied acceleration exactly, the bound holds
 on every tick of a run while the unbounded control breaches it, and
 reversed-storage identity, restart, unevaluated-bound evidence, and zero
+allocations across 600 fixed updates all hold; paired motion-limit off/on
+fixtures with no steering term enabled in which a sheep driven at two and a half
+times the maximum keeps exactly the maximum speed with an unchanged direction on
+and off the axis, an under-limit sheep and a stationary sheep are bit-identical
+to the off member, a stationary sheep keeps its heading instead of facing
+`atan2(0, 0)`, a reversed sheep turns by exactly one budget on each of fifty
+consecutive ticks and then lands exactly on its motion direction, the same
+sheep's published dog bearing stays relative to its prior heading while that
+heading changes, a lowered maximum clamps a speed integration accumulated where
+the control runs past it, the heading floor is observed from both sides, and
+reversed-storage identity, restart, unevaluated-limit evidence, and zero
 allocations across 600 fixed updates all hold;
 repeated scripted `presentation-motion` state, all-five
 translation, midpoint turn interpolation, immutable-prior publication, exact

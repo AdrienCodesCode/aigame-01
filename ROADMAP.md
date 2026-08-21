@@ -8,9 +8,10 @@
 - **Verified completed state:**
   - the accepted native C++23/SDL3/OpenGL foundation, bounded voxel paddock,
     and fixed 60 Hz gameplay;
-  - versioned seed/action/replay contracts and the version 10
+  - versioned seed/action/replay contracts and the version 12
     dog-plus-five-sheep/social, dog-stimulus, sheep-temperament,
-    sheep-collision-evidence, and combined-influence-bound state output;
+    sheep-collision-evidence, combined-influence-bound, and sheep-motion-limit
+    state output;
   - five contiguous authoritative sheep, snapshot-driven procedural proxies,
     and an owner-accepted presentation/measurement packet;
   - fixed five-sheep observables and a deterministic allocation-free uniform
@@ -43,7 +44,11 @@
     that scales the *sum* of every published social and dog term down to a
     scenario-owned maximum without rewriting any per-term vector, publishing the
     pre-bound summed magnitude, the applied scale, and the applied acceleration
-    per sheep.
+    per sheep; and
+  - paired, independently switchable bounded sheep speed and bounded turning
+    acting on the result of integration, with the sheep heading following the
+    direction of its own motion under a named turn rate and the published dog
+    bearing still taken from the prior heading.
 
   Detailed evidence remains with the checked Phase 3 items and their owning
   source, decision, format, test, and artifact records; completed Phase 0–2
@@ -87,7 +92,45 @@
   executables plus CTest remain the accepted Tracer 2 harness under
   [ADR 0003](docs/decisions/0003-project-owned-test-harness.md); framework
   adoption is deferred until a concrete maintenance cost justifies it.
-- **Verification run (2026-08-21, combined-influence bound):** on WSL Ubuntu
+- **Verification run (2026-08-21, bounded speed and turning):** on WSL Ubuntu
+  24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
+  each built and passed 24/24 CTests; project formatting and bounded clang-tidy
+  passed, the QA tracker check passed, and `git diff --check` reported nothing.
+  The gameplay-simulation oracle observed the paired motion-limit fixture — which
+  enables no steering term, so every number is exact arithmetic on its own initial
+  velocities — clamp a sheep travelling at exactly `12.5` world units/s to exactly
+  `(0, 5)` with an applied scale of exactly `0.4`, clamp a second sheep on an exact
+  3-4-5 diagonal at the same `12.5` to exactly `(3, 4)` with a zero cross product
+  against its unclamped velocity, leave the `2.0` under-limit sheep bit-identical
+  to the off member with a scale of exactly `1`, and leave the stationary sheep
+  facing exactly `1` radian with `motion_heading_followed` false. The reversing
+  sheep rotated by exactly `0.0625` radian — one `3.75` rad/s turn budget — on each
+  of 50 consecutive ticks to exactly `3.125`, then landed on exactly `pi` on tick
+  51 and published a change of exactly zero afterwards, and for the first four of
+  those ticks its published `dog_relative_bearing_radians` was exactly the bearing
+  from the prior heading and differed from the bearing from the rotated one. Every
+  published social, dog-stimulus, and combined-influence record was identical
+  between the two members; over 60 contact-free ticks the off member kept every
+  fixture velocity and heading unchanged while its unlimited twin outran the
+  limited one. A derived scenario driving the accepted combined-influence
+  arrangement for 240 ticks with the maximum lowered to `2.0` peaked at `2`
+  against its control's `4.09362`. The heading floor was observed from both sides,
+  reversed storage and restart were exact, a fixture without the limits published
+  an unevaluated zeroed record, and 600 ticks allocated no heap memory. Required
+  evidence advanced the state dump to version 12. A comparison against a `HEAD`
+  worktree build found all 23 pre-existing scenarios byte-identical over 240
+  scripted ticks each once the new key and the version number were removed, so no
+  accepted measurement was invalidated. Native Windows/Linux graphics and the
+  presentation performance scenarios were not rerun because no presentation path
+  changed and this host exposes only OpenGL 4.5. Evidence:
+  [ADR 0007](docs/decisions/0007-bounded-sheep-speed-and-turning.md),
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp), and the
+  ignored
+  [oracle output](artifacts/phase3/2026-08-21/bounded-speed-and-turning-headless/gameplay-simulation-oracle.txt),
+  [accepted-scenario comparison](artifacts/phase3/2026-08-21/bounded-speed-and-turning-headless/accepted-scenario-state-diff.txt),
+  and
+  [stack headroom measurement](artifacts/phase3/2026-08-21/bounded-speed-and-turning-headless/stack-headroom.txt).
+- **Prior verification run (2026-08-21, combined-influence bound):** on WSL Ubuntu
   24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
   each built and passed 24/24 CTests; project formatting and bounded clang-tidy
   passed, the QA tracker check passed, and `git diff --check` reported nothing.
@@ -256,21 +299,29 @@
   scenarios, and human visual review were not rerun because this outcome changes
   authoritative headless sheep behavior rather than pixels. Native Linux
   graphics, the named Iris Xe target, and a physical controller remain
-  unverified. Damping, bounded speed/turning, obstacle and drop avoidance, the
-  terrain pressure factor,
+  unverified. Damping, obstacle and drop avoidance, the terrain pressure factor,
   behavior transitions, objectives, success/failure, HUD, and fresh-player
   evidence remain unimplemented. The summed steering terms now have one
   combined-influence bound, so the earlier limit that a temperament could
   multiply an unbounded sum is resolved: every social and dog term is added
   exactly as before and the sum alone is scaled down to a scenario-owned
   maximum, each per-term vector keeps its published value, and each sheep
-  publishes the scale that was applied. What is true instead is narrower. The
-  bound is switched on only in its own paired fixture, so every other scenario
-  still integrates the raw sum; the `4.0` magnitude is the largest single
-  accepted per-term maximum and is a provisional legibility choice rather than a
-  measured or tuned one; and the bound limits acceleration only — a sheep's speed
-  and turn rate are still unbounded, and nothing steers a sheep around an
-  obstacle or a drop. Temperament is a persistent per-sheep response scale on the dog
+  publishes the scale that was applied. The result of integration now has limits
+  too, so the earlier limit that a sheep's speed and turn rate were unbounded is
+  also resolved: the planar speed is clamped to a scenario-owned maximum with its
+  direction preserved, and the heading follows the direction of that motion under
+  a scenario-owned turn rate. What is true instead is narrower. Each of these
+  rules is switched on only in its own paired fixture, so every other scenario
+  still integrates the raw sum and still never writes a sheep heading; the `4.0`
+  acceleration bound, the `5.0` maximum speed, and the `3.75` turn rate are all
+  provisional legibility choices rather than measured or tuned values; the turn
+  rate limits the **heading only**, so a sheep pushed sideways still moves
+  sideways for up to about eight tenths of a second while its facing catches up,
+  which is a known simulation smell recorded in
+  [ADR 0007](docs/decisions/0007-bounded-sheep-speed-and-turning.md) rather than
+  fixed; damping is still absent, so a sheep meets the maximum abruptly instead
+  of settling into it; and nothing steers a sheep around an obstacle or a drop.
+  Temperament is a persistent per-sheep response scale on the dog
   stimulus only: it does not modulate the social terms, does not change the shared
   pressure radius or falloff, and does not yet interact with arousal, behavior
   transitions, or terrain. Its `2.0` and `0.5` factors are a provisional
@@ -290,20 +341,25 @@
   paddock boundary is authoritative. The gameplay-simulation oracle itself is
   near a hard limit: `GameplaySimulation` is about 114 KiB because the spatial
   grid carries its 1,000-member capacity-experiment ceiling, and its `main` holds
-  roughly seventy of them by value, so at `HEAD` the executable needed 7200 KiB
-  of the default 8 MiB stack. Adding this outcome's fixtures by value segfaulted
-  it with no output at all; holding them by pointer in their own function brought
-  the working tree to 7400 KiB. That is a mitigation, not a fix — the next paired
-  fixture has roughly 800 KiB left — and it is filed as
+  roughly seventy of them by value. On the 200 KiB reporting grid the `dev`
+  binary still exits 0 at `ulimit -s 7400` and segfaults with no output at
+  `7200`, unchanged by this outcome; a finer 20 KiB sweep of two comparable
+  standalone builds puts the minimum at about `7280` KiB before this outcome and
+  about `7320` KiB after it, roughly 40 KiB, because `GameplaySnapshot` grew from
+  1,912 to 2,152 bytes with the new evidence record. Holding new fixtures by
+  pointer in their own function is a mitigation, not a fix — about 870 KiB of
+  headroom is left and the growth rate is now dominated by snapshot size rather
+  than by fixture count — and it is filed as
   [QA-002](docs/qa/open/QA-002-gameplay-simulation-tests-near-default-stack-limit.md). Adding
   that boundary changed four pre-existing headless fixtures
   (`sheep-alignment-off`, `sheep-alignment-on`, `sheep-dog-facing-off`,
   `sheep-dog-facing-on`) after the tick at which a sheep first touches a wall;
   their accepted 60-tick and first-tick measurements are unaffected, but any
   later comparison against those fixtures must be re-derived.
-- **Next action:** implement bounded sheep speed and turning, with the sheep
-  heading following its motion under a named turn rate, re-deriving any published
-  bearing evidence the change affects.
+- **Next action:** implement obstacle and drop avoidance as steering-level terms,
+  using the analytic paddock obstacles and the finite/non-finite ground-height
+  boundary as the drop, keeping the hard collision authority as the separate
+  later stage it already is.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
@@ -312,7 +368,9 @@
   [ADR 0004](docs/decisions/0004-gameplay-scenario-ownership.md),
   [ADR 0005](docs/decisions/0005-paddock-collision-ownership.md),
   [ADR 0006](docs/decisions/0006-combined-influence-acceleration-bound.md),
+  [ADR 0007](docs/decisions/0007-bounded-sheep-speed-and-turning.md),
   [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
+  [`math.hpp`](src/game/math.hpp),
   [`paddock_collision.hpp`](src/game/paddock_collision.hpp),
   [`dog_controller.hpp`](src/game/dog_controller.hpp),
   [`gameplay_simulation.hpp`](src/game/gameplay_simulation.hpp),
@@ -948,6 +1006,110 @@ scope. Evidence: the archived
   [oracle output](artifacts/phase3/2026-08-21/combined-influence-bound-headless/gameplay-simulation-oracle.txt)
   and
   [accepted-scenario comparison](artifacts/phase3/2026-08-21/combined-influence-bound-headless/accepted-scenario-state-diff.txt).
+  Partial observed result (2026-08-21): bounded sheep speed and bounded turning
+  are now implemented as well, and the sheep heading follows its own motion under
+  a named turn rate. **Obstacle and drop avoidance is what remains on this item,
+  so it stays unchecked.** One scenario-owned, independently switchable
+  `SheepMotionLimitConfiguration` names a `5.0` world units/s `maximum_speed` and
+  a `3.75` rad/s `maximum_turn_rate_radians_per_second`, validated once at
+  construction beside the other enabled terms. Both act on the *result* of
+  integration, at the single place the applied acceleration has already become a
+  velocity: after the combined-influence bound and still before the paddock
+  resolves the displacement, so collision remains the last positional authority
+  and no published per-term vector or combined-influence scale is rewritten. The
+  speed clamp scales both planar components by `maximum / integrated`, so
+  direction is preserved and an under-limit sheep takes no arithmetic at all. The
+  heading rotates toward the direction of the sheep's own applied velocity along
+  the shorter arc by at most one `turn_rate * fixed_delta` budget per tick, using
+  the dog motor's `approach_angle` — moved out of `dog_controller.cpp` into shared
+  `game/math.hpp` so the two animals cannot disagree about which way is shorter —
+  and it is derived from the *prior* heading, so this tick's published dog bearing
+  is never altered retroactively. A sheep whose applied speed is at or below the
+  named `1e-9` world units/s `kSheepHeadingMotionSpeedFloor` keeps its previous
+  heading instead of facing the `atan2(0, 0)` zero that an exactly cancelled
+  velocity would produce. The turn rate limits the **heading only**: motion is
+  deliberately not slaved to it, so a sheep pushed sideways still moves sideways
+  for up to about eight tenths of a second while its facing catches up. That is a
+  known simulation smell and it is recorded rather than hidden;
+  [ADR 0007](docs/decisions/0007-bounded-sheep-speed-and-turning.md) states why
+  slaving motion to heading is a different motion model that would invalidate the
+  accepted per-term oracles, and why the dog's heading-error speed penalty was
+  also rejected here as a second behavior in a one-variable outcome. The `5.0`
+  maximum sits between the dog's accepted `4.5` walk and `8.0` sprint, so a sheep
+  escapes a walking dog and never outruns a sprinting one; the `3.75` turn rate is
+  below the dog's accepted `6.0` and is the largest such rate whose per-tick budget
+  is an exactly representable binary fraction (`1/16` radian), which is what lets
+  the oracle pin every turn with equality. Both magnitudes are provisional
+  legibility choices, not measured or tuned values. Version 1, seed-zero
+  `sheep-motion-limit-off` and `sheep-motion-limit-on` enable no steering term at
+  all and instead give five sheep exact initial velocities and headings, so the
+  two limits are the only thing that can change their motion and every number is
+  exact arithmetic. In that fixture the focused oracle observed the sheep
+  travelling straight down `+z` at exactly `12.5` — two and a half times the
+  maximum — publish an integrated speed of exactly `12.5`, an applied scale of
+  exactly `0.4`, an applied speed of exactly `5.0`, and a velocity of exactly
+  `(0, 5)` with `x` exactly zero in both members. The sheep on an exact 3-4-5
+  diagonal at the same `12.5` landed on exactly `(3, 4)` with a zero cross product
+  against its unclamped velocity. In the same tick the under-limit sheep at `2.0`
+  published a scale of exactly `1` and was bit-identical to the off member, and
+  the stationary sheep kept its heading of exactly `1` radian with
+  `motion_heading_followed` false. The sheep travelling at `3.0` in exactly the
+  opposite direction to its heading rotated by exactly `0.0625` radian on each of
+  50 consecutive ticks, reached exactly `3.125`, then landed on exactly `pi` on
+  tick 51 because the remaining `0.016592653589793116` was smaller than a budget,
+  and published a change of exactly zero afterwards. For the first four of those
+  ticks its published `dog_relative_bearing_radians` was exactly the bearing
+  computed from the prior heading and differed from the bearing computed from the
+  rotated one. Every published social, dog-stimulus, and combined-influence record
+  was identical between the two members. Over 60 ticks the off member kept every
+  fixture velocity and heading unchanged with no paddock contact in either member,
+  and the limited sheep was left behind by its unlimited twin. A derived scenario
+  that drove the accepted combined-influence arrangement for 240 ticks with the
+  maximum lowered to `2.0` peaked at `2` against its unlimited control's
+  `4.09362`, so the clamp also holds against a speed integration accumulated.
+  Reversed storage preserved exact per-ID state and evidence, restart was exact, a
+  fixture without the limits published an unevaluated zeroed record, and 600
+  enabled ticks allocated no heap memory. Required evidence advanced the state
+  dump to version 12. A comparison against a `HEAD` worktree build ran all 23
+  pre-existing scenarios for 240 scripted ticks each and found every canonical
+  state dump byte-identical once the new key and the version number were removed,
+  so no accepted measurement is invalidated: the 60-tick alignment polarization
+  comparison still reports `0.824621` off versus `0.924042` on, and the first-tick
+  dog-term observations are unchanged. `flock_observables` computes polarization
+  from published sheep *velocity* rather than from heading, so heading-follows-
+  motion could not have moved that number even where the term is switched on. On
+  WSL Ubuntu 24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan
+  configurations each built and passed 24/24 CTests; project formatting and
+  bounded clang-tidy passed, the QA tracker check passed, and `git diff --check`
+  reported nothing. Native Windows/Linux graphics, the presentation performance
+  scenarios, and human visual review were not rerun because this outcome changes
+  authoritative headless sheep behavior rather than pixels, and this host exposes
+  only OpenGL 4.5. The QA-002 stack requirement is unchanged at the 200 KiB
+  reporting grid — the `dev` binary still exits 0 at `ulimit -s 7400` and
+  segfaults at `7200` — but a 20 KiB sweep of two comparable standalone builds
+  shows the minimum moving from about `7280` KiB at `HEAD` to about `7320` KiB
+  here, roughly 40 KiB, because `GameplaySnapshot` grew from 1,912 to 2,152 bytes
+  and `main` holds about seventy simulations by value. The new oracle itself adds
+  no `main` frame: it lives in its own function and holds all eleven of its
+  fixtures by `std::unique_ptr`. What remains on this item is obstacle and drop
+  avoidance. Neither limit is a substitute for it: nothing yet steers a sheep
+  around a wall or away from a ledge, and the hard collision authority remains the
+  separate later stage it already was. This is synthetic causal evidence, not
+  player-facing motion acceptance. Evidence:
+  [ADR 0007](docs/decisions/0007-bounded-sheep-speed-and-turning.md),
+  [`math.hpp`](src/game/math.hpp),
+  [`sheep_state.hpp`](src/game/sheep_state.hpp),
+  [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
+  [`gameplay_scenario.cpp`](src/game/gameplay_scenario.cpp),
+  [`gameplay_simulation.cpp`](src/game/gameplay_simulation.cpp),
+  [`gameplay_replay.cpp`](src/game/gameplay_replay.cpp),
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp),
+  [`GAMEPLAY_REPLAY_AND_STATE.md`](docs/formats/GAMEPLAY_REPLAY_AND_STATE.md),
+  and the ignored
+  [oracle output](artifacts/phase3/2026-08-21/bounded-speed-and-turning-headless/gameplay-simulation-oracle.txt),
+  [accepted-scenario comparison](artifacts/phase3/2026-08-21/bounded-speed-and-turning-headless/accepted-scenario-state-diff.txt),
+  and
+  [stack headroom measurement](artifacts/phase3/2026-08-21/bounded-speed-and-turning-headless/stack-headroom.txt).
 - [x] Implement ordinary, nervous, and stubborn temperaments.
   Observed result (2026-08-21): temperament is now a `SheepTemperament` field of
   `SheepState`, so it is authoritative game state that travels with the sheep,

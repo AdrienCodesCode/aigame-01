@@ -345,7 +345,59 @@ constexpr DogState kCombinedInfluenceDogState{.position = {.x = 16.0, .y = 1.0, 
                                               .heading_radians = 3.14159265358979323846,
                                               .grounded = true};
 
-constexpr std::array<NamedGameplayScenario, 23> kGameplayScenarios{{
+// One stationary dog at (16, 30) and five sheep given exact initial velocities
+// isolate the speed clamp and the turn rate from every steering term: no social
+// or dog term is enabled, so nothing changes a sheep's velocity except the
+// clamp, and every published number is exact arithmetic on the fixture's own
+// values. Everything starts at least one unit clear of the wall line and far
+// enough from the paddock's outer bounds that neither member contacts anything
+// during the measured window. The dog is present only so the fixture still
+// publishes prior-state bearing evidence against a heading that now changes.
+//
+// Sheep 1 travels straight down +z at exactly 12.5 world units/s — two and a
+// half times the 5.0 maximum — so the clamp's scale is exactly 0.4 and the
+// clamped speed is exactly the maximum. It already faces its motion, so it also
+// observes that an aligned sheep is not rotated at all. Sheep 2 travels on an
+// exact 3-4-5 diagonal at the same 12.5, so the clamp is observed on a direction
+// that is not axis-aligned and lands on exactly (3, 4). Sheep 3 is the
+// under-limit control at 2.0 and already faces its motion, so the limits must
+// leave it bit-identical to the off member. Sheep 4 stands still with a heading
+// of 1 radian, so it observes that a sheep with no motion keeps the way it was
+// facing instead of snapping to face north. Sheep 5 travels at 3.0 — under the
+// speed maximum, so the turn rate is the only limit acting on it — in exactly
+// the opposite direction to its heading, which is the slowest turn the rule can
+// be asked for and takes many ticks to complete.
+constexpr SheepStateBuffer kMotionLimitSheepStates{{
+    {.id = 1,
+     .position = {.x = 8.0, .y = 1.0, .z = 18.0},
+     .velocity = {.z = 12.5},
+     .heading_radians = 3.14159265358979323846,
+     .grounded = true},
+    {.id = 2,
+     .position = {.x = 22.0, .y = 1.0, .z = 18.0},
+     .velocity = {.x = 7.5, .z = 10.0},
+     .heading_radians = 0.0,
+     .grounded = true},
+    {.id = 3,
+     .position = {.x = 16.0, .y = 1.0, .z = 26.0},
+     .velocity = {.z = -2.0},
+     .heading_radians = 0.0,
+     .grounded = true},
+    {.id = 4,
+     .position = {.x = 12.0, .y = 1.0, .z = 28.0},
+     .heading_radians = 1.0,
+     .grounded = true},
+    {.id = 5,
+     .position = {.x = 20.0, .y = 1.0, .z = 26.0},
+     .velocity = {.z = 3.0},
+     .heading_radians = 0.0,
+     .grounded = true},
+}};
+
+constexpr DogState kMotionLimitDogState{
+    .position = {.x = 16.0, .y = 1.0, .z = 30.0}, .heading_radians = 0.0, .grounded = true};
+
+constexpr std::array<NamedGameplayScenario, 25> kGameplayScenarios{{
     {
         .name = "paddock-start",
         .definition = {.id = GameplayScenarioId::paddock_start,
@@ -550,6 +602,21 @@ constexpr std::array<NamedGameplayScenario, 23> kGameplayScenarios{{
                        .sheep_dog_facing = {.enabled = true},
                        .sheep_temperament = {.enabled = true},
                        .sheep_combined_influence = {.enabled = true}},
+    },
+    {
+        .name = "sheep-motion-limit-off",
+        .definition = {.id = GameplayScenarioId::sheep_motion_limit_off,
+                       .dog = {.initial_state = kMotionLimitDogState},
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kMotionLimitSheepStates},
+    },
+    {
+        .name = "sheep-motion-limit-on",
+        .definition = {.id = GameplayScenarioId::sheep_motion_limit_on,
+                       .dog = {.initial_state = kMotionLimitDogState},
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kMotionLimitSheepStates,
+                       .sheep_motion_limit = {.enabled = true}},
     },
 }};
 

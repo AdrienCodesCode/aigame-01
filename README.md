@@ -105,7 +105,9 @@ The version 1 scenarios are `paddock-start`, `presentation-motion`,
 `sheep-dog-approach-off`, `sheep-dog-approach-on`, `sheep-dog-facing-off`,
 `sheep-dog-facing-on`, `sheep-dog-line-of-sight-off`,
 `sheep-dog-line-of-sight-on`, `sheep-paddock-collision-closed-gate`,
-`sheep-paddock-collision-open-gate`,
+`sheep-paddock-collision-open-gate`, `sheep-temperament-neutral`,
+`sheep-temperament-varied`, `sheep-combined-influence-off`,
+`sheep-combined-influence-on`, `sheep-motion-limit-off`, `sheep-motion-limit-on`,
 `wall-contact`, `closed-gate`, and `open-gate`. The
 `presentation-motion` path is a scripted render fixture. The headless social
 fixtures independently isolate close-range separation, bounded two-neighbor
@@ -114,9 +116,11 @@ dog-pressure control, and paired closing-speed dog-approach, dog-facing, and
 analytic-occluder line-of-sight controls layered on that accepted pressure
 geometry. The paired paddock-collision fixtures disable every steering term so
 the analytic walls, gate, and paddock bounds are the only thing that can stop a
-moving sheep.
-Terrain and temperament pressure factors, combined-influence acceleration
-bounds, behavior transitions, and the objective loop remain unimplemented.
+moving sheep. The paired temperament, combined-influence, and motion-limit
+fixtures isolate a per-sheep dog-response scale, one bound on the summed steering
+terms, and the speed and turn-rate limits that act on the result of integration.
+The terrain pressure factor, damping, obstacle and drop avoidance, behavior
+transitions, and the objective loop remain unimplemented.
 Gameplay uses mouse orbit and
 camera-relative WASD; Shift sprints, R restarts, and Tab switches the free-debug
 camera. Escape releases the captured pointer so the desktop cursor returns

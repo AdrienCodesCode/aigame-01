@@ -126,9 +126,10 @@ The versioned state dump — its current version number is owned by the
 and sheep prior/current snapshots plus per-sheep attraction/alignment neighbor
 selection, separated social influences, and prior-state dog distance, relative
 bearing, approach speed, facing alignment, line-of-sight blocking with its named
-paddock occluder, separated pressure/approach/facing evidence, and the
+paddock occluder, separated pressure/approach/facing evidence, the
 combined-influence bound's pre-bound summed magnitude, applied scale, and applied
-acceleration.
+acceleration, and the motion limits' integrated speed, applied speed scale,
+applied speed, motion direction, and applied heading change.
 Compatibility validation completes before replay mutation, and canonical
 compact JSON writers expose replay plus published state. The bounded
 presentation capture path can write the latter beside a frame; file decoding
@@ -210,7 +211,25 @@ provisional legibility choice rather than a measured one, and
 records the combination rule and the rejected alternatives. Paired
 `sheep-combined-influence-off` and `sheep-combined-influence-on` fixtures put two
 sheep over the bound and two under it in the same tick and differ only by the
-bound switch. Damping, bounded speed/turning, obstacle and drop avoidance, the
+bound switch. Two further limits then act on the result of integration rather
+than on any term: the planar speed is clamped to a scenario-owned maximum with
+its direction preserved, and the heading follows the direction of that motion,
+rotating toward it along the shorter arc by at most one scenario-owned turn
+budget per tick. The shortest-arc rule is the dog motor's, shared through
+`game/math.hpp` so the two animals cannot disagree about which way is shorter.
+The heading is derived from the prior heading, so the published dog bearing —
+which is relative to that prior heading — is never altered retroactively, and a
+sheep moving slower than the named heading-motion floor keeps its previous facing
+instead of snapping to the direction rounding invented. The maximum speed sits
+between the dog's accepted walk and sprint and the turn rate below the dog's, but
+both magnitudes are provisional legibility choices rather than measured ones. The
+turn rate limits the heading only: motion is deliberately not slaved to it yet,
+so a sheep pushed sideways still moves sideways while its facing catches up, and
+[`ADR 0007`](../docs/decisions/0007-bounded-sheep-speed-and-turning.md) records
+that choice and its consequence. Paired `sheep-motion-limit-off` and
+`sheep-motion-limit-on` fixtures enable no steering term at all and instead give
+five sheep exact initial velocities and headings, so the two limits are the only
+thing that can change their motion. Damping, obstacle and drop avoidance, the
 terrain pressure factor, and behavior-state transitions remain deferred. Flock-level
 dog-relative and response-timing observables also remain deferred until their
 required behavior
@@ -228,7 +247,7 @@ meshes; the same game-owned field answers the sheep sight-line query. Version 1,
 `sheep-dog-line-of-sight-on`, `sheep-paddock-collision-closed-gate`,
 `sheep-paddock-collision-open-gate`, `sheep-temperament-neutral`,
 `sheep-temperament-varied`, `sheep-combined-influence-off`,
-`sheep-combined-influence-on`,
+`sheep-combined-influence-on`, `sheep-motion-limit-off`, `sheep-motion-limit-on`,
 `wall-contact`, `closed-gate`, and `open-gate` gameplay definitions provide
 deterministic initialization and exact restart. The
 gameplay camera owns orbit yaw/pitch independently of dog facing; orchestration

@@ -179,6 +179,43 @@ bool valid_combined_influence_evidence(const GameplaySnapshot& snapshot) noexcep
     return true;
 }
 
+bool valid_motion_limit_evidence(const GameplaySnapshot& snapshot) noexcept {
+    constexpr double kPi = 3.14159265358979323846;
+    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+        const SheepMotionLimitEvidence& evidence = snapshot.sheep_motion_limit_evidence[index];
+        if (evidence.subject_id != snapshot.sheep[index].id ||
+            !std::isfinite(evidence.integrated_speed) || evidence.integrated_speed < 0.0 ||
+            !std::isfinite(evidence.applied_speed_scale) ||
+            !std::isfinite(evidence.applied_speed) || evidence.applied_speed < 0.0 ||
+            !std::isfinite(evidence.motion_heading_radians) ||
+            evidence.motion_heading_radians < -kPi || evidence.motion_heading_radians > kPi ||
+            !std::isfinite(evidence.heading_change_radians) ||
+            evidence.heading_change_radians < -kPi || evidence.heading_change_radians > kPi) {
+            return false;
+        }
+        // The rule is a clamp, not a throttle: an evaluated tick either left the
+        // integrated speed alone or scaled it down, so a scale outside `(0, 1]`
+        // or a result faster than the integration that produced it would
+        // describe something the clamp cannot do.
+        if (evidence.limit_evaluated &&
+            (evidence.applied_speed_scale <= 0.0 || evidence.applied_speed_scale > 1.0 ||
+             evidence.applied_speed > evidence.integrated_speed)) {
+            return false;
+        }
+        // A sheep too slow to have a motion direction must not publish one.
+        if (!evidence.motion_heading_followed &&
+            (evidence.motion_heading_radians != 0.0 || evidence.heading_change_radians != 0.0)) {
+            return false;
+        }
+        if (!evidence.limit_evaluated &&
+            (evidence.motion_heading_followed || evidence.integrated_speed != 0.0 ||
+             evidence.applied_speed_scale != 0.0 || evidence.applied_speed != 0.0)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string_view paddock_obstacle_name(PaddockObstacle obstacle) noexcept {
     switch (obstacle) {
     case PaddockObstacle::none:
@@ -468,6 +505,39 @@ bool append_combined_influence_evidence(std::string& output,
     return true;
 }
 
+bool append_motion_limit_evidence(std::string& output, const SheepMotionLimitEvidence& evidence) {
+    output += "{\"subject_id\":";
+    if (!append_integer(output, evidence.subject_id)) {
+        return false;
+    }
+    output += ",\"limit_evaluated\":";
+    output += evidence.limit_evaluated ? "true" : "false";
+    output += ",\"integrated_speed\":";
+    if (!append_double(output, evidence.integrated_speed)) {
+        return false;
+    }
+    output += ",\"applied_speed_scale\":";
+    if (!append_double(output, evidence.applied_speed_scale)) {
+        return false;
+    }
+    output += ",\"applied_speed\":";
+    if (!append_double(output, evidence.applied_speed)) {
+        return false;
+    }
+    output += ",\"motion_heading_followed\":";
+    output += evidence.motion_heading_followed ? "true" : "false";
+    output += ",\"motion_heading_radians\":";
+    if (!append_double(output, evidence.motion_heading_radians)) {
+        return false;
+    }
+    output += ",\"heading_change_radians\":";
+    if (!append_double(output, evidence.heading_change_radians)) {
+        return false;
+    }
+    output += '}';
+    return true;
+}
+
 bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
     output += "{\"tick\":";
     if (!append_integer(output, snapshot.tick)) {
@@ -534,6 +604,18 @@ bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
         }
         first_combined_evidence = false;
         if (!append_combined_influence_evidence(output, evidence)) {
+            return false;
+        }
+    }
+    output += ']';
+    output += ",\"sheep_motion_limit_evidence\":[";
+    bool first_motion_limit_evidence = true;
+    for (const SheepMotionLimitEvidence& evidence : snapshot.sheep_motion_limit_evidence) {
+        if (!first_motion_limit_evidence) {
+            output += ',';
+        }
+        first_motion_limit_evidence = false;
+        if (!append_motion_limit_evidence(output, evidence)) {
             return false;
         }
     }
@@ -707,7 +789,9 @@ GameplayTextResult gameplay_state_dump_json(const GameplaySimulation& simulation
         !valid_collision_evidence(simulation.previous_snapshot()) ||
         !valid_collision_evidence(simulation.current_snapshot()) ||
         !valid_combined_influence_evidence(simulation.previous_snapshot()) ||
-        !valid_combined_influence_evidence(simulation.current_snapshot())) {
+        !valid_combined_influence_evidence(simulation.current_snapshot()) ||
+        !valid_motion_limit_evidence(simulation.previous_snapshot()) ||
+        !valid_motion_limit_evidence(simulation.current_snapshot())) {
         return {.error = GameplayContractError::non_finite_state, .text = {}};
     }
 

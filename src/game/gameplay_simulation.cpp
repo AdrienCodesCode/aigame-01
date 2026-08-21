@@ -44,6 +44,15 @@ empty_combined_influence_evidence(const SheepStateBuffer& sheep) noexcept {
     return evidence;
 }
 
+[[nodiscard]] SheepMotionLimitEvidenceBuffer
+empty_motion_limit_evidence(const SheepStateBuffer& sheep) noexcept {
+    SheepMotionLimitEvidenceBuffer evidence{};
+    for (std::size_t index = 0; index < sheep.size(); ++index) {
+        evidence[index].subject_id = sheep[index].id;
+    }
+    return evidence;
+}
+
 // The one positional authority for a sheep. Every fixture chooses a desired
 // planar displacement; the analytic paddock decides where the sheep actually
 // ends up, using the same field and the same clipping the dog motor collides
@@ -83,6 +92,7 @@ void validate_social_response_configuration(const GameplayScenarioDefinition& sc
     const SheepDogFacingConfiguration& dog_facing = scenario.sheep_dog_facing;
     const SheepTemperamentConfiguration& temperament = scenario.sheep_temperament;
     const SheepCombinedInfluenceConfiguration& combined = scenario.sheep_combined_influence;
+    const SheepMotionLimitConfiguration& motion_limit = scenario.sheep_motion_limit;
     if (separation.enabled) {
         WIDE_EYE_ASSERT(std::isfinite(separation.radius) && separation.radius > 0.0,
                         "sheep separation radius must be finite and positive");
@@ -154,6 +164,17 @@ void validate_social_response_configuration(const GameplayScenarioDefinition& sc
         WIDE_EYE_ASSERT(std::isfinite(combined.maximum_acceleration) &&
                             combined.maximum_acceleration > 0.0,
                         "sheep combined-influence acceleration must be finite and positive");
+    }
+    if (motion_limit.enabled) {
+        // A zero maximum speed would freeze the flock and a zero turn rate would
+        // stop the heading following motion at all, which are ways of switching
+        // the rule off rather than of limiting it.
+        WIDE_EYE_ASSERT(std::isfinite(motion_limit.maximum_speed) &&
+                            motion_limit.maximum_speed > 0.0,
+                        "sheep maximum speed must be finite and positive");
+        WIDE_EYE_ASSERT(std::isfinite(motion_limit.maximum_turn_rate_radians_per_second) &&
+                            motion_limit.maximum_turn_rate_radians_per_second > 0.0,
+                        "sheep maximum turn rate must be finite and positive");
     }
 }
 
@@ -388,6 +409,63 @@ void apply_alignment(const SheepStateBuffer& prior, std::size_t index,
     }
 }
 
+// The two limits that act on the result of integration rather than on any
+// steering term, applied after the combined-influence bound and before the
+// paddock resolves the displacement. Neither one rewrites a published
+// acceleration vector: the terms still asked for exactly what they published,
+// and this record is where the difference between that request and the motion it
+// produced is recorded.
+//
+// Heading follows motion, not steering, and it is limited to one turn budget per
+// tick using the same shortest-arc rule the dog motor uses. It is derived from
+// the immutable prior heading rather than from `next`, so this tick's published
+// dog bearing — which is relative to that prior heading — cannot be changed
+// retroactively by the rotation this function applies.
+//
+// The turn rate limits which way the sheep faces and nothing else. It does not
+// constrain the direction the sheep travels, so a sheep pushed sideways still
+// moves sideways while its heading catches up; ADR 0007 records why slaving
+// motion to heading is a separate motion-model decision.
+void apply_motion_limits(const SheepMotionLimitConfiguration& limits, const SheepState& prior,
+                         SheepState& next, SheepMotionLimitEvidence& evidence) noexcept {
+    if (!limits.enabled) {
+        return;
+    }
+
+    const double integrated_speed = std::hypot(next.velocity.x, next.velocity.z);
+    double speed_scale = 1.0;
+    if (integrated_speed > limits.maximum_speed) {
+        // Scaling both components preserves the direction integration produced;
+        // a sheep under the maximum takes no arithmetic at all, so it stays
+        // byte-identical rather than merely multiplied by one.
+        speed_scale = limits.maximum_speed / integrated_speed;
+        next.velocity.x *= speed_scale;
+        next.velocity.z *= speed_scale;
+    }
+
+    evidence.limit_evaluated = true;
+    evidence.integrated_speed = integrated_speed;
+    evidence.applied_speed_scale = speed_scale;
+    evidence.applied_speed = std::hypot(next.velocity.x, next.velocity.z);
+    if (evidence.applied_speed <= kSheepHeadingMotionSpeedFloor) {
+        // A sheep that is not measurably moving has no motion direction to face.
+        // Keeping the prior heading is the only answer that does not invent one.
+        return;
+    }
+
+    // Heading zero is the -z forward direction the dog motor and the dog-facing
+    // term already use.
+    const double motion_heading = std::atan2(next.velocity.x, -next.velocity.z);
+    const double turn_budget =
+        limits.maximum_turn_rate_radians_per_second * GameplaySimulation::kFixedDeltaSeconds;
+    constexpr double kTwoPi = 6.28318530717958647692;
+    next.heading_radians = approach_angle(prior.heading_radians, motion_heading, turn_budget);
+    evidence.motion_heading_followed = true;
+    evidence.motion_heading_radians = motion_heading;
+    evidence.heading_change_radians =
+        std::remainder(next.heading_radians - prior.heading_radians, kTwoPi);
+}
+
 void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot& next,
                               const GameplayScenarioDefinition& scenario,
                               const PaddockCollisionField& paddock,
@@ -416,6 +494,7 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
         next.sheep_dog_pressure_evidence[index] = {.subject_id = prior[index].id};
         next.sheep_collision_evidence[index] = {.subject_id = prior[index].id};
         next.sheep_combined_influence_evidence[index] = {.subject_id = prior[index].id};
+        next.sheep_motion_limit_evidence[index] = {.subject_id = prior[index].id};
         if (scenario.sheep_fixture != SheepFixture::scripted_presentation_motion) {
             // The stationary fixture chooses no displacement, so the paddock has
             // nothing to resolve and no contact to publish. The social fixture
@@ -442,6 +521,7 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
     const SheepAttractionConfiguration& attraction = scenario.sheep_attraction;
     const SheepAlignmentConfiguration& alignment = scenario.sheep_alignment;
     const SheepCombinedInfluenceConfiguration& combined = scenario.sheep_combined_influence;
+    const SheepMotionLimitConfiguration& motion_limit = scenario.sheep_motion_limit;
 
     const double grid_cell_size = std::max({separation.enabled ? separation.radius : 0.0,
                                             attraction.enabled ? attraction.radius : 0.0,
@@ -504,6 +584,11 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
 
         next.sheep[index].velocity.x += acceleration_x * GameplaySimulation::kFixedDeltaSeconds;
         next.sheep[index].velocity.z += acceleration_z * GameplaySimulation::kFixedDeltaSeconds;
+        // Speed and turning limit the result of integration, so they run after
+        // the combined bound and still before collision: the paddock remains the
+        // last authority over where the sheep actually ends up.
+        apply_motion_limits(motion_limit, prior[index], next.sheep[index],
+                            next.sheep_motion_limit_evidence[index]);
         resolve_sheep_against_paddock(
             prior[index],
             {.x = next.sheep[index].velocity.x * GameplaySimulation::kFixedDeltaSeconds,
@@ -554,6 +639,7 @@ GameplaySimulation::GameplaySimulation(GameplayScenarioDefinition scenario) noex
     current_.sheep_dog_pressure_evidence = empty_dog_pressure_evidence(current_.sheep);
     current_.sheep_collision_evidence = empty_collision_evidence(current_.sheep);
     current_.sheep_combined_influence_evidence = empty_combined_influence_evidence(current_.sheep);
+    current_.sheep_motion_limit_evidence = empty_motion_limit_evidence(current_.sheep);
     previous_ = current_;
 }
 
@@ -579,7 +665,9 @@ void GameplaySimulation::restart() noexcept {
                 .sheep_dog_pressure_evidence = empty_dog_pressure_evidence(scenario_.initial_sheep),
                 .sheep_collision_evidence = empty_collision_evidence(scenario_.initial_sheep),
                 .sheep_combined_influence_evidence =
-                    empty_combined_influence_evidence(scenario_.initial_sheep)};
+                    empty_combined_influence_evidence(scenario_.initial_sheep),
+                .sheep_motion_limit_evidence =
+                    empty_motion_limit_evidence(scenario_.initial_sheep)};
     previous_ = current_;
 }
 
@@ -600,6 +688,7 @@ GameplaySnapshot GameplaySimulation::interpolated_snapshot(double alpha) const n
         .sheep_dog_pressure_evidence = current_.sheep_dog_pressure_evidence,
         .sheep_collision_evidence = current_.sheep_collision_evidence,
         .sheep_combined_influence_evidence = current_.sheep_combined_influence_evidence,
+        .sheep_motion_limit_evidence = current_.sheep_motion_limit_evidence,
     };
     for (std::size_t index = 0; index < result.sheep.size(); ++index) {
         result.sheep[index] =
