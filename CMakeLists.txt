@@ -40,6 +40,7 @@ set(
     "${PROJECT_SOURCE_DIR}/src/game/gameplay_simulation.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/math.hpp"
     "${PROJECT_SOURCE_DIR}/src/game/sheep_spatial_grid.hpp"
+    "${PROJECT_SOURCE_DIR}/src/game/sheep_state.hpp"
 )
 set(wide_eye_platform_input_sources "${PROJECT_SOURCE_DIR}/src/platform/input.cpp")
 set(wide_eye_platform_input_headers "${PROJECT_SOURCE_DIR}/src/platform/input.hpp")
@@ -204,6 +205,7 @@ wide_eye_add_developer_checks(
             ${wide_eye_game_headers}
             ${wide_eye_platform_input_headers}
 )
+wide_eye_add_qa_tracker_targets()
 target_link_libraries(
     wide_eye
     PRIVATE SDL3::SDL3 glad::glad wide_eye_core_runtime wide_eye_core_performance wide_eye_game

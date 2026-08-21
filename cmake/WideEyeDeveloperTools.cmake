@@ -107,3 +107,37 @@ function(wide_eye_add_developer_checks)
         message(STATUS "Wide Eye clang-tidy check unavailable: install clang-tidy 18")
     endif()
 endfunction()
+
+# Convenience wrappers around tools/qa/qa-tracker.cmake so the QA tracker is
+# driven the same way as the other developer checks. The script is plain CMake
+# and stays runnable without a configured build directory:
+#   cmake -DMODE=check -P tools/qa/qa-tracker.cmake
+function(wide_eye_add_qa_tracker_targets)
+    set(wide_eye_qa_script "${PROJECT_SOURCE_DIR}/tools/qa/qa-tracker.cmake")
+    if(NOT EXISTS "${wide_eye_qa_script}")
+        message(STATUS "Wide Eye QA tracker targets unavailable: ${wide_eye_qa_script} is missing")
+        return()
+    endif()
+
+    add_custom_target(
+        qa-check
+        COMMAND ${CMAKE_COMMAND} -DMODE=check -P "${wide_eye_qa_script}"
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        COMMENT "Validating docs/qa issue frontmatter, placement, and index freshness"
+        VERBATIM
+    )
+    add_custom_target(
+        qa-index
+        COMMAND ${CMAKE_COMMAND} -DMODE=index -P "${wide_eye_qa_script}"
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        COMMENT "Regenerating docs/qa/INDEX.md from the issue files"
+        VERBATIM
+    )
+    add_custom_target(
+        qa-next
+        COMMAND ${CMAKE_COMMAND} -DMODE=next -P "${wide_eye_qa_script}"
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        COMMENT "Printing the next free QA issue id"
+        VERBATIM
+    )
+endfunction()

@@ -1,10 +1,11 @@
 # Gameplay replay and state-dump contracts
 
-**Status:** Version 1 seed/action/replay and version 2 dog-and-five-sheep state
-dump implemented; the presentation capture CLI can write a state dump, while
-JSON decoding and general replay/seed CLI integration remain pending
+**Status:** Version 1 seed/action/replay and version 7 dog, five-sheep, social-
+evidence, and dog-stimulus-evidence state dump implemented; the presentation
+capture CLI can write a state dump, while JSON decoding and general replay/seed
+CLI integration remain pending
 
-**Last revised:** 2026-08-16
+**Last revised:** 2026-08-17
 
 The `game` boundary owns these contracts. They make a fixed-tick input sequence
 and its observed state inspectable without giving file or renderer code control
@@ -12,9 +13,9 @@ of `GameplaySimulation`.
 
 The seed identifies a complete gameplay scenario, not a dog-controller
 scenario. [`ADR 0004`](../decisions/0004-gameplay-scenario-ownership.md) records
-that ownership correction. Existing names and numeric format versions are
-unchanged because the serialized contract already represented the whole
-simulation; only the internal type ownership changed.
+that ownership correction. That correction left the then-current names and
+numeric format versions unchanged because the serialized contract already
+represented the whole simulation; only the internal type ownership changed.
 
 The authoritative implementation is
 [`gameplay_replay.hpp`](../../src/game/gameplay_replay.hpp). The JSON writers and
@@ -33,9 +34,14 @@ The contracts use four independently named versions:
   authoritative tick;
 - replay format `1` binds the tick rate, seed contract, action-input version,
   and complete action sequence;
-- state-dump format `2` records the seed contract, tick rate, restart count, and
-  published previous/current dog-and-five-sheep snapshots. Version 1 was the
-  earlier dog-only contract and is not silently reinterpreted.
+- state-dump format `7` records the seed contract, tick rate, restart count, and
+  published previous/current dog, five-sheep, social-evidence, and dog-stimulus-
+  evidence snapshots. Version 1 was dog-only, version 2 added sheep state,
+  version 3 added attraction evidence, version 4 added alignment evidence,
+  version 5 added dog distance, relative bearing, and pressure acceleration,
+  version 6 added dog approach speed and a separate approach acceleration, and
+  version 7 added dog facing alignment and a separate facing acceleration. No
+  older version is silently reinterpreted.
 
 A replay consumer must reject an unsupported version, a tick rate other than
 60 Hz, an unknown scenario, a zero scenario version, a scenario/version/seed
@@ -67,20 +73,65 @@ decoder, replay file path, checked-in replay fixture, and executable
 `--replay`/`--seed` flags are intentionally deferred. No untrusted or external
 JSON is accepted by the engine yet.
 
-## State dump version 2
+## State dump version 7
 
 The schema name is `wide-eye.gameplay-state`. The dump contains the scenario
 seed contract, fixed rate, restart count, and complete published previous and
 current snapshots. Each snapshot contains the dog position, velocity, heading,
-and grounded state plus exactly five sheep in stable ID order. Every sheep
-record contains ID, position, velocity, heading, arousal, explicit behavior
-state, and grounded state. Version 2 currently initializes IDs 1–5 in a fixed
-contiguous buffer with `settled` behavior and zero arousal. The default scenarios
-keep them stationary. The version 1, seed-zero `presentation-motion` fixture
-moves them through a deterministic scripted path while leaving behavior settled
-and arousal zero; this is presentation evidence, not a flock-response model.
-No sheep respond to the dog yet. A non-finite state is rejected because JSON has
-no portable representation for NaN or infinity.
+and grounded state plus exactly five sheep. Every sheep record contains ID,
+position, velocity, heading, arousal, explicit behavior state, and grounded
+state. A parallel fixed-size evidence record maps to each sheep by subject ID
+and contains the exact attraction and alignment selected-neighbor IDs, selected
+and in-radius candidate counts, and separate separation, attraction, and
+alignment acceleration vectors. The writer validates subject mapping, bounds,
+unique known neighbor IDs, zeroed unused IDs, and finite vectors before
+encoding. A second fixed-size record per sheep states whether dog stimulus was
+evaluated, then publishes the prior-state planar dog distance, signed bearing
+relative to sheep heading, dog approach speed, dog facing alignment, and
+separate pressure-, approach-, and facing-acceleration vectors. Approach speed
+is the component of prior dog velocity along the dog-to-sheep direction:
+positive when the dog closes, negative when it leaves. Facing alignment is the
+cosine between the prior dog forward direction and the dog-to-sheep direction:
+`1` looking straight at the sheep, `0` abeam, `-1` looking directly away. The
+writer requires unevaluated stimulus fields to remain zero and validates finite
+distance/approach data, a bearing within `[-π, π]`, and an alignment within
+`[-1, 1]` before encoding.
+
+IDs 1–5 initialize in a fixed contiguous buffer with `settled` behavior and zero
+arousal. The default scenarios keep them stationary. The version 1, seed-zero
+`presentation-motion` fixture moves them through a deterministic scripted path
+while leaving behavior settled and arousal zero; this is presentation evidence,
+not a flock-response model. The version 1, seed-zero
+`sheep-only-separation` fixture starts two sheep at the same position and
+records bounded close-range repulsion. The independent version 1, seed-zero
+`sheep-only-attraction` fixture places four candidates inside sheep 1's
+attraction radius, selects the nearest two by distance then stable ID, and pulls
+toward their prior-snapshot centroid. The paired `sheep-alignment-off` and
+`sheep-alignment-on` fixtures share the same moving five-sheep start and differ
+only by the alignment switch and scenario ID. The on case selects at most one
+nearest prior-snapshot neighbor and accelerates toward its velocity under the
+scenario response time and cap. The paired `sheep-dog-pressure-off` and
+`sheep-dog-pressure-on` fixtures share one stationary dog/five-sheep start and
+differ only by the pressure switch and required scenario ID. Both publish the
+same prior-state distance and relative-bearing geometry; the on case applies a
+linear distance falloff directed away from the dog inside a scenario-owned
+radius. The paired `sheep-dog-approach-off` and `sheep-dog-approach-on` fixtures
+add one dog moving at 4.0 world units/s, keep that accepted distance-only
+pressure enabled and identical in both cases, and differ only by the approach
+switch and required scenario ID. Both publish the same prior-state approach
+speed; the on case adds a separate away-from-dog vector that responds only to a
+closing dog, shares the pressure radius and linear falloff, and saturates at the
+scenario reference speed. The paired `sheep-dog-facing-off` and
+`sheep-dog-facing-on` fixtures use one stationary dog whose heading is the
+isolated variable, keep the accepted distance-only pressure enabled and
+identical in both cases, and differ only by the facing switch and required
+scenario ID. Both publish the same prior-state facing alignment; the on case
+adds a separate away-from-dog vector scaled by the positive part of that
+alignment, sharing the pressure radius and linear falloff, so a dog looking away
+releases rather than pulls. Line of sight, terrain, temperament, and
+behavior-state transitions remain absent, and the dog terms are summed without a
+combined-influence bound. A non-finite state is rejected because JSON has no
+portable representation for NaN or infinity.
 
 The state dump is an observation, not a save format. It does not restore a
 simulation, promise save compatibility, include renderer state, or establish
@@ -95,9 +146,10 @@ decode JSON, restore state, or add replay/seed ingestion.
 
 **Observed result (2026-08-16):** on WSL Ubuntu 24.04.4 with Clang 18.1.3, two
 fresh simulations consumed the same three-tick typed dog-input replay and
-produced equal dog-and-sheep snapshots plus byte-identical canonical version 2
-state dumps. Focused oracles verified contiguous IDs 1–5, immutable-prior
-publication, restart, interpolation, and zero allocations across 600 fixed
+produced equal dog-and-sheep snapshots plus byte-identical canonical state
+dumps. At that checkpoint the dump was version 2. Focused oracles verified
+contiguous IDs 1–5, immutable-prior publication, restart, interpolation, and
+zero allocations across 600 fixed
 updates. They also rejected incompatible replay/action/seed versions, a 59 Hz
 replay, non-contiguous ticks, a mismatched seed, non-finite input, application
 after tick zero, and non-finite dumped dog state. A later focused extension
@@ -106,13 +158,94 @@ publication, midpoint facing interpolation, exact restart, and settled
 zero-arousal state for all five sheep. Development and ASan/UBSan suites each
 passed 22/22 CTests; project formatting and bounded static analysis passed.
 
-**Observed result (2026-08-16):** native Windows Release capture commands wrote
-canonical version 2 state at presentation ticks 1, 61, and 121. The independent
-normal, repeat-normal, and face-normal debug commands at tick 61 produced
+**Observed result (2026-08-16):** the state dump advanced to version 3 when
+required per-sheep social evidence was added. The focused attraction oracle
+observed four in-radius candidates for sheep 1, exact selected IDs `[2, 3]`
+under the two-neighbor bound, and an attraction vector equal to the applied
+acceleration. Reversed fixture storage produced exact per-ID sheep state and
+evidence; restart was exact; 600 attraction ticks allocated no heap memory.
+WSL development, Release, and ASan/UBSan configurations each passed 24/24
+CTests; formatting and bounded clang-tidy passed.
+
+**Observed result (2026-08-16):** required alignment selection and influence
+fields advanced the state dump to version 4. The paired 60-tick oracle measured
+polarization `0.824621` with alignment off and `0.924042` with alignment on.
+For sheep 1, the first alignment-on tick selected ID 2 from two in-radius
+candidates, published the exact `(-1, 0, -1)` acceleration applied to velocity,
+and left separation and attraction vectors zero. Reversed fixture storage
+produced exact per-ID state and evidence; restart was exact; 600 alignment ticks
+allocated no heap memory. WSL development, Release, and ASan/UBSan
+configurations each passed 24/24 CTests; formatting and bounded clang-tidy
+passed. This synthetic directional-agreement result retains alignment
+provisionally; it is not biological validation or player-facing motion review.
+
+**Observed result (2026-08-16):** required prior-state dog distance, signed
+relative bearing, stimulus-evaluated flag, and separate pressure vector advanced
+the state dump to version 5. The paired distance-only oracle observed the same
+geometry with pressure off/on, exact linear falloff at distances 2 and 3,
+zero pressure at and beyond the 6-unit radius, and away-from-dog vectors matching
+the applied acceleration. Exact dog/sheep overlap published zero bearing and
+pressure instead of inventing a direction. The oracle also proved that dog
+movement in the tested tick did not alter prior-state stimulus, reversed sheep
+storage preserved exact per-ID state/evidence, restart was exact, and 600
+enabled ticks allocated no heap memory. WSL development, Release, and ASan/UBSan
+configurations each passed 24/24 CTests; formatting and bounded clang-tidy
+passed. This is synthetic causal evidence, not calibrated sheep behavior or
+player-facing motion acceptance.
+
+**Observed result (2026-08-17):** required prior-state dog approach speed and a
+separate approach vector advanced the state dump to version 6. In the paired
+approach oracle's first tick, sheep 1 closed head-on at `4.0` world units/s
+above the `3.0` reference speed and received the saturated `1.333333` away
+acceleration; the abeam sheep measured exactly `0` approach speed and no
+approach vector; the sheep behind the dog measured `-4.0` and received no
+approach vector, so a leaving dog releases rather than pulls; the 3-4-5 diagonal
+sheep measured the exact `2.4` projection and its `(0.16, 0.213333)` vector; and
+the sheep outside the 6-unit radius published `4.0` approach speed with no
+influence. The off case reproduced identical distance, bearing, approach speed,
+and distance-only pressure vectors with a zero approach vector, so the accepted
+distance-only control is preserved exactly. The oracle also proved that the same
+tick's dog-motor velocity change did not alter prior-state approach evidence,
+that exact dog/sheep overlap invented no approach direction, that reversed sheep
+storage preserved exact per-ID state and evidence, that restart was exact, and
+that 600 enabled ticks allocated no heap memory. On WSL Ubuntu 24.04.4 with
+Clang 18.1.3, development, Release, and ASan/UBSan configurations each passed
+24/24 CTests; formatting and bounded clang-tidy passed. This is synthetic causal
+evidence, not calibrated sheep behavior or player-facing motion acceptance.
+
+**Observed result (2026-08-17):** required prior-state dog facing alignment and a
+separate facing vector advanced the state dump to version 7. In the paired
+facing oracle's first tick, the stationary dog's heading-zero forward direction
+gave the sheep straight ahead an exact `1.0` alignment and the full `(0, -1)`
+facing acceleration at distance 2; the abeam sheep measured exactly `0`
+alignment and received distance pressure only; the sheep directly behind
+measured `-1.0` and received no facing vector; the 3-4-5 diagonal sheep measured
+the exact `0.8` cosine and its `(0.12, -0.16)` vector; and the sheep straight
+ahead but outside the 6-unit radius published `1.0` alignment with no influence.
+Turning the same fixture's dog through half a turn without moving any position
+swapped those front and back results exactly, so the term reads dog heading
+rather than fixture layout. The off case reproduced identical distance, bearing,
+approach speed, alignment, and distance-only pressure vectors with a zero facing
+vector, so the accepted distance-only control is preserved exactly. The oracle
+also proved that the same tick's dog-motor turn did not alter prior-state facing
+evidence, that exact dog/sheep overlap invented no facing direction, that
+reversed sheep storage preserved exact per-ID state and evidence, that restart
+was exact, and that 600 enabled ticks allocated no heap memory. On WSL Ubuntu
+24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
+each passed 24/24 CTests; formatting and bounded clang-tidy passed. This is
+synthetic causal evidence, not calibrated sheep behavior or player-facing motion
+acceptance.
+
+**Observed result (2026-08-16):** the earlier native Windows Release capture
+commands wrote canonical version 2 state at presentation ticks 1, 61, and 121.
+The independent normal, repeat-normal, and face-normal debug commands at tick 61
+produced
 byte-identical state files with SHA-256
 `8b2921e4a87bc2e8b8b86e08f4f17d8b3a7bf7c9413293b90b03b728ec27a905`.
 This is local same-platform evidence, not a cross-platform identity claim.
 
-Native Linux graphics, JSON decoding, CLI replay/seed ingestion, persistent
-replay fixtures, sheep behavior, objective outcomes, and cross-platform state
-or text identity remain untested or unimplemented.
+Native Linux graphics, a native Windows version 7 capture, JSON decoding, CLI
+replay/seed ingestion, persistent replay files, visibility/terrain/temperament
+pressure factors, combined-influence acceleration bounds, behavior transitions,
+objective outcomes, and cross-platform state or text identity remain untested or
+unimplemented.

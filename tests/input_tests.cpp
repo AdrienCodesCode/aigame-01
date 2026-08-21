@@ -128,7 +128,45 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    std::cout << "keyboard_bindings=WASD,Shift,R,Tab,QE,Arrows\n"
+    // Mouse capture is a window-lifetime action: its owner reads the rising edge
+    // once per physical press instead of waiting for a fixed tick that may not
+    // run in a given frame.
+    input.apply_event(keyboard_event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_ESCAPE));
+    if (!check(input.snapshot().action(NamedAction::toggle_mouse_capture).pressed,
+               "escape_to_named_mouse_capture_toggle") ||
+        !check(input.consume_press(NamedAction::toggle_mouse_capture),
+               "mouse_capture_press_is_readable_once") ||
+        !check(!input.consume_press(NamedAction::toggle_mouse_capture) &&
+                   !input.snapshot().action(NamedAction::toggle_mouse_capture).pressed,
+               "consumed_mouse_capture_press_does_not_repeat") ||
+        !check(input.snapshot().action(NamedAction::toggle_mouse_capture).value == 1.0F,
+               "held_escape_stays_reported_after_press_consumption") ||
+        !check(!input.consume_press(NamedAction::move_forward),
+               "consuming_one_press_leaves_other_actions_unpressed")) {
+        return EXIT_FAILURE;
+    }
+    input.apply_event(keyboard_event(SDL_EVENT_KEY_UP, SDL_SCANCODE_ESCAPE));
+    input.apply_event(keyboard_event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_ESCAPE));
+    if (!check(input.consume_press(NamedAction::toggle_mouse_capture),
+               "second_escape_press_toggles_again")) {
+        return EXIT_FAILURE;
+    }
+
+    // A capture change discards only stale mouse motion; a press arriving in
+    // the same frame, such as restart, must survive for its fixed-tick reader.
+    input.apply_event(keyboard_event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_R));
+    input.apply_event(mouse_motion_event(6.0F, -1.0F));
+    input.clear_mouse_look();
+    if (!check(input.snapshot().mouse_look_delta() == wide_eye::platform::MouseLookDelta{},
+               "capture_change_discards_stale_mouse_motion") ||
+        !check(input.snapshot().action(NamedAction::restart).pressed,
+               "capture_change_preserves_same_frame_press")) {
+        return EXIT_FAILURE;
+    }
+    input.clear_keyboard();
+    input.clear_transients();
+
+    std::cout << "keyboard_bindings=WASD,Shift,R,Tab,QE,Arrows,Escape\n"
               << "controller_bindings=left_stick,right_stick,South,Back,Start,Shoulders\n"
               << "input_actions=" << wide_eye::platform::kNamedActionCount << '\n'
               << "input_result=pass\n";

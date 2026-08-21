@@ -97,14 +97,39 @@ int run_window_state_smoke() {
                     "focus-gain transition must be handled");
     WIDE_EYE_ASSERT(state.drawable() && state.focused(),
                     "restored focused window must be drawable");
+    WIDE_EYE_ASSERT(!state.mouse_capture_requested() && !state.mouse_captured(),
+                    "a new window must not hold the pointer before input requests it");
+    WIDE_EYE_ASSERT(state.apply(WindowChange::mouse_capture_requested),
+                    "initial mouse-capture request must be handled");
+    WIDE_EYE_ASSERT(state.mouse_capture_requested() && state.mouse_captured(),
+                    "a focused window must hold a requested pointer capture");
+    WIDE_EYE_ASSERT(state.apply(WindowChange::mouse_capture_toggled),
+                    "mouse-capture toggle must be handled");
+    WIDE_EYE_ASSERT(!state.mouse_capture_requested() && !state.mouse_captured(),
+                    "releasing the pointer must clear both intent and capture");
+    WIDE_EYE_ASSERT(state.apply(WindowChange::focus_lost) &&
+                        state.apply(WindowChange::focus_gained),
+                    "focus transitions must be handled while the pointer is released");
+    WIDE_EYE_ASSERT(!state.mouse_captured(),
+                    "regaining focus must not recapture a deliberately released pointer");
+    WIDE_EYE_ASSERT(state.apply(WindowChange::mouse_capture_toggled) && state.mouse_captured(),
+                    "a second toggle must restore capture");
+    WIDE_EYE_ASSERT(state.apply(WindowChange::focus_lost),
+                    "focus-loss transition must be handled while capturing");
+    WIDE_EYE_ASSERT(state.mouse_capture_requested() && !state.mouse_captured(),
+                    "an unfocused window must release the pointer while keeping intent");
+    WIDE_EYE_ASSERT(state.apply(WindowChange::focus_gained) && state.mouse_captured(),
+                    "regaining focus must restore a capture the player still wants");
     WIDE_EYE_ASSERT(state.apply(WindowChange::close_requested), "close transition must be handled");
     WIDE_EYE_ASSERT(state.close_requested(), "close transition must request shutdown");
 
     wide_eye::core::log(wide_eye::core::LogLevel::info, "window_state_smoke",
-                        "resize, minimize, focus, restore, and close transitions passed");
+                        "resize, minimize, focus, mouse-capture, restore, and close transitions "
+                        "passed");
     std::cout << "resize_handled=yes\n"
               << "minimize_handled=yes\n"
               << "focus_handled=yes\n"
+              << "mouse_capture_handled=yes\n"
               << "close_handled=yes\n"
               << "window_state_result=pass\n";
     return EXIT_SUCCESS;

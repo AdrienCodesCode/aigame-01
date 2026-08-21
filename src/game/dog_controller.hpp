@@ -28,6 +28,8 @@ struct DogMoveInput {
 struct DogControllerConfiguration {
     DogState initial_state{};
     bool gate_open = false;
+
+    bool operator==(const DogControllerConfiguration&) const = default;
 };
 
 [[nodiscard]] DogState interpolate_dog_state(const DogState& previous, const DogState& current,

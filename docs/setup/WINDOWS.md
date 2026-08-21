@@ -183,7 +183,8 @@ and runs the native Release matrix, executes the fixed-update and
 snapshot/presentation allocation oracles, and captures the deterministic
 `presentation-motion` fixture at ticks 1, 61, and 121 with interpolation alpha
 0.5. Tick 61 also receives an independent repeat-normal frame and a face-normal
-debug frame; all three commands emit canonical version 2 state so the runner
+debug frame; all three commands emit canonical state at the executable's
+current dump version, which the runner records from the captured JSON, so it
 can reject a same-state mismatch. The packet retains the original 1920×1080
 frames plus a 1920×360 contact sheet.
 

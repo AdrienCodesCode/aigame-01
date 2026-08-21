@@ -7,7 +7,7 @@ clean-room C++ voxel engine and game. It tells future context windows what Codex
 needs in order to edit, build, observe, debug, and verify the native executable,
 and which external integrations have actually been investigated.
 
-Research and local tool survey last performed: **2026-08-15**.
+Research and local tool survey last performed: **2026-08-16**.
 
 The accepted closed feedback loop, verification cadence, failure protocol, and
 human/context boundaries are defined in
@@ -193,13 +193,33 @@ versions in architecture decisions and bug reports.
 - [RenderDoc source and documentation](https://github.com/baldurk/renderdoc) for
   GPU capture and frame analysis.
 
+### Vulkan — prospective, not an approved backend
+
+- [Khronos Vulkan documentation](https://docs.vulkan.org/) for the specification,
+  guide, samples, tutorial, GLSL, and API reference pages.
+- [Vulkan versions and porting
+  guide](https://docs.vulkan.org/guide/latest/versions.html) for core-version,
+  feature, extension, and SPIR-V compatibility rules.
+- [Vulkan Profiles](https://docs.vulkan.org/guide/latest/vulkan_profiles.html) for
+  expressing a versioned capability baseline after the named target devices are
+  inventoried.
+- SDL's [`SDL_Vulkan_CreateSurface`](https://wiki.libsdl.org/SDL3/SDL_Vulkan_CreateSurface)
+  and [`SDL_Vulkan_GetInstanceExtensions`](https://wiki.libsdl.org/SDL3/SDL_Vulkan_GetInstanceExtensions)
+  for the existing platform layer's prospective surface integration.
+
+These references and the local capability probe below do not supersede the
+accepted OpenGL foundation or authorize Vulkan implementation. The sourced
+decision analysis is in the
+[OpenGL-to-Vulkan feasibility research](research/opengl-to-vulkan-feasibility.md).
+
 The formal Khronos specifications are authoritative but written largely for
 implementers. A tutorial may help explain an idea, but it does not override API
 requirements or driver evidence.
 
 ## Local toolchain observation
 
-System PATH checks plus project-local runtime checks on 2026-08-15 found:
+System PATH checks plus project-local runtime checks began on 2026-08-15. Rows
+with later observations state their date explicitly.
 
 | Tool | State |
 | --- | --- |
@@ -217,6 +237,7 @@ System PATH checks plus project-local runtime checks on 2026-08-15 found:
 | Windows MSVC | Visual Studio Build Tools 2022 17.14.37; toolset 14.44.35207, compiler 19.44.35228.0 |
 | Windows CMake/Ninja | Build Tools bundles CMake 3.31.6-msvc6 and Ninja 1.12.1 |
 | Native Windows OpenGL | Intel UHD Graphics 630 driver 27.20.100.9664 passed explicit OpenGL 4.6 Core/GLSL 4.60 debug contexts three times |
+| Windows Vulkan capability diagnostic | Observed 2026-08-16 through WSL interoperability: `vulkaninfo.exe --summary` reported loader 1.4.309, Intel UHD 630 Vulkan 1.2.177, and GTX 1050 Ti Max-Q Vulkan 1.4.312. The full device report exposed neither mesh-shader nor KHR ray-query/ray-tracing extensions on either GPU; the Khronos validation layer and `glslc` were not found. This is capability/tooling evidence only, not an approved or working project backend. |
 | RenderDoc CLI | Windows x64 package 0.3.0 starts through WSL interoperability; capture/replay unverified |
 | Blender | Missing |
 | ccache | System install present at `/usr/bin/ccache`, version 4.9.1; verified local fallback also present |
@@ -238,6 +259,13 @@ three times. Windows selected the Intel UHD Graphics 630 rather than the
 inventoried NVIDIA GTX 1050 Ti Max-Q. Exact commands, versions, source hashes,
 and the retained final log are recorded in the
 [Windows setup](setup/WINDOWS.md).
+
+The Vulkan diagnostic also reported a stale Epic Online Services overlay-layer
+JSON path before successfully enumerating both devices. A future Vulkan setup
+gate must provision and verify the Khronos validation layer and a pinned
+GLSL-to-SPIR-V compiler, resolve or explicitly quarantine loader warnings, and
+rerun capability checks on the named Low/High target classes and native Linux.
+Until then, `vulkaninfo` availability proves enumeration only.
 
 ## Required repository-native harness
 
@@ -267,13 +295,14 @@ UBSan diagnostics; a nested fixture verifies that common guard independently of
 the engine executable.
 The same 4.6 request fails with `GLXBadFBConfig` on the 4.5-limited WSL host; no
 fallback is implemented. The `game` boundary now has implemented version 1
-seed/action/replay types, a version 2 dog-and-five-sheep state dump,
-pre-mutation compatibility validation, an in-memory replay executor, and
-canonical JSON writers. A general
+seed/action/replay types, a versioned dog, five-sheep, social-evidence, and
+dog-stimulus-evidence state dump whose current version number is owned by the
+format contract, pre-mutation compatibility validation, an in-memory replay
+executor, and canonical JSON writers. A general
 JSON decoder, executable replay/seed/state-dump flags, persistent replay
-fixtures, sheep behavior/objective state, native Linux graphics, broader
-gameplay debug views, metrics, and later performance budgets remain unverified
-or unimplemented. See the
+fixtures, remaining sheep behavior/objective state, native Linux graphics,
+broader gameplay debug views, metrics, and later performance budgets remain
+unverified or unimplemented. See the
 [format contract](formats/GAMEPLAY_REPLAY_AND_STATE.md).
 
 ```bash
@@ -302,9 +331,11 @@ The harness must eventually provide:
   pending.
 - Headless or virtual-display execution.
 - Deterministic PNG capture and optional short frame sequences.
-- Structured JSON state and metrics output. Canonical version 2 dog-and-sheep
-  state JSON exists as a game-owned writer; executable output paths and metrics
-  are pending.
+- Structured JSON state and metrics output. Canonical dog, sheep,
+  chosen-neighbor, social-influence, and dog-stimulus JSON exists as a
+  game-owned writer at the version recorded in the
+  [format contract](formats/GAMEPLAY_REPLAY_AND_STATE.md); broader executable
+  output paths and metrics are pending.
 - Debug views for voxel chunks/meshes, collision, dog pressure, sheep neighbors,
   steering influences, arousal/recovery, group observables, objective state, and
   timings.

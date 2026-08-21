@@ -1,0 +1,4 @@
+interface:
+  display_name: "QA Intake"
+  short_description: "Investigate a report and file it as a tracked QA issue"
+  default_prompt: "Use $qa-intake to investigate this report and file it in docs/qa/."

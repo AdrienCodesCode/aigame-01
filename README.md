@@ -22,6 +22,9 @@ project facts.
   and chat/context boundaries
 - [Implementation roadmap](ROADMAP.md) — checkbox milestones and the continuation
   checkpoint for future context windows
+- [QA defect tracker](docs/qa/README.md) — how a reported defect is investigated,
+  filed, verified, and retired, with the generated [issue index](docs/qa/INDEX.md)
+  and the manual [sweep charters](docs/qa/charters/README.md)
 - [Accepted native foundation](docs/decisions/0001-native-foundation.md) — C++
   primary track, Linux/Windows matrix, procedural-first asset rule, budgets, and
   dependency/license policy
@@ -36,6 +39,10 @@ project facts.
 - [Agent harness, MCP/skill review, and official technical references](docs/AGENT_HARNESS_AND_TOOLS.md)
 - [Agentic workflow research](docs/research/agentic-development-workflow.md) and
   its [implementation plan](docs/plans/agentic-development-workflow.md)
+- [OpenGL-to-Vulkan feasibility and AI-readable rendering
+  workflow](docs/research/opengl-to-vulkan-feasibility.md)
+  — evidence-backed migration timing, current hardware capability observations,
+  and a bounded parity direction
 - [Repository workflow skills](.agents/skills/) — deep research, planning from
   research, documentation sync, and end-of-session handoff
 - [Glitch Analytics evaluation note](docs/ANALYTICS_NOTE.md)
@@ -44,9 +51,11 @@ project facts.
 - [Sheep/dog behavior and flock-scale research](docs/research/herding-simulation-and-scale.md)
   with its bounded [implementation plan](docs/plans/herding-simulation-and-scale.md)
 - [Gameplay replay and state-dump contracts](docs/formats/GAMEPLAY_REPLAY_AND_STATE.md)
-  — implemented version 1 seed/action/replay contracts plus version 2 state
-  dumps for the dog and five authoritative sheep; the presentation capture CLI
-  can write state evidence, while decoding and replay/seed ingestion remain
+  — implemented version 1 seed/action/replay contracts plus the versioned state
+  dump for the dog, five authoritative sheep, selected neighbors, separated
+  social influences, and dog-stimulus evidence (the format contract owns the
+  current version number); the presentation capture
+  CLI can write state evidence, while decoding and replay/seed ingestion remain
   pending
 - [Third-person dog controller and gameplay-camera research](docs/research/third-person-dog-controller-and-camera.md)
   and [implementation plan](docs/plans/third-person-dog-controller-and-camera.md)
@@ -91,11 +100,23 @@ Launch the interactive paddock on a machine that provides the required OpenGL
 ```
 
 The version 1 scenarios are `paddock-start`, `presentation-motion`,
+`sheep-only-separation`, `sheep-only-attraction`, `sheep-alignment-off`,
+`sheep-alignment-on`, `sheep-dog-pressure-off`, `sheep-dog-pressure-on`,
+`sheep-dog-approach-off`, `sheep-dog-approach-on`, `sheep-dog-facing-off`,
+`sheep-dog-facing-on`,
 `wall-contact`, `closed-gate`, and `open-gate`. The
-`presentation-motion` path is a scripted render fixture, not accepted flock
-behavior. Gameplay uses mouse orbit and camera-relative WASD; Shift sprints, R
-restarts, and Tab switches the free-debug camera. Named gamepad actions exist,
-but a physical controller remains unverified.
+`presentation-motion` path is a scripted render fixture. The headless social
+fixtures independently isolate close-range separation, bounded two-neighbor
+attraction, a paired one-neighbor alignment control, a paired distance-only
+dog-pressure control, and paired closing-speed dog-approach and dog-facing
+controls layered on that accepted pressure geometry.
+Visibility/terrain/temperament pressure factors, combined-influence acceleration
+bounds, behavior transitions, and the objective loop remain unimplemented.
+Gameplay uses mouse orbit and
+camera-relative WASD; Shift sprints, R restarts, and Tab switches the free-debug
+camera. Escape releases the captured pointer so the desktop cursor returns
+without leaving the window; pressing it again recaptures. Named gamepad actions
+exist, but a physical controller remains unverified.
 
 Bounded CPU/window, render, capture, and performance entry points are documented
 with their ownership and current limitations in:

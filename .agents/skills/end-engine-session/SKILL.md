@@ -33,12 +33,15 @@ Read `.agents/skills/update-project-docs/SKILL.md` completely and follow it in *
 
 In this repository, `ROADMAP.md` is the cross-context continuation source. Replace its current checkpoint with a concise current-state snapshot; do not add a second diary-style handoff file unless the repository policy changes.
 
+If the session found defects that outlive it, file them with `.agents/skills/qa-intake/SKILL.md` rather than leaving them in the handoff prose. If any QA issue file changed this session, run `cmake -DMODE=index -P tools/qa/qa-tracker.cmake` and then `cmake -DMODE=check -P tools/qa/qa-tracker.cmake`, and report the result. Name open S1 issues in the `ROADMAP.md` checkpoint.
+
 ## 4. Recheck After Documentation Edits
 
 1. Rerun `git diff --check`.
 2. Validate changed local Markdown links.
 3. Rerun a build or test only if cleanup changed build-relevant files.
 4. Confirm completed roadmap boxes have direct evidence and leave unrun work unchecked.
+5. If the QA tracker changed, confirm `cmake -DMODE=check -P tools/qa/qa-tracker.cmake` passes.
 
 ## 5. Report the Handoff
 

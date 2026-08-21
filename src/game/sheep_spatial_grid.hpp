@@ -1,6 +1,6 @@
 #pragma once
 
-#include "game/gameplay_simulation.hpp"
+#include "game/sheep_state.hpp"
 
 #include <array>
 #include <cstddef>

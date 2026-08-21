@@ -34,6 +34,12 @@ bool WindowState::apply(WindowChange change, int pixel_width, int pixel_height) 
     case WindowChange::close_requested:
         close_requested_ = true;
         return true;
+    case WindowChange::mouse_capture_requested:
+        mouse_capture_requested_ = true;
+        return true;
+    case WindowChange::mouse_capture_toggled:
+        mouse_capture_requested_ = !mouse_capture_requested_;
+        return true;
     }
 
     return false;
@@ -61,6 +67,14 @@ bool WindowState::close_requested() const {
 
 bool WindowState::drawable() const {
     return !minimized_ && pixel_width_ > 0 && pixel_height_ > 0;
+}
+
+bool WindowState::mouse_capture_requested() const {
+    return mouse_capture_requested_;
+}
+
+bool WindowState::mouse_captured() const {
+    return mouse_capture_requested_ && focused_;
 }
 
 } // namespace wide_eye::platform

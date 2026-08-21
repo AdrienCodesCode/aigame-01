@@ -89,6 +89,9 @@ void NamedInputState::apply_event(const SDL_Event& event) noexcept {
         case SDL_SCANCODE_DOWN:
             set_keyboard(NamedAction::camera_look_down, down);
             break;
+        case SDL_SCANCODE_ESCAPE:
+            set_keyboard(NamedAction::toggle_mouse_capture, down);
+            break;
         default:
             break;
         }
@@ -152,6 +155,20 @@ void NamedInputState::consume_presses() noexcept {
 
 void NamedInputState::consume_transients() noexcept {
     clear_transients();
+}
+
+void NamedInputState::clear_mouse_look() noexcept {
+    mouse_look_delta_ = {};
+}
+
+bool NamedInputState::consume_press(NamedAction action) noexcept {
+    const std::size_t index = action_index(action);
+    if (index >= pressed_.size()) {
+        return false;
+    }
+    const bool pressed = pressed_[index];
+    pressed_[index] = false;
+    return pressed;
 }
 
 NamedActionSnapshot NamedInputState::snapshot() const noexcept {
@@ -245,6 +262,8 @@ const char* named_action_name(NamedAction action) noexcept {
         return "camera_look_up";
     case NamedAction::camera_look_down:
         return "camera_look_down";
+    case NamedAction::toggle_mouse_capture:
+        return "toggle_mouse_capture";
     case NamedAction::count:
         return "unknown";
     }

@@ -15,7 +15,10 @@ out a speculative engine framework.
 The executable entry point starts in `platform` and maps CLI arguments to named
 scenario runners. `window_runtime` owns SDL initialization, window and OpenGL
 context lifetime, event polling, presentation, and shutdown. Its window-state
-reducer owns drawable resize, minimize/restore, focus, and close transitions.
+reducer owns drawable resize, minimize/restore, focus, close, and pointer-capture
+transitions. It separates the player's capture intent from the capture the
+window should actually hold, so an unfocused window always releases the pointer
+while regaining focus restores only a capture the player still wants.
 `scenario_runner` owns scenario configuration, render-resource lifetime,
 framebuffer-oracle decisions, and the caller-supplied capture path without
 receiving the raw SDL window. After making a context current, `window_runtime`
@@ -24,7 +27,12 @@ The platform-owned `NamedInputState` combines keyboard and gamepad sources,
 accumulates relative mouse look separately from held look rates, preserves
 rising presses and mouse deltas until one fixed tick consumes them, applies a
 tested stick dead zone, and clears the appropriate state on focus loss or
-disconnect. `window_runtime` owns relative-mouse capture and passes the fixed
+disconnect. A window-lifetime press such as the Escape pointer-capture toggle is
+read once through `consume_press` by its owner rather than waiting for a fixed
+tick that may not run in a given frame. `window_runtime` owns relative-mouse
+capture: one reconcile step per frame is the only caller of SDL's relative-mouse
+mode, driven by the window-state decision above, and mouse motion is translated
+into look only while the pointer is actually captured. It passes the fixed
 accumulator's interpolation alpha into scenario presentation; game rules never
 receive SDL scancodes, buttons, axes, windows, or event structures. The `render`
 boundary's `OpenGlRenderer` façade owns the Phase 1 triangle and
@@ -85,11 +93,12 @@ not implement rebuild queues, streaming, cutout/translucent submission, or
 dynamic shadow updates.
 The `game` boundary owns a minimal shared `Vec3` value, whole-game scenario
 definitions, the authoritative `GameplaySimulation`, Tracer 1 dog, and camera
-behavior. Generic math and scenario identity therefore do not depend on a
-particular controller. A `GameplayScenarioDefinition` owns the version, seed,
-dog configuration, sheep fixture, and future objective fixture; the dog motor
-receives only its initial state and analytic gate configuration. This boundary
-is recorded in [`ADR 0004`](../docs/decisions/0004-gameplay-scenario-ownership.md).
+behavior. Generic math, sheep state, and scenario identity therefore do not
+depend on a particular controller. A `GameplayScenarioDefinition` owns the
+version, seed, dog configuration, initial sheep buffer, sheep behavior
+configuration, and future objective fixture; the dog motor receives only its
+initial state and analytic gate configuration. This boundary is recorded in
+[`ADR 0004`](../docs/decisions/0004-gameplay-scenario-ownership.md).
 The core `FixedStepAccumulator` is the only
 render-to-simulation scheduler. `GameplaySimulation` consumes exactly one
 domain input per fixed tick without receiving render-frame timing, owns the
@@ -107,7 +116,12 @@ renderer-facing pose buffer, then submits one shared procedural proxy mesh for
 each entry; it retains no authoritative identity or transform state. Independent
 version 1 seed, action-input, and replay contracts bind the named
 scenario/version/seed, 60 Hz rate, and one contiguous domain action per tick.
-The version 2 state dump includes both dog and sheep prior/current snapshots.
+The versioned state dump — its current version number is owned by the
+[format contract](../docs/formats/GAMEPLAY_REPLAY_AND_STATE.md) — includes dog
+and sheep prior/current snapshots plus per-sheep attraction/alignment neighbor
+selection, separated social influences, and prior-state dog distance, relative
+bearing, approach speed, facing alignment, and separated
+pressure/approach/facing evidence.
 Compatibility validation completes before replay mutation, and canonical
 compact JSON writers expose replay plus published state. The bounded
 presentation capture path can write the latter beside a frame; file decoding
@@ -122,14 +136,48 @@ spans bound nearest-neighbor selection, with exact-distance filtering and stable
 distance/ID/source-index ordering; rebuild and query use no heap allocation.
 The 1,000-member fixed ceiling supports the approved capacity experiment but is
 not evidence that the tier meets a performance budget or belongs in the game.
-The grid is not yet connected to social forces. Dog-relative and response-timing
-observables remain deferred until their required behavior scenarios exist. The
-dog is a kinematic upright cylinder whose world-space planar motor
-bounds vector acceleration/deceleration, rotates facing toward movement by the
-shortest path, and slows during large heading changes. It retains predictable
-analytic ground contact and collision shapes for the paddock edges,
+The named `sheep-only-separation` fixture rebuilds this grid from the immutable
+prior buffer and applies a linear close-range repulsion capped by its
+scenario-owned maximum acceleration. Exact overlaps recover along an
+antisymmetric stable-ID direction, and every next sheep state publishes
+synchronously. The independent `sheep-only-attraction` fixture uses the same
+prior/grid path to select at most two nearest sheep, pulls toward their prior
+centroid, and publishes exact selected IDs, in-radius candidate count, and
+separate attraction/separation acceleration vectors. Paired
+`sheep-alignment-off` and `sheep-alignment-on` fixtures share the same moving
+five-sheep start; only the on case selects one nearest prior-snapshot velocity
+and applies a response-time-scaled, capped alignment vector. Paired
+`sheep-dog-pressure-off` and `sheep-dog-pressure-on` fixtures publish identical
+prior-state dog distance/bearing geometry; only the on case applies a linear,
+radius-bounded vector directly away from the dog. Paired
+`sheep-dog-approach-off` and `sheep-dog-approach-on` fixtures keep that accepted
+distance-only pressure identical and publish the same prior-state dog approach
+speed, the component of prior dog velocity along the dog-to-sheep direction;
+only the on case adds a separate away-from-dog vector that responds to a closing
+dog, shares the pressure radius and linear falloff, and saturates at a
+scenario-owned reference speed. Paired `sheep-dog-facing-off` and
+`sheep-dog-facing-on` fixtures keep that accepted distance-only pressure
+identical, use one stationary dog whose heading is the isolated variable, and
+publish the same prior-state facing alignment, the cosine between the prior dog
+forward direction and the dog-to-sheep direction; only the on case adds a
+separate away-from-dog vector scaled by the positive part of that alignment
+under the same radius and falloff, so a dog looking away releases rather than
+pulls. Damping, bounded speed/turning, combined-influence acceleration bounds,
+visibility/terrain/temperament pressure factors, and behavior-state transitions
+remain deferred. Flock-level
+dog-relative and response-timing observables also remain deferred until their
+required behavior
+scenarios exist. The dog is a kinematic upright
+cylinder whose world-space
+planar motor bounds vector acceleration/deceleration, rotates facing toward
+movement by the shortest path, and slows during large heading changes. It
+retains predictable analytic ground contact and collision shapes for the paddock edges,
 representative wall, and gate that are independent of voxel faces and render
 meshes. Version 1, seed-zero `paddock-start`, `presentation-motion`,
+`sheep-only-separation`, `sheep-only-attraction`, `sheep-alignment-off`,
+`sheep-alignment-on`, `sheep-dog-pressure-off`, `sheep-dog-pressure-on`,
+`sheep-dog-approach-off`, `sheep-dog-approach-on`, `sheep-dog-facing-off`,
+`sheep-dog-facing-on`,
 `wall-contact`, `closed-gate`, and `open-gate` gameplay definitions provide
 deterministic initialization and exact restart. The
 gameplay camera owns orbit yaw/pitch independently of dog facing; orchestration
@@ -138,5 +186,6 @@ then advances the dog. The free-debug camera retains independent position/look
 state. Previous/current dog snapshots and camera states produce one coherent
 interpolated render view without feeding presentation back into simulation. The
 owner accepted this keyboard/mouse control baseline on 2026-08-16 and deferred
-refinement. It still has no animation, camera obstruction, sheep behavior or
-final sheep art, final tuning, or physically verified controller feel.
+refinement. It still has no animation, camera obstruction, complete flock
+behavior, final sheep art, final tuning, or physically verified controller
+feel.

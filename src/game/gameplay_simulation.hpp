@@ -3,9 +3,10 @@
 #include "core/runtime.hpp"
 #include "game/dog_controller.hpp"
 #include "game/gameplay_scenario.hpp"
+#include "game/sheep_spatial_grid.hpp"
+#include "game/sheep_state.hpp"
 
 #include <array>
-#include <cstddef>
 #include <cstdint>
 #include <optional>
 
@@ -17,39 +18,6 @@ struct GameplayTickInput {
     std::optional<DogMoveInput> dog_move;
 };
 
-enum class SheepBehaviorState : std::uint8_t {
-    settled,
-    alert,
-    driven,
-    recovering,
-};
-
-[[nodiscard]] constexpr bool is_known_sheep_behavior(SheepBehaviorState behavior) noexcept {
-    switch (behavior) {
-    case SheepBehaviorState::settled:
-    case SheepBehaviorState::alert:
-    case SheepBehaviorState::driven:
-    case SheepBehaviorState::recovering:
-        return true;
-    }
-    return false;
-}
-
-struct SheepState {
-    std::uint32_t id = 0;
-    Vec3 position{};
-    Vec3 velocity{};
-    double heading_radians = 0.0;
-    double arousal = 0.0;
-    SheepBehaviorState behavior = SheepBehaviorState::settled;
-    bool grounded = false;
-
-    bool operator==(const SheepState&) const = default;
-};
-
-inline constexpr std::size_t kGameplaySheepCount = 5;
-using SheepStateBuffer = std::array<SheepState, kGameplaySheepCount>;
-
 [[nodiscard]] SheepState interpolate_sheep_state(const SheepState& previous,
                                                  const SheepState& current, double alpha) noexcept;
 
@@ -57,6 +25,8 @@ struct GameplaySnapshot {
     std::uint64_t tick = 0;
     DogState dog{};
     SheepStateBuffer sheep{};
+    SheepSocialEvidenceBuffer sheep_social_evidence{};
+    SheepDogPressureEvidenceBuffer sheep_dog_pressure_evidence{};
 
     bool operator==(const GameplaySnapshot&) const = default;
 };
@@ -83,6 +53,7 @@ class GameplaySimulation {
   private:
     GameplayScenarioDefinition scenario_;
     DogController dog_;
+    SheepSpatialGrid sheep_grid_;
     GameplaySnapshot previous_{};
     GameplaySnapshot current_{};
 };

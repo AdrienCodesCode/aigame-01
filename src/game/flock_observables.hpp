@@ -1,6 +1,6 @@
 #pragma once
 
-#include "game/gameplay_simulation.hpp"
+#include "game/sheep_state.hpp"
 
 #include <array>
 #include <cstdint>
@@ -18,9 +18,10 @@ struct ChosenNeighborCountSummary {
 };
 
 // Ground-plane observables for the fixed five-sheep Tracer 2 snapshot. The
-// connectivity distance and chosen-neighbor counts are explicit inputs because
-// social selection does not exist yet. This function only reads published
-// state; it neither chooses neighbors nor mutates simulation state.
+// connectivity distance and chosen-neighbor counts are explicit inputs so a
+// caller can supply counts from published social evidence without running a
+// second neighbor-selection path. This function only reads published state; it
+// neither chooses neighbors nor mutates simulation state.
 struct FiveSheepObservables {
     Vec3 centroid{};
     double mean_radius = 0.0;

@@ -1,0 +1,4 @@
+interface:
+  display_name: "QA Fix"
+  short_description: "Take a filed QA issue to closed with evidence"
+  default_prompt: "Use $qa-fix to work the filed QA issue through verification and closure."

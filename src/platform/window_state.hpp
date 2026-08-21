@@ -9,6 +9,8 @@ enum class WindowChange {
     focus_gained,
     focus_lost,
     close_requested,
+    mouse_capture_requested,
+    mouse_capture_toggled,
 };
 
 class WindowState {
@@ -23,12 +25,21 @@ class WindowState {
     [[nodiscard]] bool close_requested() const;
     [[nodiscard]] bool drawable() const;
 
+    // Player intent to hold the pointer, independent of whether the window can
+    // currently hold it.
+    [[nodiscard]] bool mouse_capture_requested() const;
+    // The capture state the window should actually be in. An unfocused window
+    // never holds the pointer, and regaining focus restores only a capture the
+    // player still wants.
+    [[nodiscard]] bool mouse_captured() const;
+
   private:
     int pixel_width_;
     int pixel_height_;
     bool minimized_ = false;
     bool focused_ = true;
     bool close_requested_ = false;
+    bool mouse_capture_requested_ = false;
 };
 
 } // namespace wide_eye::platform

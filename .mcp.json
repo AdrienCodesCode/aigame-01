@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "cpp": {
+      "type": "stdio",
+      "command": ".tools/bin/mcp-cpp-server",
+      "args": [
+        "--root",
+        ".",
+        "--clangd-path",
+        ".tools/sysroot/usr/bin/clangd-18"
+      ],
+      "env": {
+        "LD_LIBRARY_PATH": ".tools/sysroot/usr/lib/x86_64-linux-gnu"
+      }
+    },
+    "gdb": {
+      "type": "stdio",
+      "command": ".tools/bin/gdb-mcp-server",
+      "args": [],
+      "env": {
+        "GDB_PATH": ".tools/sysroot/usr/bin/gdb",
+        "LD_LIBRARY_PATH": ".tools/sysroot/usr/lib/x86_64-linux-gnu"
+      }
+    },
+    "renderdoc-mcp": {
+      "type": "stdio",
+      "command": ".tools/renderdoc-mcp/renderdoc-mcp-windows-x64-v0.3.0/bin/renderdoc-mcp.exe",
+      "args": [],
+      "env": {}
+    }
+  }
+}

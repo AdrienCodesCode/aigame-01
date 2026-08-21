@@ -195,10 +195,16 @@ if ($null -ne $git) {
     $commit = (& $git.Source -c "safe.directory=$safeRoot" -C $repoRoot rev-parse HEAD).Trim()
     $status = @(& $git.Source -c "safe.directory=$safeRoot" -C $repoRoot status --short)
 }
+# The executable owns the state-dump format version; read it from the captured
+# dump instead of restating it here, so a version bump cannot silently drift.
+$stateDumpVersion = $null
+if (Test-Path $state61) {
+    $stateDumpVersion = (Get-Content $state61 -Raw | ConvertFrom-Json).version
+}
 $configuration = [ordered]@{
     schema_version = 1; build_preset = "release"
     scenario = "presentation-motion"; scenario_version = 1; seed = 0
-    state_dump_version = 2; interpolation_alpha = 0.5
+    state_dump_version = $stateDumpVersion; interpolation_alpha = 0.5
     capture_viewport = [ordered]@{ width = 1920; height = 1080 }
     capture_ticks = @(1, 61, 121); same_state_debug = "face_normals"
     performance = [ordered]@{ viewport = "1920x1080"; warmup_frames = 120; sample_frames = 600
@@ -274,7 +280,7 @@ Are five recognizable procedural sheep, their facing and motion, the same-state 
 | Check | Observed result | Evidence |
 | --- | --- | --- |
 | Release suite | $result | run.log |
-| Same-state repeat | capture $($script:Observed["same_state_capture_repeat"]); canonical v2 state $($script:Observed["same_state_dump_repeat"]) | same-state-normal.png, same-state-normal-repeat.png, state-tick-61.json |
+| Same-state repeat | capture $($script:Observed["same_state_capture_repeat"]); canonical v$stateDumpVersion state $($script:Observed["same_state_dump_repeat"]) | same-state-normal.png, same-state-normal-repeat.png, state-tick-61.json |
 | Snapshot/presentation preparation | median $($script:Observed["snapshot_presentation_preparation_median_ns"]) ns; p95 $($script:Observed["snapshot_presentation_preparation_p95_ns"]) ns; p99 $($script:Observed["snapshot_presentation_preparation_p99_ns"]) ns | measurements.json |
 | Render submission | median $($script:Observed["cpu_submission_median_ns"]) ns; p95 $($script:Observed["cpu_submission_p95_ns"]) ns; p99 $($script:Observed["cpu_submission_p99_ns"]) ns | measurements.json |
 | GPU render | median $($script:Observed["gpu_render_median_ns"]) ns; p95 $($script:Observed["gpu_render_p95_ns"]) ns; p99 $($script:Observed["gpu_render_p99_ns"]) ns | measurements.json |

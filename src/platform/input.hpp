@@ -21,6 +21,7 @@ enum class NamedAction : std::uint8_t {
     camera_look_right,
     camera_look_up,
     camera_look_down,
+    toggle_mouse_capture,
     count,
 };
 
@@ -61,6 +62,17 @@ class NamedInputState {
     void clear_transients() noexcept;
     void consume_presses() noexcept;
     void consume_transients() noexcept;
+
+    // Reads and clears one action's rising edge. Window-lifetime actions are
+    // handled once per physical press by their owner instead of waiting for the
+    // fixed-tick consumer, which may not run in a given frame.
+    [[nodiscard]] bool consume_press(NamedAction action) noexcept;
+
+    // Discards only the accumulated relative mouse deltas, leaving other
+    // pending rising presses intact. Used across a pointer-capture change so
+    // stale motion cannot become a camera jump without eating a same-frame
+    // press such as restart.
+    void clear_mouse_look() noexcept;
 
     [[nodiscard]] NamedActionSnapshot snapshot() const noexcept;
 

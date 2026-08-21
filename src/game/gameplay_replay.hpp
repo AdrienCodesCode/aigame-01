@@ -12,7 +12,7 @@ namespace wide_eye::game {
 inline constexpr std::uint32_t kGameplaySeedFormatVersion = 1;
 inline constexpr std::uint32_t kGameplayActionInputFormatVersion = 1;
 inline constexpr std::uint32_t kGameplayReplayFormatVersion = 1;
-inline constexpr std::uint32_t kGameplayStateDumpFormatVersion = 2;
+inline constexpr std::uint32_t kGameplayStateDumpFormatVersion = 7;
 
 // Identifies the complete deterministic starting contract independently of a
 // render frame or wall clock. Scenario parameters remain owned by the named
@@ -79,8 +79,9 @@ validate_gameplay_replay(const GameplayReplay& replay,
 [[nodiscard]] GameplayContractError apply_gameplay_replay(GameplaySimulation& simulation,
                                                           const GameplayReplay& replay) noexcept;
 
-// These writers define the canonical compact JSON representation of the v1
-// contracts. Decoding files and exposing CLI paths are separate tooling work.
+// These writers define the canonical compact JSON representation of the
+// independently versioned contracts above. Decoding files and exposing CLI
+// paths are separate tooling work.
 [[nodiscard]] GameplayTextResult gameplay_replay_json(const GameplayReplay& replay);
 [[nodiscard]] GameplayTextResult gameplay_state_dump_json(const GameplaySimulation& simulation);
 [[nodiscard]] std::string_view gameplay_contract_error_name(GameplayContractError error) noexcept;

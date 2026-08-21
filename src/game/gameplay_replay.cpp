@@ -1,5 +1,6 @@
 #include "game/gameplay_replay.hpp"
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cmath>
@@ -36,6 +37,84 @@ bool valid_state(const SheepState& state) noexcept {
     return finite(state.position) && finite(state.velocity) &&
            std::isfinite(state.heading_radians) && std::isfinite(state.arousal) &&
            is_known_sheep_behavior(state.behavior);
+}
+
+bool valid_social_evidence(const GameplaySnapshot& snapshot) noexcept {
+    const auto valid_neighbor_set = [&snapshot](std::uint32_t subject_id, const auto& neighbor_ids,
+                                                std::uint32_t neighbor_count,
+                                                std::uint32_t candidate_count) {
+        if (neighbor_count > neighbor_ids.size() || candidate_count < neighbor_count ||
+            candidate_count >= snapshot.sheep.size()) {
+            return false;
+        }
+        for (std::size_t neighbor_index = 0; neighbor_index < neighbor_ids.size();
+             ++neighbor_index) {
+            const std::uint32_t neighbor_id = neighbor_ids[neighbor_index];
+            if (neighbor_index >= neighbor_count) {
+                if (neighbor_id != 0) {
+                    return false;
+                }
+                continue;
+            }
+            if (neighbor_id == 0 || neighbor_id == subject_id) {
+                return false;
+            }
+            const bool neighbor_exists = std::any_of(
+                snapshot.sheep.begin(), snapshot.sheep.end(),
+                [neighbor_id](const SheepState& sheep) { return sheep.id == neighbor_id; });
+            if (!neighbor_exists) {
+                return false;
+            }
+            for (std::size_t prior = 0; prior < neighbor_index; ++prior) {
+                if (neighbor_ids[prior] == neighbor_id) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    };
+
+    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+        const SheepSocialEvidence& evidence = snapshot.sheep_social_evidence[index];
+        if (evidence.subject_id != snapshot.sheep[index].id ||
+            !valid_neighbor_set(evidence.subject_id, evidence.attraction_neighbor_ids,
+                                evidence.attraction_neighbor_count,
+                                evidence.attraction_candidate_count) ||
+            !valid_neighbor_set(evidence.subject_id, evidence.alignment_neighbor_ids,
+                                evidence.alignment_neighbor_count,
+                                evidence.alignment_candidate_count) ||
+            !finite(evidence.separation_acceleration) ||
+            !finite(evidence.attraction_acceleration) || !finite(evidence.alignment_acceleration)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool valid_dog_pressure_evidence(const GameplaySnapshot& snapshot) noexcept {
+    constexpr double kPi = 3.14159265358979323846;
+    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+        const SheepDogPressureEvidence& evidence = snapshot.sheep_dog_pressure_evidence[index];
+        if (evidence.subject_id != snapshot.sheep[index].id ||
+            !std::isfinite(evidence.dog_distance) || evidence.dog_distance < 0.0 ||
+            !std::isfinite(evidence.dog_relative_bearing_radians) ||
+            evidence.dog_relative_bearing_radians < -kPi ||
+            evidence.dog_relative_bearing_radians > kPi ||
+            !std::isfinite(evidence.dog_approach_speed) ||
+            !std::isfinite(evidence.dog_facing_alignment) || evidence.dog_facing_alignment < -1.0 ||
+            evidence.dog_facing_alignment > 1.0 || !finite(evidence.pressure_acceleration) ||
+            !finite(evidence.approach_acceleration) || !finite(evidence.facing_acceleration)) {
+            return false;
+        }
+        if (!evidence.stimulus_evaluated &&
+            (evidence.dog_distance != 0.0 || evidence.dog_relative_bearing_radians != 0.0 ||
+             evidence.dog_approach_speed != 0.0 || evidence.dog_facing_alignment != 0.0 ||
+             evidence.pressure_acceleration != Vec3{} || evidence.approach_acceleration != Vec3{} ||
+             evidence.facing_acceleration != Vec3{})) {
+            return false;
+        }
+    }
+    return true;
 }
 
 std::string_view sheep_behavior_name(SheepBehaviorState behavior) noexcept {
@@ -158,6 +237,100 @@ bool append_sheep_state(std::string& output, const SheepState& sheep) {
     return true;
 }
 
+bool append_social_evidence(std::string& output, const SheepSocialEvidence& evidence) {
+    output += "{\"subject_id\":";
+    if (!append_integer(output, evidence.subject_id)) {
+        return false;
+    }
+    output += ",\"attraction_neighbor_ids\":[";
+    for (std::size_t index = 0; index < evidence.attraction_neighbor_count; ++index) {
+        if (index != 0) {
+            output += ',';
+        }
+        if (!append_integer(output, evidence.attraction_neighbor_ids[index])) {
+            return false;
+        }
+    }
+    output += "],\"attraction_neighbor_count\":";
+    if (!append_integer(output, evidence.attraction_neighbor_count)) {
+        return false;
+    }
+    output += ",\"attraction_candidate_count\":";
+    if (!append_integer(output, evidence.attraction_candidate_count)) {
+        return false;
+    }
+    output += ",\"alignment_neighbor_ids\":[";
+    for (std::size_t index = 0; index < evidence.alignment_neighbor_count; ++index) {
+        if (index != 0) {
+            output += ',';
+        }
+        if (!append_integer(output, evidence.alignment_neighbor_ids[index])) {
+            return false;
+        }
+    }
+    output += "],\"alignment_neighbor_count\":";
+    if (!append_integer(output, evidence.alignment_neighbor_count)) {
+        return false;
+    }
+    output += ",\"alignment_candidate_count\":";
+    if (!append_integer(output, evidence.alignment_candidate_count)) {
+        return false;
+    }
+    output += ",\"separation_acceleration\":";
+    if (!append_vec3(output, evidence.separation_acceleration)) {
+        return false;
+    }
+    output += ",\"attraction_acceleration\":";
+    if (!append_vec3(output, evidence.attraction_acceleration)) {
+        return false;
+    }
+    output += ",\"alignment_acceleration\":";
+    if (!append_vec3(output, evidence.alignment_acceleration)) {
+        return false;
+    }
+    output += '}';
+    return true;
+}
+
+bool append_dog_pressure_evidence(std::string& output, const SheepDogPressureEvidence& evidence) {
+    output += "{\"subject_id\":";
+    if (!append_integer(output, evidence.subject_id)) {
+        return false;
+    }
+    output += ",\"stimulus_evaluated\":";
+    output += evidence.stimulus_evaluated ? "true" : "false";
+    output += ",\"dog_distance\":";
+    if (!append_double(output, evidence.dog_distance)) {
+        return false;
+    }
+    output += ",\"dog_relative_bearing_radians\":";
+    if (!append_double(output, evidence.dog_relative_bearing_radians)) {
+        return false;
+    }
+    output += ",\"dog_approach_speed\":";
+    if (!append_double(output, evidence.dog_approach_speed)) {
+        return false;
+    }
+    output += ",\"dog_facing_alignment\":";
+    if (!append_double(output, evidence.dog_facing_alignment)) {
+        return false;
+    }
+    output += ",\"pressure_acceleration\":";
+    if (!append_vec3(output, evidence.pressure_acceleration)) {
+        return false;
+    }
+    output += ",\"approach_acceleration\":";
+    if (!append_vec3(output, evidence.approach_acceleration)) {
+        return false;
+    }
+    output += ",\"facing_acceleration\":";
+    if (!append_vec3(output, evidence.facing_acceleration)) {
+        return false;
+    }
+    output += '}';
+    return true;
+}
+
 bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
     output += "{\"tick\":";
     if (!append_integer(output, snapshot.tick)) {
@@ -175,6 +348,30 @@ bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
         }
         first_sheep = false;
         if (!append_sheep_state(output, sheep)) {
+            return false;
+        }
+    }
+    output += ']';
+    output += ",\"sheep_social_evidence\":[";
+    bool first_evidence = true;
+    for (const SheepSocialEvidence& evidence : snapshot.sheep_social_evidence) {
+        if (!first_evidence) {
+            output += ',';
+        }
+        first_evidence = false;
+        if (!append_social_evidence(output, evidence)) {
+            return false;
+        }
+    }
+    output += ']';
+    output += ",\"sheep_dog_pressure_evidence\":[";
+    bool first_dog_evidence = true;
+    for (const SheepDogPressureEvidence& evidence : snapshot.sheep_dog_pressure_evidence) {
+        if (!first_dog_evidence) {
+            output += ',';
+        }
+        first_dog_evidence = false;
+        if (!append_dog_pressure_evidence(output, evidence)) {
             return false;
         }
     }
@@ -340,6 +537,12 @@ GameplayTextResult gameplay_state_dump_json(const GameplaySimulation& simulation
         if (!valid_state(sheep)) {
             return {.error = GameplayContractError::non_finite_state, .text = {}};
         }
+    }
+    if (!valid_social_evidence(simulation.previous_snapshot()) ||
+        !valid_social_evidence(simulation.current_snapshot()) ||
+        !valid_dog_pressure_evidence(simulation.previous_snapshot()) ||
+        !valid_dog_pressure_evidence(simulation.current_snapshot())) {
+        return {.error = GameplayContractError::non_finite_state, .text = {}};
     }
 
     GameplayTextResult result;

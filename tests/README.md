@@ -32,18 +32,50 @@ rejection; deterministic ground-plane uniform-grid queries with exact-radius
 filtering, caller-bounded nearest selection, stable distance/ID tie ordering,
 negative and boundary cells, reversed storage, invalid-input rejection,
 snapshot-copy ownership, and zero allocations at the fixed 1,000-member
-capacity-experiment ceiling; repeated
-scripted `presentation-motion` state, all-five translation, midpoint turn
-interpolation, immutable-prior publication, exact restart, and one-to-one moving
-proxy poses without claiming flock behavior; independent
-version 1 seed, action-input, replay,
-and state-dump contracts; canonical compact JSON; pre-mutation rejection of
+capacity-experiment ceiling; a named sheep-only separation scenario with exact
+overlap recovery, immutable-prior publication, capped acceleration, stable
+per-ID results under reversed storage, exact restart, initially out-of-range
+rejection, and zero allocations across 600 fixed updates; bounded
+selected-neighbor attraction with a four-candidate/two-selected density
+oracle, exact distance/ID tie ordering, published influence equality, state-dump
+evidence, reversed-storage identity, restart, and zero allocations across 600
+fixed updates; paired alignment-off/on fixtures with identical initial state,
+one-neighbor bounded selection, exact published/applied alignment acceleration,
+60-tick polarization comparison, reversed-storage identity, state-dump
+evidence, restart, and zero allocations across 600 fixed updates; paired
+distance-only dog-pressure off/on fixtures with identical prior-state distance/
+bearing observations, exact falloff/direction and published/applied vectors,
+radius rejection, zero-direction exact-overlap handling, immutable-prior dog
+stimulus, reversed-storage identity,
+state-dump evidence, restart, and zero allocations across 600 fixed updates;
+paired dog-approach off/on fixtures that preserve the accepted distance-only
+pressure exactly, with identical prior-state approach speeds, saturated head-on
+response, zero abeam response, no response to a leaving dog, an exact diagonal
+projection, published/applied sum equality, radius rejection, zero-direction
+exact-overlap handling, immutable-prior approach evidence, reversed-storage
+identity, state-dump evidence, restart, and zero allocations across 600 fixed
+updates; paired dog-facing off/on fixtures that preserve the accepted
+distance-only pressure exactly, with identical prior-state facing alignments, a
+full head-on response, zero abeam response, no response from a dog looking away,
+an exact diagonal cosine, a half-turn heading control that swaps the front and
+back results without moving a position, published/applied sum equality, radius
+rejection, zero-direction exact-overlap handling, immutable-prior facing
+evidence, reversed-storage identity, state-dump evidence, restart, and zero
+allocations across 600 fixed updates;
+repeated scripted `presentation-motion` state, all-five
+translation, midpoint turn interpolation, immutable-prior publication, exact
+restart, and one-to-one moving proxy poses without claiming flock behavior;
+independent version 1 seed, action-input, and replay contracts plus the version
+6 state-dump contract; canonical compact JSON; pre-mutation rejection of
 unsupported versions, tick rates, scenario/seed mismatches, gaps, and invalid
-values; repeated local replay/state equality; window-state transitions; fatal project
-assertions; the dummy-driver SDL lifecycle; nearest-rank duration summaries and
+values; repeated local replay/state equality; window-state transitions; fatal
+project assertions; the dummy-driver SDL lifecycle; nearest-rank duration
+summaries and
 nonzero process-memory sampling; keyboard/mouse/gamepad named-input translation;
 mouse-delta accumulation, signs, retention, one-tick consumption, focus clearing,
-and stick-rate coexistence; camera-relative cardinal and diagonal movement;
+and stick-rate coexistence; the Escape pointer-capture binding, its single-read
+press consumption, and the window-state rule that an unfocused window releases
+the pointer while regaining focus never recaptures a deliberately released one; camera-relative cardinal and diagonal movement;
 mouse orbit/body independence; planar acceleration, facing, reversal slowdown,
 restart, angle interpolation, deterministic repeated control sequences, and
 named scenarios; giant and fixed-tick wall/gate non-tunneling; open-gate

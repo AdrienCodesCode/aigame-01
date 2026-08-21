@@ -411,6 +411,7 @@ int run_window(const WindowRunConfiguration& configuration, WindowScenarioRunner
             return status;
         }
         relative_mouse_enabled = true;
+        static_cast<void>(window_state.apply(WindowChange::mouse_capture_requested));
         std::cout << "relative_mouse_mode=enabled\n";
     }
     frame_clock.reset();
@@ -557,7 +558,10 @@ int run_window(const WindowRunConfiguration& configuration, WindowScenarioRunner
     while (running) {
         SDL_Event event{};
         while (SDL_PollEvent(&event)) {
-            if (configuration.enable_input) {
+            // A released pointer moves the desktop cursor, not the camera, so
+            // motion is not translated into look while capture is off.
+            if (configuration.enable_input &&
+                (relative_mouse_enabled || event.type != SDL_EVENT_MOUSE_MOTION)) {
                 named_input.apply_event(event);
             }
             if (configuration.enable_input && event.type == SDL_EVENT_GAMEPAD_ADDED &&
@@ -584,26 +588,29 @@ int run_window(const WindowRunConfiguration& configuration, WindowScenarioRunner
             if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
                 named_input.clear_keyboard();
                 named_input.clear_transients();
-                if (relative_mouse_enabled) {
-                    if (!SDL_SetWindowRelativeMouseMode(window, false)) {
-                        const int status =
-                            fail(configuration.result_name, {"relative_mouse_release", true});
-                        clean_up();
-                        return status;
-                    }
-                    relative_mouse_enabled = false;
-                }
-            } else if (configuration.enable_input && event.type == SDL_EVENT_WINDOW_FOCUS_GAINED &&
-                       !relative_mouse_enabled) {
+            } else if (configuration.enable_input && event.type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
                 named_input.clear_transients();
-                if (!SDL_SetWindowRelativeMouseMode(window, true)) {
-                    const int status =
-                        fail(configuration.result_name, {"relative_mouse_recapture", true});
-                    clean_up();
-                    return status;
-                }
-                relative_mouse_enabled = true;
             }
+        }
+
+        // Escape releases the pointer and pressing it again recaptures it. The
+        // toggle only records intent; the single reconcile below owns every
+        // SDL capture call, so focus and the player's choice cannot disagree.
+        if (configuration.enable_input &&
+            named_input.consume_press(NamedAction::toggle_mouse_capture)) {
+            static_cast<void>(window_state.apply(WindowChange::mouse_capture_toggled));
+            named_input.clear_mouse_look();
+        }
+        if (window_state.mouse_captured() != relative_mouse_enabled) {
+            const bool capture = window_state.mouse_captured();
+            if (!SDL_SetWindowRelativeMouseMode(window, capture)) {
+                const int status = fail(configuration.result_name, {"relative_mouse_mode", true});
+                clean_up();
+                return status;
+            }
+            relative_mouse_enabled = capture;
+            std::cout << "relative_mouse_mode=" << (capture ? "enabled" : "disabled") << '\n'
+                      << std::flush;
         }
         running = !window_state.close_requested();
         if (configuration.bounded || !running) {

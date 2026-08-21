@@ -152,6 +152,13 @@ Run one major prompt or workstream at a time. Review its assumptions, diff,
 tests, and evidence before starting the next. Never let a generated plan silently
 become approved scope.
 
+Record defects rather than carrying them in a chat. `docs/qa/` is the defect
+lane: a nontrivial defect is investigated and filed as a numbered issue with an
+honest `confidence` field, and it closes only with named verification evidence.
+The convention is `docs/qa/README.md`; the workflows are the `qa-intake` and
+`qa-fix` skills. Filing an issue is a sanctioned lane of work, not a departure
+from the current phase; checking a roadmap box still requires a run result.
+
 Frame material work as one coherent outcome with a goal, only relevant context,
 the invariants that must survive, explicit non-goals, done-when evidence, and
 conditions that require the owner. Prescribe detailed steps only when their order

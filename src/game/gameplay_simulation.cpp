@@ -3,35 +3,265 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <span>
 
 namespace wide_eye::game {
 namespace {
 
-constexpr SheepStateBuffer kInitialSheepStates{{
-    {.id = 1,
-     .position = {.x = 14.5, .y = 1.0, .z = 20.0},
-     .heading_radians = 0.0,
-     .grounded = true},
-    {.id = 2,
-     .position = {.x = 16.0, .y = 1.0, .z = 19.5},
-     .heading_radians = 0.0,
-     .grounded = true},
-    {.id = 3,
-     .position = {.x = 17.5, .y = 1.0, .z = 20.0},
-     .heading_radians = 0.0,
-     .grounded = true},
-    {.id = 4,
-     .position = {.x = 15.25, .y = 1.0, .z = 21.5},
-     .heading_radians = 0.0,
-     .grounded = true},
-    {.id = 5,
-     .position = {.x = 16.75, .y = 1.0, .z = 21.5},
-     .heading_radians = 0.0,
-     .grounded = true},
-}};
+[[nodiscard]] SheepSocialEvidenceBuffer
+empty_social_evidence(const SheepStateBuffer& sheep) noexcept {
+    SheepSocialEvidenceBuffer evidence{};
+    for (std::size_t index = 0; index < sheep.size(); ++index) {
+        evidence[index].subject_id = sheep[index].id;
+    }
+    return evidence;
+}
 
-void advance_sheep_from_prior(const SheepStateBuffer& prior, SheepStateBuffer& next,
-                              std::uint64_t tick, bool presentation_only_motion) noexcept {
+[[nodiscard]] SheepDogPressureEvidenceBuffer
+empty_dog_pressure_evidence(const SheepStateBuffer& sheep) noexcept {
+    SheepDogPressureEvidenceBuffer evidence{};
+    for (std::size_t index = 0; index < sheep.size(); ++index) {
+        evidence[index].subject_id = sheep[index].id;
+    }
+    return evidence;
+}
+
+// Scenario configuration is immutable after construction, so enabled-term
+// bounds are validated once when the simulation is created rather than on
+// every fixed tick.
+void validate_social_response_configuration(const GameplayScenarioDefinition& scenario) noexcept {
+    const SheepSeparationConfiguration& separation = scenario.sheep_separation;
+    const SheepAttractionConfiguration& attraction = scenario.sheep_attraction;
+    const SheepAlignmentConfiguration& alignment = scenario.sheep_alignment;
+    const SheepDogPressureConfiguration& dog_pressure = scenario.sheep_dog_pressure;
+    const SheepDogApproachConfiguration& dog_approach = scenario.sheep_dog_approach;
+    const SheepDogFacingConfiguration& dog_facing = scenario.sheep_dog_facing;
+    if (separation.enabled) {
+        WIDE_EYE_ASSERT(std::isfinite(separation.radius) && separation.radius > 0.0,
+                        "sheep separation radius must be finite and positive");
+        WIDE_EYE_ASSERT(std::isfinite(separation.maximum_acceleration) &&
+                            separation.maximum_acceleration >= 0.0,
+                        "sheep separation acceleration must be finite and non-negative");
+    }
+    if (attraction.enabled) {
+        WIDE_EYE_ASSERT(std::isfinite(attraction.radius) && attraction.radius > 0.0,
+                        "sheep attraction radius must be finite and positive");
+        WIDE_EYE_ASSERT(std::isfinite(attraction.maximum_acceleration) &&
+                            attraction.maximum_acceleration >= 0.0,
+                        "sheep attraction acceleration must be finite and non-negative");
+        WIDE_EYE_ASSERT(attraction.neighbor_limit > 0 &&
+                            attraction.neighbor_limit <= kMaximumSelectedAttractionNeighbors,
+                        "sheep attraction neighbor limit must fit published evidence");
+    }
+    if (alignment.enabled) {
+        WIDE_EYE_ASSERT(std::isfinite(alignment.radius) && alignment.radius > 0.0,
+                        "sheep alignment radius must be finite and positive");
+        WIDE_EYE_ASSERT(std::isfinite(alignment.response_time_seconds) &&
+                            alignment.response_time_seconds > 0.0,
+                        "sheep alignment response time must be finite and positive");
+        WIDE_EYE_ASSERT(std::isfinite(alignment.maximum_acceleration) &&
+                            alignment.maximum_acceleration >= 0.0,
+                        "sheep alignment acceleration must be finite and non-negative");
+        WIDE_EYE_ASSERT(alignment.neighbor_limit > 0 &&
+                            alignment.neighbor_limit <= kMaximumSelectedAlignmentNeighbors,
+                        "sheep alignment neighbor limit must fit published evidence");
+    }
+    if (dog_pressure.enabled || dog_approach.enabled || dog_facing.enabled) {
+        WIDE_EYE_ASSERT(std::isfinite(dog_pressure.radius) && dog_pressure.radius > 0.0,
+                        "sheep dog-pressure radius must be finite and positive");
+    }
+    if (dog_pressure.enabled) {
+        WIDE_EYE_ASSERT(std::isfinite(dog_pressure.maximum_acceleration) &&
+                            dog_pressure.maximum_acceleration >= 0.0,
+                        "sheep dog-pressure acceleration must be finite and non-negative");
+    }
+    if (dog_approach.enabled) {
+        WIDE_EYE_ASSERT(std::isfinite(dog_approach.reference_speed) &&
+                            dog_approach.reference_speed > 0.0,
+                        "sheep dog-approach reference speed must be finite and positive");
+        WIDE_EYE_ASSERT(std::isfinite(dog_approach.maximum_acceleration) &&
+                            dog_approach.maximum_acceleration >= 0.0,
+                        "sheep dog-approach acceleration must be finite and non-negative");
+    }
+    if (dog_facing.enabled) {
+        WIDE_EYE_ASSERT(std::isfinite(dog_facing.maximum_acceleration) &&
+                            dog_facing.maximum_acceleration >= 0.0,
+                        "sheep dog-facing acceleration must be finite and non-negative");
+    }
+}
+
+void evaluate_dog_stimulus(const SheepState& prior_sheep, const DogState& prior_dog,
+                           const GameplayScenarioDefinition& scenario,
+                           SheepDogPressureEvidence& dog_evidence) noexcept {
+    const SheepDogPressureConfiguration& dog_pressure = scenario.sheep_dog_pressure;
+    const SheepDogApproachConfiguration& dog_approach = scenario.sheep_dog_approach;
+    const SheepDogFacingConfiguration& dog_facing = scenario.sheep_dog_facing;
+    constexpr double kTwoPi = 6.28318530717958647692;
+    const double dog_offset_x = prior_dog.position.x - prior_sheep.position.x;
+    const double dog_offset_z = prior_dog.position.z - prior_sheep.position.z;
+    const double dog_distance = std::hypot(dog_offset_x, dog_offset_z);
+    dog_evidence.stimulus_evaluated = true;
+    dog_evidence.dog_distance = dog_distance;
+    if (dog_distance > 0.0) {
+        dog_evidence.dog_relative_bearing_radians = std::remainder(
+            std::atan2(dog_offset_x, -dog_offset_z) - prior_sheep.heading_radians, kTwoPi);
+        // Away direction and approach speed share one unit vector so the two
+        // dog terms cannot disagree about where the dog is.
+        const double away_x = -dog_offset_x / dog_distance;
+        const double away_z = -dog_offset_z / dog_distance;
+        dog_evidence.dog_approach_speed =
+            prior_dog.velocity.x * away_x + prior_dog.velocity.z * away_z;
+        // Heading zero is the -z forward direction used by the dog motor, so
+        // facing alignment is the cosine between that forward direction and
+        // the same dog-to-sheep unit vector.
+        const double forward_x = std::sin(prior_dog.heading_radians);
+        const double forward_z = -std::cos(prior_dog.heading_radians);
+        dog_evidence.dog_facing_alignment =
+            std::clamp(forward_x * away_x + forward_z * away_z, -1.0, 1.0);
+
+        const double falloff =
+            dog_distance < dog_pressure.radius ? 1.0 - dog_distance / dog_pressure.radius : 0.0;
+        if (dog_pressure.enabled) {
+            const double magnitude = falloff * dog_pressure.maximum_acceleration;
+            dog_evidence.pressure_acceleration = {.x = away_x * magnitude, .z = away_z * magnitude};
+        }
+        if (dog_approach.enabled && dog_evidence.dog_approach_speed > 0.0) {
+            // Only a closing dog adds pressure; a leaving dog releases it
+            // rather than pulling the sheep back.
+            const double response =
+                std::min(dog_evidence.dog_approach_speed / dog_approach.reference_speed, 1.0);
+            const double magnitude = falloff * dog_approach.maximum_acceleration * response;
+            dog_evidence.approach_acceleration = {.x = away_x * magnitude, .z = away_z * magnitude};
+        }
+        if (dog_facing.enabled && dog_evidence.dog_facing_alignment > 0.0) {
+            // Only a dog looking toward the sheep adds pressure; a dog
+            // looking away releases it rather than pulling the sheep back.
+            const double magnitude =
+                falloff * dog_facing.maximum_acceleration * dog_evidence.dog_facing_alignment;
+            dog_evidence.facing_acceleration = {.x = away_x * magnitude, .z = away_z * magnitude};
+        }
+    }
+    // Exact overlap has no geometric away direction. Publish the zero
+    // bearing/approach/facing/vector data instead of inventing a hidden
+    // random or ID-based turn.
+}
+
+void apply_separation(const SheepStateBuffer& prior, std::size_t index,
+                      const SheepSeparationConfiguration& separation, const SheepSpatialGrid& grid,
+                      std::span<SpatialNeighbor> neighbor_scratch,
+                      SheepSocialEvidence& evidence) noexcept {
+    const SpatialGridQueryResult query =
+        grid.query_neighbors(index, separation.radius, neighbor_scratch);
+    WIDE_EYE_ASSERT(query.error == SpatialGridQueryError::none && !query.truncated(),
+                    "five-sheep separation query must return every close neighbor");
+
+    double acceleration_x = 0.0;
+    double acceleration_z = 0.0;
+    for (std::size_t neighbor_index = 0; neighbor_index < query.neighbor_count; ++neighbor_index) {
+        const SpatialNeighbor& neighbor = neighbor_scratch[neighbor_index];
+        double direction_x = prior[index].position.x - prior[neighbor.member_index].position.x;
+        double direction_z = prior[index].position.z - prior[neighbor.member_index].position.z;
+        if (neighbor.distance > 0.0) {
+            direction_x /= neighbor.distance;
+            direction_z /= neighbor.distance;
+        } else {
+            // Exact overlap has no geometric direction. The stable-ID tie break is
+            // antisymmetric, deterministic, and independent of buffer/update order.
+            direction_x = prior[index].id < neighbor.id ? -1.0 : 1.0;
+            direction_z = 0.0;
+        }
+        const double weight = 1.0 - neighbor.distance / separation.radius;
+        acceleration_x += direction_x * weight * separation.maximum_acceleration;
+        acceleration_z += direction_z * weight * separation.maximum_acceleration;
+    }
+
+    const double acceleration_length = std::hypot(acceleration_x, acceleration_z);
+    if (acceleration_length > separation.maximum_acceleration) {
+        const double scale = separation.maximum_acceleration / acceleration_length;
+        acceleration_x *= scale;
+        acceleration_z *= scale;
+    }
+    evidence.separation_acceleration = {.x = acceleration_x, .z = acceleration_z};
+}
+
+void apply_attraction(const SheepStateBuffer& prior, std::size_t index,
+                      const SheepAttractionConfiguration& attraction, const SheepSpatialGrid& grid,
+                      std::span<SpatialNeighbor> neighbor_scratch,
+                      SheepSocialEvidence& evidence) noexcept {
+    const SpatialGridQueryResult query = grid.query_neighbors(
+        index, attraction.radius, neighbor_scratch.first(attraction.neighbor_limit));
+    WIDE_EYE_ASSERT(query.error == SpatialGridQueryError::none,
+                    "five-sheep attraction query must succeed");
+
+    evidence.attraction_neighbor_count = static_cast<std::uint32_t>(query.neighbor_count);
+    evidence.attraction_candidate_count = static_cast<std::uint32_t>(query.within_radius_count);
+
+    Vec3 selected_centroid{};
+    for (std::size_t neighbor_index = 0; neighbor_index < query.neighbor_count; ++neighbor_index) {
+        const SpatialNeighbor& neighbor = neighbor_scratch[neighbor_index];
+        evidence.attraction_neighbor_ids[neighbor_index] = neighbor.id;
+        selected_centroid.x += prior[neighbor.member_index].position.x;
+        selected_centroid.z += prior[neighbor.member_index].position.z;
+    }
+    if (query.neighbor_count != 0) {
+        const double selected_count = static_cast<double>(query.neighbor_count);
+        selected_centroid.x /= selected_count;
+        selected_centroid.z /= selected_count;
+        const double offset_x = selected_centroid.x - prior[index].position.x;
+        const double offset_z = selected_centroid.z - prior[index].position.z;
+        const double scale = attraction.maximum_acceleration / attraction.radius;
+        double acceleration_x = offset_x * scale;
+        double acceleration_z = offset_z * scale;
+        const double acceleration_length = std::hypot(acceleration_x, acceleration_z);
+        if (acceleration_length > attraction.maximum_acceleration) {
+            const double bounded_scale = attraction.maximum_acceleration / acceleration_length;
+            acceleration_x *= bounded_scale;
+            acceleration_z *= bounded_scale;
+        }
+        evidence.attraction_acceleration = {.x = acceleration_x, .z = acceleration_z};
+    }
+}
+
+void apply_alignment(const SheepStateBuffer& prior, std::size_t index,
+                     const SheepAlignmentConfiguration& alignment, const SheepSpatialGrid& grid,
+                     std::span<SpatialNeighbor> neighbor_scratch,
+                     SheepSocialEvidence& evidence) noexcept {
+    const SpatialGridQueryResult query = grid.query_neighbors(
+        index, alignment.radius, neighbor_scratch.first(alignment.neighbor_limit));
+    WIDE_EYE_ASSERT(query.error == SpatialGridQueryError::none,
+                    "five-sheep alignment query must succeed");
+
+    evidence.alignment_neighbor_count = static_cast<std::uint32_t>(query.neighbor_count);
+    evidence.alignment_candidate_count = static_cast<std::uint32_t>(query.within_radius_count);
+
+    Vec3 selected_velocity{};
+    for (std::size_t neighbor_index = 0; neighbor_index < query.neighbor_count; ++neighbor_index) {
+        const SpatialNeighbor& neighbor = neighbor_scratch[neighbor_index];
+        evidence.alignment_neighbor_ids[neighbor_index] = neighbor.id;
+        selected_velocity.x += prior[neighbor.member_index].velocity.x;
+        selected_velocity.z += prior[neighbor.member_index].velocity.z;
+    }
+    if (query.neighbor_count != 0) {
+        const double selected_count = static_cast<double>(query.neighbor_count);
+        selected_velocity.x /= selected_count;
+        selected_velocity.z /= selected_count;
+        double acceleration_x =
+            (selected_velocity.x - prior[index].velocity.x) / alignment.response_time_seconds;
+        double acceleration_z =
+            (selected_velocity.z - prior[index].velocity.z) / alignment.response_time_seconds;
+        const double acceleration_length = std::hypot(acceleration_x, acceleration_z);
+        if (acceleration_length > alignment.maximum_acceleration) {
+            const double bounded_scale = alignment.maximum_acceleration / acceleration_length;
+            acceleration_x *= bounded_scale;
+            acceleration_z *= bounded_scale;
+        }
+        evidence.alignment_acceleration = {.x = acceleration_x, .z = acceleration_z};
+    }
+}
+
+void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot& next,
+                              const GameplayScenarioDefinition& scenario,
+                              SheepSpatialGrid& grid) noexcept {
     constexpr std::uint64_t kTicksPerLeg = 60;
     constexpr std::uint64_t kLegCount = 4;
     constexpr double kFixtureSpeed = 1.5;
@@ -45,20 +275,79 @@ void advance_sheep_from_prior(const SheepStateBuffer& prior, SheepStateBuffer& n
     }};
     constexpr std::array<double, kLegCount> kHeadings{{0.0, kHalfPi, kPi, -kHalfPi}};
 
-    // Both modes keep the explicit prior-to-next pass so later behavior cannot
-    // accidentally acquire update-order dependence. The named motion fixture
-    // is scripted presentation evidence, not a social-response implementation.
+    const SheepStateBuffer& prior = previous.sheep;
+
+    // Every fixture keeps the explicit prior-to-next pass so behavior cannot
+    // acquire update-order dependence. The named motion fixture is scripted
+    // presentation evidence, not a social-response implementation.
     for (std::size_t index = 0; index < prior.size(); ++index) {
-        next[index] = prior[index];
-        if (!presentation_only_motion) {
+        next.sheep[index] = prior[index];
+        next.sheep_social_evidence[index] = {.subject_id = prior[index].id};
+        next.sheep_dog_pressure_evidence[index] = {.subject_id = prior[index].id};
+        if (scenario.sheep_fixture != SheepFixture::scripted_presentation_motion) {
             continue;
         }
 
-        const std::size_t leg = static_cast<std::size_t>((tick / kTicksPerLeg) % kLegCount);
-        next[index].velocity = kVelocities[leg];
-        next[index].position.x += kVelocities[leg].x * GameplaySimulation::kFixedDeltaSeconds;
-        next[index].position.z += kVelocities[leg].z * GameplaySimulation::kFixedDeltaSeconds;
-        next[index].heading_radians = kHeadings[leg];
+        const std::size_t leg =
+            static_cast<std::size_t>((previous.tick / kTicksPerLeg) % kLegCount);
+        next.sheep[index].velocity = kVelocities[leg];
+        next.sheep[index].position.x += kVelocities[leg].x * GameplaySimulation::kFixedDeltaSeconds;
+        next.sheep[index].position.z += kVelocities[leg].z * GameplaySimulation::kFixedDeltaSeconds;
+        next.sheep[index].heading_radians = kHeadings[leg];
+    }
+
+    if (scenario.sheep_fixture != SheepFixture::local_social_response) {
+        return;
+    }
+
+    const SheepSeparationConfiguration& separation = scenario.sheep_separation;
+    const SheepAttractionConfiguration& attraction = scenario.sheep_attraction;
+    const SheepAlignmentConfiguration& alignment = scenario.sheep_alignment;
+
+    const double grid_cell_size = std::max({separation.enabled ? separation.radius : 0.0,
+                                            attraction.enabled ? attraction.radius : 0.0,
+                                            alignment.enabled ? alignment.radius : 0.0});
+    if (grid_cell_size > 0.0) {
+        // The rebuild call stays outside the assertion so a future
+        // release-disabled assert cannot silently remove it.
+        const SpatialGridBuildError build_error = grid.rebuild(prior, grid_cell_size);
+        WIDE_EYE_ASSERT(build_error == SpatialGridBuildError::none,
+                        "valid sheep snapshot must rebuild the social-response grid");
+        static_cast<void>(build_error);
+    }
+
+    std::array<SpatialNeighbor, kGameplaySheepCount - 1> separation_scratch{};
+    std::array<SpatialNeighbor, kMaximumSelectedAttractionNeighbors> attraction_scratch{};
+    std::array<SpatialNeighbor, kMaximumSelectedAlignmentNeighbors> alignment_scratch{};
+    for (std::size_t index = 0; index < prior.size(); ++index) {
+        SheepSocialEvidence& evidence = next.sheep_social_evidence[index];
+        SheepDogPressureEvidence& dog_evidence = next.sheep_dog_pressure_evidence[index];
+
+        evaluate_dog_stimulus(prior[index], previous.dog, scenario, dog_evidence);
+        if (separation.enabled) {
+            apply_separation(prior, index, separation, grid, separation_scratch, evidence);
+        }
+        if (attraction.enabled) {
+            apply_attraction(prior, index, attraction, grid, attraction_scratch, evidence);
+        }
+        if (alignment.enabled) {
+            apply_alignment(prior, index, alignment, grid, alignment_scratch, evidence);
+        }
+
+        const double acceleration_x =
+            evidence.separation_acceleration.x + evidence.attraction_acceleration.x +
+            evidence.alignment_acceleration.x + dog_evidence.pressure_acceleration.x +
+            dog_evidence.approach_acceleration.x + dog_evidence.facing_acceleration.x;
+        const double acceleration_z =
+            evidence.separation_acceleration.z + evidence.attraction_acceleration.z +
+            evidence.alignment_acceleration.z + dog_evidence.pressure_acceleration.z +
+            dog_evidence.approach_acceleration.z + dog_evidence.facing_acceleration.z;
+        next.sheep[index].velocity.x += acceleration_x * GameplaySimulation::kFixedDeltaSeconds;
+        next.sheep[index].velocity.z += acceleration_z * GameplaySimulation::kFixedDeltaSeconds;
+        next.sheep[index].position.x +=
+            next.sheep[index].velocity.x * GameplaySimulation::kFixedDeltaSeconds;
+        next.sheep[index].position.z +=
+            next.sheep[index].velocity.z * GameplaySimulation::kFixedDeltaSeconds;
     }
 }
 
@@ -92,8 +381,13 @@ SheepState interpolate_sheep_state(const SheepState& previous, const SheepState&
 
 GameplaySimulation::GameplaySimulation(GameplayScenarioDefinition scenario) noexcept
     : scenario_{scenario}, dog_{scenario.dog} {
+    if (scenario_.sheep_fixture == SheepFixture::local_social_response) {
+        validate_social_response_configuration(scenario_);
+    }
     current_.dog = dog_.state();
-    current_.sheep = kInitialSheepStates;
+    current_.sheep = scenario_.initial_sheep;
+    current_.sheep_social_evidence = empty_social_evidence(current_.sheep);
+    current_.sheep_dog_pressure_evidence = empty_dog_pressure_evidence(current_.sheep);
     previous_ = current_;
 }
 
@@ -107,13 +401,17 @@ void GameplaySimulation::fixed_update(const GameplayTickInput& input) noexcept {
     }
     current_.tick += 1;
     current_.dog = dog_.state();
-    advance_sheep_from_prior(previous_.sheep, current_.sheep, previous_.tick,
-                             scenario_.sheep_fixture == SheepFixture::scripted_presentation_motion);
+    advance_sheep_from_prior(previous_, current_, scenario_, sheep_grid_);
 }
 
 void GameplaySimulation::restart() noexcept {
     dog_.restart();
-    current_ = {.tick = 0, .dog = dog_.state(), .sheep = kInitialSheepStates};
+    current_ = {.tick = 0,
+                .dog = dog_.state(),
+                .sheep = scenario_.initial_sheep,
+                .sheep_social_evidence = empty_social_evidence(scenario_.initial_sheep),
+                .sheep_dog_pressure_evidence =
+                    empty_dog_pressure_evidence(scenario_.initial_sheep)};
     previous_ = current_;
 }
 
@@ -130,6 +428,8 @@ GameplaySnapshot GameplaySimulation::interpolated_snapshot(double alpha) const n
         .tick = current_.tick,
         .dog = interpolate_dog_state(previous_.dog, current_.dog, alpha),
         .sheep = current_.sheep,
+        .sheep_social_evidence = current_.sheep_social_evidence,
+        .sheep_dog_pressure_evidence = current_.sheep_dog_pressure_evidence,
     };
     for (std::size_t index = 0; index < result.sheep.size(); ++index) {
         result.sheep[index] =
