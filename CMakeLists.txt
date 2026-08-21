@@ -13,6 +13,7 @@ set(
     "${PROJECT_SOURCE_DIR}/src/platform/scenario_runner.cpp"
     "${PROJECT_SOURCE_DIR}/src/platform/window_runtime.cpp"
     "${PROJECT_SOURCE_DIR}/src/platform/window_state.cpp"
+    "${PROJECT_SOURCE_DIR}/src/render/influence_debug_view.cpp"
     "${PROJECT_SOURCE_DIR}/src/render/opengl_renderer.cpp"
     "${PROJECT_SOURCE_DIR}/src/render/sheep_proxy.cpp"
 )
@@ -83,10 +84,15 @@ set(wide_eye_input_test_sources "${PROJECT_SOURCE_DIR}/tests/input_tests.cpp")
 set(wide_eye_performance_test_sources "${PROJECT_SOURCE_DIR}/tests/performance_tests.cpp")
 set(wide_eye_sheep_proxy_test_sources "${PROJECT_SOURCE_DIR}/tests/sheep_proxy_tests.cpp")
 set(
+    wide_eye_influence_debug_view_test_sources
+    "${PROJECT_SOURCE_DIR}/tests/influence_debug_view_tests.cpp"
+)
+set(
     wide_eye_headers
     "${PROJECT_SOURCE_DIR}/src/platform/scenario_runner.hpp"
     "${PROJECT_SOURCE_DIR}/src/platform/window_runtime.hpp"
     "${PROJECT_SOURCE_DIR}/src/platform/window_state.hpp"
+    "${PROJECT_SOURCE_DIR}/src/render/influence_debug_view.hpp"
     "${PROJECT_SOURCE_DIR}/src/render/opengl_renderer.hpp"
     "${PROJECT_SOURCE_DIR}/src/render/sheep_proxy.hpp"
 )
@@ -209,6 +215,7 @@ wide_eye_add_developer_checks(
             ${wide_eye_input_test_sources}
             ${wide_eye_performance_test_sources}
             ${wide_eye_sheep_proxy_test_sources}
+            ${wide_eye_influence_debug_view_test_sources}
     HEADERS ${wide_eye_headers} ${wide_eye_capture_headers} ${wide_eye_voxel_headers}
             ${wide_eye_core_runtime_headers} ${wide_eye_core_performance_headers}
             ${wide_eye_game_headers}
@@ -434,6 +441,21 @@ if(BUILD_TESTING)
     wide_eye_set_project_options(wide_eye_sheep_proxy_tests)
     target_link_libraries(wide_eye_sheep_proxy_tests PRIVATE wide_eye_game)
 
+    add_executable(
+        wide_eye_influence_debug_view_tests
+        ${wide_eye_influence_debug_view_test_sources}
+        "${PROJECT_SOURCE_DIR}/src/render/influence_debug_view.cpp"
+    )
+    target_compile_features(wide_eye_influence_debug_view_tests PRIVATE cxx_std_23)
+    set_target_properties(
+        wide_eye_influence_debug_view_tests
+        PROPERTIES CXX_EXTENSIONS OFF
+                   CXX_SCAN_FOR_MODULES OFF
+                   CXX_STANDARD_REQUIRED ON
+    )
+    wide_eye_set_project_options(wide_eye_influence_debug_view_tests)
+    target_link_libraries(wide_eye_influence_debug_view_tests PRIVATE wide_eye_game)
+
     add_test(NAME wide_eye.scaffold_version COMMAND wide_eye --version)
     add_test(
         NAME wide_eye.png_writer
@@ -478,6 +500,19 @@ if(BUILD_TESTING)
     add_test(NAME wide_eye.input_actions COMMAND wide_eye_input_tests)
     add_test(NAME wide_eye.performance_utilities COMMAND wide_eye_performance_tests)
     add_test(NAME wide_eye.sheep_proxy COMMAND wide_eye_sheep_proxy_tests)
+    # The influence debug view splits deliberately: its geometry is a pure
+    # function of a published tick and is checked here with no display, while the
+    # upload and the draw need a real OpenGL 4.6 Core context and are registered
+    # under WIDE_EYE_ENABLE_OPENGL_CONTEXT_TEST below.
+    add_test(
+        NAME wide_eye.influence_debug_view
+        COMMAND wide_eye_influence_debug_view_tests
+    )
+    add_test(
+        NAME wide_eye.influence_debug_frame_dump
+        COMMAND
+            wide_eye --influence-debug-dump sheep-all-influences-diagnostic --tick 120
+    )
     add_test(NAME wide_eye.dog_wall_scenario COMMAND wide_eye --dog-scenario wall-contact)
     add_test(NAME wide_eye.dog_closed_gate_scenario COMMAND wide_eye --dog-scenario closed-gate)
     add_test(NAME wide_eye.dog_open_gate_scenario COMMAND wide_eye --dog-scenario open-gate)
@@ -566,6 +601,10 @@ if(BUILD_TESTING)
             COMMAND wide_eye --sheep-motion-render-smoke
         )
         add_test(
+            NAME wide_eye.opengl_influence_debug_overlay
+            COMMAND wide_eye --influence-debug-smoke sheep-all-influences-diagnostic
+        )
+        add_test(
             NAME wide_eye.opengl_handcrafted_paddock_chunk_bounds
             COMMAND wide_eye --paddock-chunk-bounds-smoke
         )
@@ -631,6 +670,8 @@ if(BUILD_TESTING)
     set(wide_eye_input_labels unit headless)
     set(wide_eye_performance_utilities_labels unit performance headless)
     set(wide_eye_sheep_proxy_labels unit scenario headless)
+    set(wide_eye_influence_debug_view_labels unit scenario headless)
+    set(wide_eye_influence_debug_frame_dump_labels scenario headless)
     set(wide_eye_dog_scenario_labels scenario headless)
     set(wide_eye_ctest_failure_regex_labels unit headless)
     set(wide_eye_core_assertion_labels unit)
@@ -667,6 +708,8 @@ if(BUILD_TESTING)
         list(APPEND wide_eye_input_labels sanitizer)
         list(APPEND wide_eye_performance_utilities_labels sanitizer)
         list(APPEND wide_eye_sheep_proxy_labels sanitizer)
+        list(APPEND wide_eye_influence_debug_view_labels sanitizer)
+        list(APPEND wide_eye_influence_debug_frame_dump_labels sanitizer)
         list(APPEND wide_eye_dog_scenario_labels sanitizer)
         list(APPEND wide_eye_core_assertion_labels sanitizer)
         list(APPEND wide_eye_window_smoke_labels sanitizer)
@@ -794,6 +837,18 @@ if(BUILD_TESTING)
                    TIMEOUT 5
     )
     set_tests_properties(
+        wide_eye.influence_debug_view
+        PROPERTIES LABELS "${wide_eye_influence_debug_view_labels}"
+                   PASS_REGULAR_EXPRESSION "influence_debug_view_result=pass"
+                   TIMEOUT 60
+    )
+    set_tests_properties(
+        wide_eye.influence_debug_frame_dump
+        PROPERTIES LABELS "${wide_eye_influence_debug_frame_dump_labels}"
+                   PASS_REGULAR_EXPRESSION "influence_debug_dump_result=pass"
+                   TIMEOUT 10
+    )
+    set_tests_properties(
         wide_eye.dog_wall_scenario
         wide_eye.dog_closed_gate_scenario
         wide_eye.dog_open_gate_scenario
@@ -887,6 +942,12 @@ if(BUILD_TESTING)
                        TIMEOUT 10
         )
         set_tests_properties(
+            wide_eye.opengl_influence_debug_overlay
+            PROPERTIES LABELS "${wide_eye_dog_render_labels}"
+                       PASS_REGULAR_EXPRESSION "influence_debug_frame_matches=yes"
+                       TIMEOUT 20
+        )
+        set_tests_properties(
             wide_eye.opengl_handcrafted_paddock_capture
             PROPERTIES LABELS "${wide_eye_handcrafted_paddock_capture_labels}"
                        PASS_REGULAR_EXPRESSION "capture_repeat_sha256="
@@ -935,6 +996,8 @@ if(BUILD_TESTING)
         wide_eye.input_actions
         wide_eye.performance_utilities
         wide_eye.sheep_proxy
+        wide_eye.influence_debug_view
+        wide_eye.influence_debug_frame_dump
         wide_eye.dog_wall_scenario
         wide_eye.dog_closed_gate_scenario
         wide_eye.dog_open_gate_scenario
@@ -960,6 +1023,7 @@ if(BUILD_TESTING)
             wide_eye.opengl_handcrafted_paddock
             wide_eye.opengl_dog_placeholder
             wide_eye.opengl_sheep_motion_fixture
+            wide_eye.opengl_influence_debug_overlay
             wide_eye.opengl_handcrafted_paddock_capture
             wide_eye.opengl_handcrafted_paddock_chunk_bounds
             wide_eye.opengl_handcrafted_paddock_face_normals

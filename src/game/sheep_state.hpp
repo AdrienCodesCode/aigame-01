@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 namespace wide_eye::game {
 
@@ -33,6 +34,24 @@ enum class SheepBehaviorState : std::uint8_t {
     recovering,
 };
 
+// The serialized names. They live beside the enum rather than in the writer
+// because the state dump, the replay reader, and the presentation-side debug
+// dump all have to agree on them, and three private copies of one string table
+// is three chances to disagree.
+[[nodiscard]] constexpr std::string_view sheep_behavior_name(SheepBehaviorState behavior) noexcept {
+    switch (behavior) {
+    case SheepBehaviorState::settled:
+        return "settled";
+    case SheepBehaviorState::alert:
+        return "alert";
+    case SheepBehaviorState::driven:
+        return "driven";
+    case SheepBehaviorState::recovering:
+        return "recovering";
+    }
+    return "unknown";
+}
+
 [[nodiscard]] constexpr bool is_known_sheep_behavior(SheepBehaviorState behavior) noexcept {
     switch (behavior) {
     case SheepBehaviorState::settled:
@@ -57,6 +76,19 @@ enum class SheepTemperament : std::uint8_t {
     nervous,
     stubborn,
 };
+
+[[nodiscard]] constexpr std::string_view
+sheep_temperament_name(SheepTemperament temperament) noexcept {
+    switch (temperament) {
+    case SheepTemperament::ordinary:
+        return "ordinary";
+    case SheepTemperament::nervous:
+        return "nervous";
+    case SheepTemperament::stubborn:
+        return "stubborn";
+    }
+    return "unknown";
+}
 
 [[nodiscard]] constexpr bool is_known_sheep_temperament(SheepTemperament temperament) noexcept {
     switch (temperament) {

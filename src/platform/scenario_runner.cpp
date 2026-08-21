@@ -4,6 +4,7 @@
 #include "game/gameplay_replay.hpp"
 #include "game/gameplay_simulation.hpp"
 #include "platform/window_runtime.hpp"
+#include "render/influence_debug_view.hpp"
 #include "render/opengl_renderer.hpp"
 #include "render/png_writer.hpp"
 #include "voxel/handcrafted_paddock.hpp"
@@ -12,8 +13,11 @@
 #include <cstddef>
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <memory>
 #include <optional>
+#include <ostream>
 #include <string_view>
 #include <utility>
 
@@ -30,6 +34,7 @@ enum class RenderScenario {
     sheep_motion_paddock,
     sheep_motion_debug_paddock,
     sheep_motion_performance_paddock,
+    influence_debug_paddock,
     handcrafted_paddock_performance,
     triangle,
     voxel_cube,
@@ -47,6 +52,7 @@ enum class RenderScenario {
            scenario == RenderScenario::sheep_motion_paddock ||
            scenario == RenderScenario::sheep_motion_debug_paddock ||
            scenario == RenderScenario::sheep_motion_performance_paddock ||
+           scenario == RenderScenario::influence_debug_paddock ||
            scenario == RenderScenario::handcrafted_paddock_performance ||
            scenario == RenderScenario::handcrafted_paddock ||
            scenario == RenderScenario::handcrafted_paddock_chunk_bounds ||
@@ -60,7 +66,8 @@ enum class RenderScenario {
            scenario == RenderScenario::dog_paddock ||
            scenario == RenderScenario::sheep_motion_paddock ||
            scenario == RenderScenario::sheep_motion_debug_paddock ||
-           scenario == RenderScenario::sheep_motion_performance_paddock;
+           scenario == RenderScenario::sheep_motion_performance_paddock ||
+           scenario == RenderScenario::influence_debug_paddock;
 }
 
 [[nodiscard]] render::HandcraftedPaddockView paddock_view(RenderScenario scenario) {
@@ -77,6 +84,9 @@ enum class RenderScenario {
     case RenderScenario::dog_paddock:
     case RenderScenario::sheep_motion_paddock:
     case RenderScenario::sheep_motion_performance_paddock:
+    // The overlay explains the scene, so the scene underneath it stays the
+    // ordinary lit paddock rather than a second debug mode arguing with it.
+    case RenderScenario::influence_debug_paddock:
     case RenderScenario::handcrafted_paddock_performance:
     case RenderScenario::handcrafted_paddock:
     case RenderScenario::triangle:
@@ -103,6 +113,105 @@ enum class RenderScenario {
         return "mesh_statistics";
     }
     return "unknown";
+}
+
+// Fixed review camera for the influence debug view. It is deliberately *not*
+// the gameplay follow camera and deliberately not derived from the tick: two
+// captures of different ticks have to be comparable, which they are not when the
+// eye moves with the dog. The pose is an elevated three-quarter view chosen to
+// hold the whole 32x32 paddock floor in a 16:9 frame.
+constexpr render::CameraPose kInfluenceReviewCamera{.eye = {38.0F, 24.0F, 42.0F},
+                                                    .target = {16.0F, 1.5F, 21.0F}};
+
+// The scripted dog route the per-outcome headless oracles already use, reused
+// verbatim so that the debug view's tick N is directly comparable with the state
+// dumps those runs produced. It is a fixture, not accepted play.
+[[nodiscard]] game::GameplayTickInput influence_debug_input_for_tick(std::uint64_t tick) {
+    if (tick < 40) {
+        return {.dog_move = game::DogMoveInput{.world_z = -1.0}};
+    }
+    if (tick < 90) {
+        return {.dog_move = game::DogMoveInput{.world_x = 0.75, .world_z = -0.5}};
+    }
+    if (tick < 150) {
+        return {.dog_move = game::DogMoveInput{.world_x = -1.0, .world_z = 0.5, .sprint = true}};
+    }
+    return {.dog_move = game::DogMoveInput{.world_x = 0.25, .world_z = 1.0}};
+}
+
+// The frame's own record, in the same key=value idiom the smokes already use.
+// It exists so that a capture is attributable: every drawn segment is listed
+// with the sheep and the neighbour it belongs to, and the per-sheep block above
+// it repeats the published numbers the drawing came from.
+void write_influence_debug_dump(std::ostream& out, std::string_view scenario_name,
+                                const game::GameplayScenarioDefinition& scenario,
+                                const game::GameplaySnapshot& snapshot,
+                                const render::InfluenceDebugFrame& frame) {
+    out << std::setprecision(17);
+    out << "influence_debug_schema=wide-eye.influence-debug-frame\n"
+        << "influence_debug_scenario=" << scenario_name << '\n'
+        << "influence_debug_scenario_version=" << scenario.version << '\n'
+        << "influence_debug_scenario_seed=" << scenario.seed << '\n'
+        << "influence_debug_tick=" << frame.tick << '\n'
+        << "influence_debug_interpolation=none_published_tick\n"
+        << "influence_debug_arrow_scale_seconds_squared="
+        << render::kInfluenceArrowScaleSecondsSquared << '\n'
+        << "influence_debug_arrow_maximum_length=" << render::kInfluenceArrowMaximumLength << '\n'
+        << "influence_debug_segment_count=" << frame.segment_count << '\n'
+        << "influence_debug_segment_capacity=" << render::kMaximumInfluenceDebugSegments << '\n'
+        << "influence_debug_arrows=" << frame.arrow_count << '\n'
+        << "influence_debug_clamped_arrows=" << frame.clamped_arrow_count << '\n'
+        << "influence_debug_attraction_links=" << frame.attraction_link_count << '\n'
+        << "influence_debug_alignment_links=" << frame.alignment_link_count << '\n'
+        << "influence_debug_heading_targets=" << frame.heading_target_count << '\n'
+        << "influence_debug_unresolved_neighbor_ids=" << frame.unresolved_neighbor_count << '\n'
+        << "influence_debug_flock_markers=" << (frame.flock_markers_present ? "yes" : "no") << '\n';
+    for (std::size_t lane = 0; lane < render::kInfluenceChannelCount; ++lane) {
+        const auto channel = static_cast<render::InfluenceChannel>(lane);
+        const std::array<float, 3> color = render::influence_channel_color(channel);
+        out << "influence_lane index=" << lane
+            << " channel=" << render::influence_channel_name(channel) << " color=" << color[0]
+            << ',' << color[1] << ',' << color[2] << '\n';
+    }
+    out << "dog x=" << snapshot.dog.position.x << " y=" << snapshot.dog.position.y
+        << " z=" << snapshot.dog.position.z << " heading=" << snapshot.dog.heading_radians << '\n';
+    if (frame.flock_markers_present) {
+        out << "flock centroid_x=" << frame.centroid.x << " centroid_z=" << frame.centroid.z
+            << " dog_distance=" << frame.flock_dog.centroid_distance
+            << " dog_bearing=" << frame.flock_dog.centroid_bearing_radians
+            << " nearest_id=" << frame.flock_dog.nearest_sheep_id
+            << " rear_id=" << frame.flock_dog.rear_sheep_id
+            << " rear_offset=" << frame.flock_dog.rear_offset
+            << " balance_defined=" << (frame.balance_point_defined ? "yes" : "no")
+            << " balance_x=" << frame.balance_point.x << " balance_z=" << frame.balance_point.z
+            << " dog_behind_flock=" << (frame.dog_behind_flock ? "yes" : "no") << '\n';
+    }
+    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+        const game::SheepState& sheep = snapshot.sheep[index];
+        const game::SheepMotionLimitEvidence& motion = snapshot.sheep_motion_limit_evidence[index];
+        const game::SheepCombinedInfluenceEvidence& combined =
+            snapshot.sheep_combined_influence_evidence[index];
+        out << "sheep id=" << sheep.id << " x=" << sheep.position.x << " z=" << sheep.position.z
+            << " heading=" << sheep.heading_radians
+            << " target_heading=" << motion.motion_heading_radians
+            << " target_followed=" << (motion.motion_heading_followed ? "yes" : "no")
+            << " heading_change=" << motion.heading_change_radians << " arousal=" << sheep.arousal
+            << " behavior=" << game::sheep_behavior_name(sheep.behavior)
+            << " temperament=" << game::sheep_temperament_name(sheep.temperament)
+            << " summed_magnitude=" << combined.summed_acceleration_magnitude
+            << " applied_scale=" << combined.applied_scale << '\n';
+    }
+    for (std::size_t index = 0; index < frame.segment_count; ++index) {
+        const render::DebugSegment& segment = frame.segments[index];
+        out << "segment index=" << index
+            << " role=" << render::debug_segment_role_name(segment.role)
+            << " channel=" << render::influence_channel_name(segment.channel)
+            << " subject=" << segment.subject_id << " object=" << segment.object_id
+            << " start=" << segment.start[0] << ',' << segment.start[1] << ',' << segment.start[2]
+            << " end=" << segment.end[0] << ',' << segment.end[1] << ',' << segment.end[2]
+            << " color=" << segment.color[0] << ',' << segment.color[1] << ',' << segment.color[2]
+            << '\n';
+    }
 }
 
 class NoOpScenarioRunner final : public WindowScenarioRunner {
@@ -210,6 +319,25 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
                                   << '\n';
                     }
                 }
+                if (scenario_ == RenderScenario::influence_debug_paddock) {
+                    for (std::uint64_t tick = 0; tick < capture_tick_; ++tick) {
+                        simulation_->fixed_update(influence_debug_input_for_tick(tick));
+                    }
+                    if (state_dump_path_.has_value()) {
+                        std::ofstream output{*state_dump_path_, std::ios::binary | std::ios::trunc};
+                        write_influence_debug_dump(
+                            output, game::gameplay_scenario_name(gameplay_scenario_->id),
+                            *gameplay_scenario_, simulation_->current_snapshot(),
+                            build_influence_frame());
+                        if (!output) {
+                            return WindowFailure{"influence_debug_dump_write", false};
+                        }
+                        std::cout << "influence_debug_dump_path=" << state_dump_path_->string()
+                                  << '\n'
+                                  << "influence_debug_dump_schema="
+                                     "wide-eye.influence-debug-frame\n";
+                    }
+                }
                 std::cout << "gameplay_scenario="
                           << game::gameplay_scenario_name(gameplay_scenario_->id) << '\n'
                           << "gameplay_scenario_version=" << gameplay_scenario_->version << '\n'
@@ -302,6 +430,9 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
             render_gameplay_paddock(window_state, interpolation_alpha);
             return std::nullopt;
         }
+        if (scenario_ == RenderScenario::influence_debug_paddock) {
+            return render_influence_debug(window_state);
+        }
         if (scenario_ == RenderScenario::handcrafted_paddock_performance) {
             renderer_->render_handcrafted_paddock(window_state.pixel_width(),
                                                   window_state.pixel_height());
@@ -319,6 +450,97 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
     }
 
   private:
+    // The influence view presents the un-interpolated published tick. An overlay
+    // of per-tick evidence has to be anchored at the state that produced it: an
+    // arrow taken from `current` drawn over a body halfway to `current` would be
+    // a half-tick lie, and "the same tick produces the same frame" would depend
+    // on the render cadence.
+    [[nodiscard]] render::InfluenceDebugFrame build_influence_frame() const {
+        return render::build_influence_debug_frame(simulation_->current_snapshot(),
+                                                   *gameplay_scenario_);
+    }
+
+    [[nodiscard]] render::HandcraftedPaddockFrame make_influence_debug_scene_frame() const {
+        const game::GameplaySnapshot& snapshot = simulation_->current_snapshot();
+        return {
+            .view = render::HandcraftedPaddockView::normal,
+            .camera = kInfluenceReviewCamera,
+            .dog =
+                render::DogRenderPose{
+                    .ground_position = {static_cast<float>(snapshot.dog.position.x),
+                                        static_cast<float>(snapshot.dog.position.y),
+                                        static_cast<float>(snapshot.dog.position.z)},
+                    .heading_radians = static_cast<float>(snapshot.dog.heading_radians),
+                },
+            .sheep = render::make_sheep_proxy_poses(snapshot),
+            .sheep_count = game::kGameplaySheepCount,
+        };
+    }
+
+    WindowResult render_influence_debug(const WindowState& window_state) {
+        const render::HandcraftedPaddockFrame scene = make_influence_debug_scene_frame();
+        renderer_->render_handcrafted_paddock(window_state.pixel_width(),
+                                              window_state.pixel_height(), scene);
+        const auto influence =
+            std::make_unique<render::InfluenceDebugFrame>(build_influence_frame());
+        renderer_->render_influence_debug_overlay(
+            window_state.pixel_width(), window_state.pixel_height(), scene.camera, *influence);
+        std::cout << "scenario=influence_debug\n"
+                  << "influence_debug_tick=" << influence->tick << '\n'
+                  << "influence_debug_segments=" << influence->segment_count << '\n'
+                  << "influence_debug_arrows=" << influence->arrow_count << '\n'
+                  << "influence_debug_clamped_arrows=" << influence->clamped_arrow_count << '\n'
+                  << "influence_debug_camera_eye=" << scene.camera.eye[0] << ','
+                  << scene.camera.eye[1] << ',' << scene.camera.eye[2] << '\n'
+                  << "influence_debug_camera_target=" << scene.camera.target[0] << ','
+                  << scene.camera.target[1] << ',' << scene.camera.target[2] << '\n'
+                  << "influence_debug_draw=issued\n";
+
+        const render::VoxelCubeSample sample = renderer_->sample_handcrafted_paddock_center(
+            window_state.pixel_width(), window_state.pixel_height());
+        const bool depth_state_matches =
+            sample.depth_test_enabled && sample.depth_function_less && sample.depth_write_enabled;
+        std::cout << "depth_test_enabled=" << (sample.depth_test_enabled ? "yes" : "no") << '\n'
+                  << "depth_function_less=" << (sample.depth_function_less ? "yes" : "no") << '\n'
+                  << "depth_write_enabled=" << (sample.depth_write_enabled ? "yes" : "no") << '\n';
+        if (!depth_state_matches) {
+            return WindowFailure{"influence_debug_depth_state", false};
+        }
+
+        const std::optional<render::Rgba8Frame> readback = renderer_->capture_rgba8(
+            window_state.pixel_width(), window_state.pixel_height(), std::cerr);
+        if (!readback.has_value()) {
+            return WindowFailure{"capture_readback", false};
+        }
+        const std::array<std::size_t, render::kInfluenceChannelCount> lane_pixels =
+            render::count_influence_debug_channel_pixels(*readback);
+        std::size_t overlay_pixels = 0;
+        for (std::size_t lane = 0; lane < lane_pixels.size(); ++lane) {
+            overlay_pixels += lane_pixels[lane];
+            std::cout << "influence_debug_lane_pixels_"
+                      << render::influence_channel_name(static_cast<render::InfluenceChannel>(lane))
+                      << '=' << lane_pixels[lane] << '\n';
+        }
+        const bool frame_matches = render::is_expected_influence_debug_frame(*readback);
+        std::cout << "influence_debug_overlay_pixels=" << overlay_pixels << '\n'
+                  << "influence_debug_frame_matches=" << (frame_matches ? "yes" : "no") << '\n';
+        if (!frame_matches) {
+            return WindowFailure{"influence_debug_frame_oracle", false};
+        }
+        if (capture_path_.has_value()) {
+            if (!render::write_png_rgba8(*capture_path_, readback->width, readback->height,
+                                         readback->pixels, std::cerr)) {
+                return WindowFailure{"capture_write", false};
+            }
+            std::cout << "capture_path=" << capture_path_->string() << '\n'
+                      << "capture_width=" << readback->width << '\n'
+                      << "capture_height=" << readback->height << '\n'
+                      << "capture_format=png_rgba8\n"
+                      << "capture_result=pass\n";
+        }
+        return std::nullopt;
+    }
+
     [[nodiscard]] render::HandcraftedPaddockFrame
     make_gameplay_frame(double interpolation_alpha) const {
         if (scenario_ == RenderScenario::sheep_motion_paddock ||
@@ -717,6 +939,72 @@ int run_sheep_motion_performance_scenario() {
     configuration.performance_scenario = "presentation_motion_five_proxy_v1";
     configuration.performance_budget = core::kTracer2LowProfilePerformanceBudget;
     return run_window(configuration, runner);
+}
+
+int run_influence_debug_render_scenario(
+    std::string_view gameplay_scenario, std::uint64_t capture_tick,
+    const std::optional<std::filesystem::path>& capture_path,
+    const std::optional<std::filesystem::path>& frame_dump_path) {
+    const auto definition = game::find_gameplay_scenario(gameplay_scenario);
+    if (!definition.has_value()) {
+        std::cerr << "influence_debug_result=fail\n"
+                  << "failure_stage=influence_debug_scenario_select\n";
+        return EXIT_FAILURE;
+    }
+    RenderScenarioRunner runner{RenderScenario::influence_debug_paddock, capture_path, definition,
+                                capture_tick, frame_dump_path};
+    WindowRunConfiguration configuration = bounded_configuration("influence_debug_result", true);
+    configuration.width = 1920;
+    configuration.height = 1080;
+    configuration.require_depth_buffer = true;
+    configuration.render_bounded_frame = true;
+    return run_window(configuration, runner);
+}
+
+int run_influence_debug_dump_scenario(std::string_view gameplay_scenario,
+                                      std::uint64_t capture_tick,
+                                      const std::optional<std::filesystem::path>& frame_dump_path) {
+    const auto definition = game::find_gameplay_scenario(gameplay_scenario);
+    if (!definition.has_value()) {
+        std::cerr << "influence_debug_dump_result=fail\n"
+                  << "failure_stage=influence_debug_scenario_select\n";
+        return EXIT_FAILURE;
+    }
+    // Heap, not stack: `GameplaySimulation` is around 115 KiB, which is the
+    // defect QA-002 recorded.
+    const auto simulation = std::make_unique<game::GameplaySimulation>(*definition);
+    for (std::uint64_t tick = 0; tick < capture_tick; ++tick) {
+        simulation->fixed_update(influence_debug_input_for_tick(tick));
+    }
+    const auto frame = std::make_unique<render::InfluenceDebugFrame>(
+        render::build_influence_debug_frame(simulation->current_snapshot(), *definition));
+    if (frame_dump_path.has_value()) {
+        std::ofstream output{*frame_dump_path, std::ios::binary | std::ios::trunc};
+        write_influence_debug_dump(output, game::gameplay_scenario_name(definition->id),
+                                   *definition, simulation->current_snapshot(), *frame);
+        if (!output) {
+            std::cerr << "influence_debug_dump_result=fail\n"
+                      << "failure_stage=influence_debug_dump_write\n";
+            return EXIT_FAILURE;
+        }
+        std::cout << "influence_debug_dump_path=" << frame_dump_path->string() << '\n';
+    } else {
+        write_influence_debug_dump(std::cout, game::gameplay_scenario_name(definition->id),
+                                   *definition, simulation->current_snapshot(), *frame);
+    }
+    const bool within_capacity = frame->segment_count <= frame->segments.size();
+    const bool neighbors_resolve = frame->unresolved_neighbor_count == 0;
+    std::cout << "influence_debug_dump_schema=wide-eye.influence-debug-frame\n"
+              << "influence_debug_dump_scenario=" << game::gameplay_scenario_name(definition->id)
+              << '\n'
+              << "influence_debug_dump_tick=" << frame->tick << '\n'
+              << "influence_debug_dump_segments=" << frame->segment_count << '\n'
+              << "influence_debug_dump_within_capacity=" << (within_capacity ? "yes" : "no") << '\n'
+              << "influence_debug_dump_unresolved_neighbor_ids=" << frame->unresolved_neighbor_count
+              << '\n'
+              << "influence_debug_dump_result="
+              << (within_capacity && neighbors_resolve ? "pass" : "fail") << '\n';
+    return within_capacity && neighbors_resolve ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 int run_window_smoke_scenario() {

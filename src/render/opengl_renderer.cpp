@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <glad/gl.h>
 #include <limits>
 #include <ostream>
@@ -707,6 +708,12 @@ struct OpenGlRenderer::Impl {
     GLuint paddock_debug_line_program = 0;
     GLuint paddock_debug_line_vertex_array = 0;
     GLuint paddock_debug_line_vertex_buffer = 0;
+    // The influence overlay is rebuilt every frame from a published tick, so it
+    // gets its own buffer sized once to the declared segment ceiling and then
+    // only ever written with glBufferSubData. No draw can grow it, which is why
+    // the frame builder carries a checked ceiling in the first place.
+    GLuint influence_debug_vertex_array = 0;
+    GLuint influence_debug_vertex_buffer = 0;
     GLint paddock_aspect_ratio = -1;
     GLint paddock_camera_eye = -1;
     GLint paddock_camera_target = -1;
@@ -755,6 +762,9 @@ struct OpenGlRenderer::Impl {
         if (paddock_debug_line_vertex_buffer != 0) {
             glDeleteBuffers(1, &paddock_debug_line_vertex_buffer);
         }
+        if (influence_debug_vertex_buffer != 0) {
+            glDeleteBuffers(1, &influence_debug_vertex_buffer);
+        }
         if (dog_vertex_buffer != 0) {
             glDeleteBuffers(1, &dog_vertex_buffer);
         }
@@ -778,6 +788,9 @@ struct OpenGlRenderer::Impl {
         }
         if (paddock_debug_line_vertex_array != 0) {
             glDeleteVertexArrays(1, &paddock_debug_line_vertex_array);
+        }
+        if (influence_debug_vertex_array != 0) {
+            glDeleteVertexArrays(1, &influence_debug_vertex_array);
         }
         if (dog_vertex_array != 0) {
             glDeleteVertexArrays(1, &dog_vertex_array);
@@ -942,6 +955,8 @@ struct OpenGlRenderer::Impl {
         glGenBuffers(1, &paddock_index_buffer);
         glGenVertexArrays(1, &paddock_debug_line_vertex_array);
         glGenBuffers(1, &paddock_debug_line_vertex_buffer);
+        glGenVertexArrays(1, &influence_debug_vertex_array);
+        glGenBuffers(1, &influence_debug_vertex_buffer);
         glGenVertexArrays(1, &dog_vertex_array);
         glGenBuffers(1, &dog_vertex_buffer);
         glGenVertexArrays(1, &sheep_vertex_array);
@@ -951,8 +966,9 @@ struct OpenGlRenderer::Impl {
         if (triangle_vertex_array == 0 || triangle_vertex_buffer == 0 || cube_vertex_array == 0 ||
             cube_vertex_buffer == 0 || paddock_vertex_array == 0 || paddock_vertex_buffer == 0 ||
             paddock_index_buffer == 0 || paddock_debug_line_vertex_array == 0 ||
-            paddock_debug_line_vertex_buffer == 0 || dog_vertex_array == 0 ||
-            dog_vertex_buffer == 0 || sheep_vertex_array == 0 || sheep_vertex_buffer == 0 ||
+            paddock_debug_line_vertex_buffer == 0 || influence_debug_vertex_array == 0 ||
+            influence_debug_vertex_buffer == 0 || dog_vertex_array == 0 || dog_vertex_buffer == 0 ||
+            sheep_vertex_array == 0 || sheep_vertex_buffer == 0 ||
             paddock_shadow_framebuffer == 0 || paddock_shadow_texture == 0) {
             diagnostics << "render_error=geometry_resource_create_failed\n";
             return false;
@@ -989,6 +1005,20 @@ struct OpenGlRenderer::Impl {
 
         glBindVertexArray(paddock_debug_line_vertex_array);
         glBindBuffer(GL_ARRAY_BUFFER, paddock_debug_line_vertex_buffer);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE,
+                              static_cast<GLsizei>(sizeof(DebugLineVertex)), nullptr);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE,
+                              static_cast<GLsizei>(sizeof(DebugLineVertex)),
+                              reinterpret_cast<const void*>(offsetof(DebugLineVertex, color)));
+        glEnableVertexAttribArray(1);
+
+        glBindVertexArray(influence_debug_vertex_array);
+        glBindBuffer(GL_ARRAY_BUFFER, influence_debug_vertex_buffer);
+        glBufferData(
+            GL_ARRAY_BUFFER,
+            static_cast<GLsizeiptr>(kMaximumInfluenceDebugSegments * 2U * sizeof(DebugLineVertex)),
+            nullptr, GL_DYNAMIC_DRAW);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE,
                               static_cast<GLsizei>(sizeof(DebugLineVertex)), nullptr);
         glEnableVertexAttribArray(0);
@@ -1449,6 +1479,53 @@ void OpenGlRenderer::render_handcrafted_paddock(int pixel_width, int pixel_heigh
     }
 }
 
+void OpenGlRenderer::render_influence_debug_overlay(int pixel_width, int pixel_height,
+                                                    const CameraPose& camera,
+                                                    const InfluenceDebugFrame& frame) const {
+    if (impl_ == nullptr || frame.segment_count == 0) {
+        return;
+    }
+
+    // Fixed scratch storage rather than a vector: the overlay is rebuilt every
+    // frame, and a presentation path that heap-allocates once per frame is a
+    // cost nobody asked for. The ceiling is the frame builder's own.
+    std::array<DebugLineVertex, kMaximumInfluenceDebugSegments * 2U> vertices{};
+    const std::size_t segment_count = std::min(frame.segment_count, frame.segments.size());
+    for (std::size_t index = 0; index < segment_count; ++index) {
+        const DebugSegment& segment = frame.segments[index];
+        vertices[index * 2U] = {.position = segment.start, .color = segment.color};
+        vertices[index * 2U + 1U] = {.position = segment.end, .color = segment.color};
+    }
+    const auto vertex_count = static_cast<GLsizei>(segment_count * 2U);
+
+    glBindBuffer(GL_ARRAY_BUFFER, impl_->influence_debug_vertex_buffer);
+    glBufferSubData(
+        GL_ARRAY_BUFFER, 0,
+        static_cast<GLsizeiptr>(static_cast<std::size_t>(vertex_count) * sizeof(DebugLineVertex)),
+        vertices.data());
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    // Depth-tested with writes off, the same choice the face-normal overlay
+    // makes: an arrow behind the barn stays behind the barn, so the diagram
+    // reads as part of the scene rather than as a flat sheet over it.
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_FALSE);
+    glUseProgram(impl_->paddock_debug_line_program);
+    glUniform1f(impl_->paddock_debug_line_aspect_ratio,
+                static_cast<float>(pixel_width) / static_cast<float>(pixel_height));
+    glUniform3fv(impl_->paddock_debug_line_camera_eye, 1, camera.eye.data());
+    glUniform3fv(impl_->paddock_debug_line_camera_target, 1, camera.target.data());
+    glBindVertexArray(impl_->influence_debug_vertex_array);
+    glDrawArrays(GL_LINES, 0, vertex_count);
+    glBindVertexArray(0);
+    glUseProgram(0);
+    glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
+    glEnable(GL_CULL_FACE);
+}
+
 TriangleSample OpenGlRenderer::sample_triangle_center(int pixel_width, int pixel_height) const {
     std::array<GLubyte, 4> rgba{};
     glReadPixels(pixel_width / 2, pixel_height / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
@@ -1626,6 +1703,68 @@ bool is_expected_voxel_cube_wireframe(const Rgba8Frame& frame) {
     const std::size_t visible_pixels = count_voxel_cube_wireframe_pixels(frame);
     const std::size_t total_pixels = static_cast<std::size_t>(frame.width) * frame.height;
     return visible_pixels >= kMinimumVisiblePixels && visible_pixels < total_pixels / 2U;
+}
+
+std::array<std::size_t, kInfluenceChannelCount>
+count_influence_debug_channel_pixels(const Rgba8Frame& frame) {
+    // The overlay is unlit, so a drawn fragment carries its vertex colour
+    // exactly. A narrow band around each entry absorbs the float-to-8-bit
+    // rounding without letting two lanes collide.
+    constexpr std::size_t kBytesPerPixel = 4;
+    constexpr int kChannelTolerance = 6;
+    std::array<std::array<int, 3>, kInfluenceChannelCount> expected{};
+    for (std::size_t lane = 0; lane < kInfluenceChannelCount; ++lane) {
+        const std::array<float, 3>& color =
+            influence_channel_color(static_cast<InfluenceChannel>(lane));
+        for (std::size_t component = 0; component < 3U; ++component) {
+            expected[lane][component] = static_cast<int>(std::lround(color[component] * 255.0F));
+        }
+    }
+
+    std::array<std::size_t, kInfluenceChannelCount> counts{};
+    for (std::size_t index = 0; index + 3U < frame.pixels.size(); index += kBytesPerPixel) {
+        const std::array<int, 3> pixel{static_cast<int>(frame.pixels[index]),
+                                       static_cast<int>(frame.pixels[index + 1U]),
+                                       static_cast<int>(frame.pixels[index + 2U])};
+        for (std::size_t lane = 0; lane < kInfluenceChannelCount; ++lane) {
+            if (std::abs(pixel[0] - expected[lane][0]) <= kChannelTolerance &&
+                std::abs(pixel[1] - expected[lane][1]) <= kChannelTolerance &&
+                std::abs(pixel[2] - expected[lane][2]) <= kChannelTolerance) {
+                ++counts[lane];
+                break;
+            }
+        }
+    }
+    return counts;
+}
+
+bool is_expected_influence_debug_frame(const Rgba8Frame& frame) {
+    constexpr std::size_t kBytesPerPixel = 4;
+    const std::uint64_t expected_bytes =
+        static_cast<std::uint64_t>(frame.width) * frame.height * kBytesPerPixel;
+    if (frame.width == 0U || frame.height == 0U || expected_bytes != frame.pixels.size()) {
+        return false;
+    }
+
+    // The three social lanes always publish a tick, so three visible lanes is
+    // what any scenario must reach; requiring more would make the oracle a
+    // statement about which terms a particular scenario switches on.
+    constexpr std::size_t kMinimumVisibleLanes = 3;
+    constexpr std::size_t kMinimumLanePixels = 8;
+    constexpr std::size_t kMinimumOverlayPixels = 64;
+    const std::array<std::size_t, kInfluenceChannelCount> counts =
+        count_influence_debug_channel_pixels(frame);
+    std::size_t visible_lanes = 0;
+    std::size_t overlay_pixels = 0;
+    for (const std::size_t count : counts) {
+        overlay_pixels += count;
+        if (count >= kMinimumLanePixels) {
+            ++visible_lanes;
+        }
+    }
+    const std::size_t total_pixels = static_cast<std::size_t>(frame.width) * frame.height;
+    return visible_lanes >= kMinimumVisibleLanes && overlay_pixels >= kMinimumOverlayPixels &&
+           overlay_pixels < total_pixels / 2U;
 }
 
 } // namespace wide_eye::render

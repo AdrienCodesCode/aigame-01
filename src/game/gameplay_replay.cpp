@@ -264,32 +264,6 @@ std::string_view paddock_obstacle_name(PaddockObstacle obstacle) noexcept {
     return "unknown";
 }
 
-std::string_view sheep_behavior_name(SheepBehaviorState behavior) noexcept {
-    switch (behavior) {
-    case SheepBehaviorState::settled:
-        return "settled";
-    case SheepBehaviorState::alert:
-        return "alert";
-    case SheepBehaviorState::driven:
-        return "driven";
-    case SheepBehaviorState::recovering:
-        return "recovering";
-    }
-    return "unknown";
-}
-
-std::string_view sheep_temperament_name(SheepTemperament temperament) noexcept {
-    switch (temperament) {
-    case SheepTemperament::ordinary:
-        return "ordinary";
-    case SheepTemperament::nervous:
-        return "nervous";
-    case SheepTemperament::stubborn:
-        return "stubborn";
-    }
-    return "unknown";
-}
-
 template <typename Integer> bool append_integer(std::string& output, Integer value) {
     std::array<char, std::numeric_limits<Integer>::digits10 + 3> buffer{};
     const auto [end, error] = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);

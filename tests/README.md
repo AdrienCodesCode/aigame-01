@@ -141,6 +141,12 @@ five per hundred ticks, the closed wall line stops every sheep at exactly the
 face plus one body radius, and the run allocates nothing — with obstacle
 avoidance and the applied sum held to a deliberately looser recorded allowance
 that names QA-003;
+influence debug-view coverage that builds every debug primitive from published
+evidence across 30 scenarios and 240 ticks each, checking arrow geometry and the
+stated scale against the published vectors, chosen-neighbor link endpoints against
+the published IDs, bounded segment capacity, zero allocations, and a stable sweep
+digest, plus a frame-dump oracle that pins the text serialization of one frame;
+neither can produce a capture on a host without an OpenGL 4.6 Core context;
 repeated scripted `presentation-motion` state, all-five
 translation, midpoint turn interpolation, immutable-prior publication, exact
 restart, and one-to-one moving proxy poses without claiming flock behavior;

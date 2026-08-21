@@ -573,6 +573,16 @@
   24/24 CTests after these changes; project formatting and bounded clang-tidy
   passed. Native graphics and measurements were not rerun because no
   presentation path changed.
+- **Unaccepted work awaiting the owner (2026-08-22):** the influence debug views
+  are implemented, deterministic, and covered by two headless CTests, but no
+  human has seen them and **no capture of them exists on any machine**. This
+  development host cannot create the OpenGL 4.6 Core context the engine requests,
+  so the display-backed path fails at `context_create` for the new view exactly
+  as it does for the accepted paddock views. The roadmap item is deliberately
+  unticked; a filled candidate review packet with the native-hardware commands
+  sits in `artifacts/phase3/2026-08-22/debug-influence-views/`. Nothing about how
+  the views look — colour separation, arrow density, whether the chosen arrow
+  scale is legible — is verified.
 - **Known limits:** native Windows/OpenGL capture, the presentation performance
   scenarios, and human visual review were not rerun because this outcome changes
   authoritative headless sheep behavior rather than pixels. Native Linux
@@ -760,23 +770,17 @@
   [QA-004](docs/qa/open/QA-004-presets-do-not-pin-the-compiler.md); whether to
   pin every preset to Clang or to make the GCC build a stated second preset is an
   owner decision.
-- **Next action:** add the debug arrows and labels for every influence, chosen
-  neighbour, arousal, target, state, and balance point. This is the **first
-  Phase 3 sheep-behavior outcome that needs human visual review**: every sheep
-  rule so far has been accepted on headless evidence alone, and nobody has yet
-  watched a sheep change state, split, or settle. The owner has asked not to be
-  blocked on that review, so the work should produce **candidate** evidence — the
-  debug views, the deterministic captures, and a
-  [human visual-review packet](docs/review/HUMAN_VISUAL_REVIEW.md) — and leave
-  the item **unticked pending the owner's verdict**, rather than waiting for the
-  verdict before starting or ticking the box without one. Every value the views
-  need is already published per sheep in the authoritative snapshot — the
-  per-term vectors, the chosen neighbour IDs, the arousal, the behavior label,
-  the pre-bound summed magnitude, the applied scale, and the applied
-  acceleration — so this is a presentation-side reader of existing evidence and
-  must not add a field to, or feed back into, any rule. This host exposes only
-  OpenGL 4.5, so the accepted capture has to come from a native Windows or native
-  Linux 4.6 run.
+- **Next action:** fix
+  [QA-001](docs/qa/open/QA-001-paddock-collision-radius-band-passthrough.md),
+  then implement the Phase 3 objective loop. QA-001 comes first because the
+  exit-gate replay's central claim is that the open gate is the only way
+  through, and a body that starts within its own radius of a face still walks
+  through it. The objective loop then spawns the dog, farmer placeholder, five
+  sheep, gate, and destination pen, adds one gather-and-drive whistle, explicit
+  success and recoverable failure with restart, and a minimal HUD. The influence
+  debug views landed but are **unaccepted**: they need the owner's readability
+  verdict and a capture from native hardware, neither of which this OpenGL 4.5
+  host can produce.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
@@ -1779,6 +1783,54 @@ scope. Evidence: the archived
   [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp).
 - [ ] Add debug arrows/labels for every influence, chosen neighbor, arousal,
   target, state, and balance point.
+  Observed result (2026-08-22): a presentation-only influence debug view exists
+  and is exercised by two new CTests, `wide_eye.influence_debug_view` and
+  `wide_eye.influence_debug_frame_dump`. It draws all seven steering terms on
+  separate named colour lanes plus the applied result, the exact attraction and
+  alignment chosen-neighbour links, per-sheep arousal, behavior label,
+  temperament, heading target, and the flock-level markers. Arrow length is a
+  stated scale — `0.5 s²` of acceleration, clamped at `2.5` world units — rather
+  than a raw world-unit acceleration. `target` is the published heading target a
+  sheep is turning toward under the accepted turn budget, and `balance point` is
+  derived from the flock centroid and the published dog geometry, both defined in
+  `influence_debug_view.hpp` rather than invented as new authority. The view
+  reads published snapshots only: all 30 named scenarios produce byte-identical
+  canonical state dumps against a build at the previous commit
+  (`sha256 8b769f04…`), which is the same digest the preceding outcome recorded.
+  Two new strict argv shapes were added rather than loosening an existing one.
+  The behavior and temperament name tables moved from the replay writer's
+  anonymous namespace into `sheep_state.hpp` so the state dump and the debug dump
+  cannot disagree about a label; no authoritative value or format version
+  changed. The headless oracle swept 30 scenarios × 240 ticks, building 25,480
+  arrows, 4,800 attraction links, 2,400 alignment links and 1,916 heading targets
+  with `0` unresolved neighbour IDs, `0` allocations, a bounded worst-case
+  segment count of `246` against a `271` capacity, and a stable sweep digest.
+  Development and ASan/UBSan (Clang 18.1.3) and Release (GNU 13.3.0) each built
+  and passed 28/28 CTests; formatting, bounded clang-tidy, the QA tracker check,
+  the stack budget, and `git diff --check` passed.
+  **This item stays unchecked, and the reason is the whole point of it.** Its
+  acceptance is a human verdict on readability, and **no capture exists** — not
+  because one was skipped, but because this host cannot produce one. The engine
+  requests an OpenGL 4.6 Core context and this WSL host's Mesa llvmpipe stops at
+  4.5, so `--influence-debug-smoke` fails at `context_create` exactly as the
+  accepted `--paddock-smoke` view does; both verbatim failures are recorded in
+  the artifact. Every statement about how this view *looks* is therefore
+  unverified: colour separation, arrow density at five sheep, whether the chosen
+  scale makes ordinary accelerations visible, and whether the view answers "why
+  did that sheep do that" rather than merely "what is the simulation doing" have
+  never been seen by anyone. The frame dumps are the text serialization of
+  exactly what would be drawn and let the geometry be checked without a display;
+  they are not a substitute for looking. A candidate
+  [human visual-review packet](docs/review/HUMAN_VISUAL_REVIEW.md) is filled in
+  beside the artifacts with the exact commands to run on native hardware, what
+  question each capture answers, and what a reject looks like. No golden was
+  generated, promoted, or overwritten. Evidence:
+  [`influence_debug_view.hpp`](src/render/influence_debug_view.hpp),
+  [`influence_debug_view.cpp`](src/render/influence_debug_view.cpp),
+  [`influence_debug_view_tests.cpp`](tests/influence_debug_view_tests.cpp),
+  [`scenario_runner.cpp`](src/platform/scenario_runner.cpp), and the ignored
+  `artifacts/phase3/2026-08-22/debug-influence-views/` packet, frame dumps,
+  oracle output, gate log, and OpenGL-unavailability record.
 - [x] Test that randomness never masks unstable or unexplained steering.
   Observed result (2026-08-22): the honest first half of this item is that
   **the authoritative simulation contains no randomness at all.** The scenario

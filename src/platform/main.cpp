@@ -157,6 +157,11 @@ void print_usage(std::string_view executable) {
            "--sheep-motion-render-smoke --tick <tick> --view <normal|debug> "
            "--capture <png-path> --state-dump <json-path> | "
            "--sheep-motion-performance-smoke | "
+           "--influence-debug-smoke <scenario> | "
+           "--influence-debug-smoke <scenario> --tick <tick> --capture <png-path> "
+           "--frame-dump <txt-path> | "
+           "--influence-debug-dump <scenario> --tick <tick> | "
+           "--influence-debug-dump <scenario> --tick <tick> --frame-dump <txt-path> | "
            "--assertion-smoke | "
            "--context-smoke-inject-high-severity]\n";
 }
@@ -219,6 +224,37 @@ int main(int argc, char* argv[]) {
     }
     if (argc == 2 && std::string_view{argv[1]} == "--sheep-motion-performance-smoke") {
         return wide_eye::platform::run_sheep_motion_performance_scenario();
+    }
+    if (argc == 3 && std::string_view{argv[1]} == "--influence-debug-smoke" &&
+        std::string_view{argv[2]}.size() > 0U) {
+        return wide_eye::platform::run_influence_debug_render_scenario(argv[2]);
+    }
+    if (argc == 9 && std::string_view{argv[1]} == "--influence-debug-smoke" &&
+        std::string_view{argv[2]}.size() > 0U && std::string_view{argv[3]} == "--tick" &&
+        std::string_view{argv[5]} == "--capture" && std::string_view{argv[6]}.size() > 0U &&
+        std::string_view{argv[7]} == "--frame-dump" && std::string_view{argv[8]}.size() > 0U) {
+        const std::optional<std::uint64_t> tick = parse_tick(argv[4]);
+        if (tick.has_value()) {
+            return wide_eye::platform::run_influence_debug_render_scenario(
+                argv[2], *tick, std::filesystem::path{argv[6]}, std::filesystem::path{argv[8]});
+        }
+    }
+    if (argc == 5 && std::string_view{argv[1]} == "--influence-debug-dump" &&
+        std::string_view{argv[2]}.size() > 0U && std::string_view{argv[3]} == "--tick") {
+        const std::optional<std::uint64_t> tick = parse_tick(argv[4]);
+        if (tick.has_value()) {
+            return wide_eye::platform::run_influence_debug_dump_scenario(argv[2], *tick,
+                                                                         std::nullopt);
+        }
+    }
+    if (argc == 7 && std::string_view{argv[1]} == "--influence-debug-dump" &&
+        std::string_view{argv[2]}.size() > 0U && std::string_view{argv[3]} == "--tick" &&
+        std::string_view{argv[5]} == "--frame-dump" && std::string_view{argv[6]}.size() > 0U) {
+        const std::optional<std::uint64_t> tick = parse_tick(argv[4]);
+        if (tick.has_value()) {
+            return wide_eye::platform::run_influence_debug_dump_scenario(
+                argv[2], *tick, std::filesystem::path{argv[6]});
+        }
     }
     if (argc == 2 && std::string_view{argv[1]} == "--window-smoke") {
         return wide_eye::platform::run_window_smoke_scenario();

@@ -17,6 +17,17 @@ run_dog_render_scenario(std::string_view dog_scenario,
     std::uint64_t capture_tick = 61, bool debug_view = false,
     const std::optional<std::filesystem::path>& state_dump_path = std::nullopt);
 [[nodiscard]] int run_sheep_motion_performance_scenario();
+// Renders one named gameplay scenario at a chosen tick with the influence debug
+// overlay on top. Needs a real OpenGL 4.6 Core context.
+[[nodiscard]] int run_influence_debug_render_scenario(
+    std::string_view gameplay_scenario, std::uint64_t capture_tick = 120,
+    const std::optional<std::filesystem::path>& capture_path = std::nullopt,
+    const std::optional<std::filesystem::path>& frame_dump_path = std::nullopt);
+// The same frame's geometry with no window, context, or draw: the part of the
+// debug view a host without OpenGL 4.6 can still produce and check.
+[[nodiscard]] int
+run_influence_debug_dump_scenario(std::string_view gameplay_scenario, std::uint64_t capture_tick,
+                                  const std::optional<std::filesystem::path>& frame_dump_path);
 [[nodiscard]] int run_window_smoke_scenario();
 [[nodiscard]] int run_context_smoke_scenario();
 [[nodiscard]] int run_triangle_smoke_scenario();

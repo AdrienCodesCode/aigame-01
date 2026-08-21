@@ -124,7 +124,14 @@ presentation evidence, not accepted flock behavior. Presentation may
 interpolate published copies but cannot mutate game truth. The render
 boundary copies each published sheep ID, position, and heading into a fixed
 renderer-facing pose buffer, then submits one shared procedural proxy mesh for
-each entry; it retains no authoritative identity or transform state. Independent
+each entry; it retains no authoritative identity or transform state. The
+influence debug view in `render/influence_debug_view` builds its line segments
+from the same published snapshot on the same terms: it reads the per-term
+acceleration vectors, chosen-neighbor IDs, arousal, behavior, heading target,
+and the combined-bound record, holds no authoritative state, and writes into a
+caller-owned bounded segment buffer so a debug frame cannot allocate or grow
+without bound. Its arrow length is a stated scale rather than a raw
+acceleration, and it is reachable only through its own strict argv shapes. Independent
 version 1 seed, action-input, and replay contracts bind the named
 scenario/version/seed, 60 Hz rate, and one contiguous domain action per tick.
 The versioned state dump — its current version number is owned by the

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "render/influence_debug_view.hpp"
 #include "render/sheep_proxy.hpp"
 
 #include <array>
@@ -88,6 +89,13 @@ class OpenGlRenderer {
     void render_voxel_cube_wireframe(int pixel_width, int pixel_height) const;
     void render_handcrafted_paddock(int pixel_width, int pixel_height,
                                     HandcraftedPaddockFrame frame = {}) const;
+    // Draws one already-built influence debug frame over whatever is in the
+    // colour and depth buffers. It is a separate call rather than another
+    // `HandcraftedPaddockFrame` field because the frame is a few hundred
+    // segments and that structure is passed by value; the overlay is also a
+    // genuinely separate pass, drawn after the scene it explains.
+    void render_influence_debug_overlay(int pixel_width, int pixel_height, const CameraPose& camera,
+                                        const InfluenceDebugFrame& frame) const;
     [[nodiscard]] TriangleSample sample_triangle_center(int pixel_width, int pixel_height) const;
     [[nodiscard]] VoxelCubeSample sample_voxel_cube_center(int pixel_width, int pixel_height) const;
     [[nodiscard]] VoxelCubeSample sample_handcrafted_paddock_center(int pixel_width,
@@ -109,5 +117,13 @@ class OpenGlRenderer {
                                                                HandcraftedPaddockView view);
 [[nodiscard]] std::size_t count_voxel_cube_wireframe_pixels(const Rgba8Frame& frame);
 [[nodiscard]] bool is_expected_voxel_cube_wireframe(const Rgba8Frame& frame);
+// Per-lane framebuffer evidence: how many pixels of the readback carry each
+// channel's colour. The overlay is unlit, so a fragment's colour is exactly its
+// vertex colour and a narrow tolerance band around each entry separates the
+// eight lanes. This is what turns "the capture has some lines on it" into "the
+// dog-pressure term is visible in this capture and the avoidance term is not".
+[[nodiscard]] std::array<std::size_t, kInfluenceChannelCount>
+count_influence_debug_channel_pixels(const Rgba8Frame& frame);
+[[nodiscard]] bool is_expected_influence_debug_frame(const Rgba8Frame& frame);
 
 } // namespace wide_eye::render
