@@ -103,7 +103,15 @@ struct AxisSpan {
 [[nodiscard]] AxisSpan slab_span(double origin, double direction, double minimum,
                                  double maximum) noexcept {
     if (direction == 0.0) {
-        if (origin < minimum || origin > maximum) {
+        // Touching this slab's boundary while travelling along it is not being
+        // inside it. `overlaps`, the test the hard clip applies to the axis a
+        // body is *not* moving along, is strict for the same reason: it is what
+        // lets a body parked at face plus radius slide along that face instead
+        // of being refused by it. A sweep that called the same body overlapping
+        // would be answering for a different shape than the one that refuses
+        // the displacement, which is exactly what this query promises never to
+        // do.
+        if (origin <= minimum || origin >= maximum) {
             return {};
         }
         return {.near_fraction = -std::numeric_limits<double>::infinity(),
@@ -254,13 +262,21 @@ ObstacleApproach PaddockCollisionField::approaching_obstacle(Vec3 start, Vec3 di
 
         const double entry = std::max(span_x.near_fraction, span_z.near_fraction);
         const double exit = std::min(span_x.far_fraction, span_z.far_fraction);
-        if (entry > exit || exit < 0.0 || entry > distance) {
+        // The entry has to lie at or ahead of the body, because that is the
+        // question: which shape does this body *reach*. A negative entry means
+        // the body is already inside this rectangle with every face behind it,
+        // and reporting the slab it entered last would name a face it has
+        // already passed — turning a body sliding along a shape into a body
+        // braking against one it left behind. A body that is already inside is
+        // the collision authority's case, not a steering look-ahead's; QA-001
+        // tracks what the authority does with it.
+        if (entry < 0.0 || entry > exit || entry > distance) {
             continue;
         }
-        // A body whose swept rectangle already overlaps this obstacle reaches it
-        // at zero distance rather than at a negative one. Pushing that body out
-        // is a steering caller's decision; this query only reports the geometry.
-        const double contact = std::max(entry, 0.0);
+        // A body touching the face it is moving into enters at zero, which the
+        // arithmetic can produce as a negative zero. Normalizing the sign keeps
+        // the published distance from reading as `-0.000000` in a state dump.
+        const double contact = entry == 0.0 ? 0.0 : entry;
         if (result.obstacle != PaddockObstacle::none && contact >= result.contact_distance) {
             continue;
         }

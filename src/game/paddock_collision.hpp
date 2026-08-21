@@ -105,6 +105,12 @@ class PaddockCollisionField {
     // wins and the paddock's fixed order breaks an exact tie, as it does for
     // the sight line. `direction` need not be normalized; a zero, non-finite,
     // or zero-length path reports no obstacle rather than inventing one.
+    // "Would reach" is literal: the reported contact always lies at or ahead of
+    // `start`, so a body travelling along a face it already touches, or already
+    // inside a shape's expanded rectangle, reports no obstacle rather than a
+    // contact at distance zero against a face behind it. Touching a rectangle's
+    // boundary while travelling along it is not being inside it, exactly as the
+    // hard clip's own overlap test is strict.
     [[nodiscard]] ObstacleApproach approaching_obstacle(Vec3 start, Vec3 direction, double distance,
                                                         double radius) const noexcept;
     [[nodiscard]] bool gate_open() const noexcept;

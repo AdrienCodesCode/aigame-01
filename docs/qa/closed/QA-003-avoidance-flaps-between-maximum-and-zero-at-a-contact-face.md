@@ -1,7 +1,7 @@
 ---
 id: QA-003
 title: Obstacle avoidance alternates between its maximum and zero for a sheep in contact with a wall face
-status: open
+status: fixed
 severity: S2
 confidence: confirmed
 area: game
@@ -9,6 +9,7 @@ reporter: agent
 reported: 2026-08-22
 phase: 3
 platform: wsl-ubuntu-24.04
+closed: 2026-08-22
 rule: docs/decisions/0008-obstacle-and-drop-avoidance.md
 verify:
   - wide_eye.gameplay_simulation
@@ -204,3 +205,94 @@ avoidance and applied-sum flap allowances in the stability oracle to the
 continuous-term values
 and re-run `wide_eye.gameplay_simulation`, which is where the regression would
 show.
+
+## Resolution
+
+Fixed on 2026-08-22 in `src/game/paddock_collision.cpp` and its header — the
+query, not the caller. Two corrections, neither touching the hard collision
+authority and neither changing a published field, contract version, scenario, or
+magnitude:
+
+- `approaching_obstacle` now requires the contact to lie **at or ahead of** the
+  body. The `std::max(entry, 0.0)` clamp is gone, so a body already inside an
+  expanded rectangle reports no obstacle instead of a contact at distance zero
+  through whichever slab it entered last — which, for a body travelling along a
+  face, was a face it had already passed.
+- `slab_span` now treats a zero-direction axis strictly: touching a rectangle's
+  boundary while travelling along it is not being inside it. That is the same
+  convention `overlaps` already applies in `resolve_cylinder_move` for the axis a
+  body is not moving along, and it is what lets the clip park a body at face plus
+  radius and then let it slide.
+
+A contact distance of zero now means the body is touching the face it is moving
+into, and the falloff's maximum is the right answer to it: it points out of that
+face and it is the *same* answer on every tick the sheep keeps pressing, so the
+response is stable rather than alternating. A sheep travelling along a face it
+touches gets nothing, which is ADR 0008's accepted "running parallel feels
+nothing" applied at zero clearance. Any nonzero answer for that case was rejected
+on measurement: it moves the body off the contact, the term then switches off,
+and the alternation returns. ADR 0008 carries the reasoning as a dated correction
+section.
+
+Evidence — all on WSL Ubuntu 24.04.4, `dev` and `dev-sanitized` Clang 18.1.3,
+`release` GNU 13.3.0 (QA-004):
+
+- **Reproduction, before.** A new fixture puts three sheep at the wall line —
+  two exactly on it, one a hundredth of a unit clear — with a stationary dog
+  pressing them onto it. Built against `HEAD` (`12700d0`) with
+  `clang++-18 -std=c++23 -I src`, the sheep held on the line flapped **81 times
+  in 240 ticks**, including the reported symptom exactly: prior `z = 16.5`,
+  prior velocity `(1.038291, 0)`, `right_wall` at distance `0`, published vector
+  `(-2.828427, +2.828427)` — the full maximum pointing backwards along its own
+  travel. Same fixture with the fix: **0 flaps**.
+- **Geometry, before and after.** Standalone probes of `approaching_obstacle`
+  from the accepted clip line: on the line travelling `+x`, `right_wall` at
+  `-0.000000` with normal `(-1, 0)` before, `none` after; on the line turning
+  into the face, `right_wall` at `0` with normal `(0, +1)` both before and after;
+  `0.5` clear reports `0.5` and `6.25` clear reports `6.25` in both.
+- **Stability oracle**, 600-tick `sheep-all-influences-diagnostic` run, worst
+  sheep: avoidance `90` flaps with a run of `23` → **`27` with a run of `10`**;
+  applied sum `77`/`17` → **`44`/`17`**.
+- **Attribution.** Switching the drop half off in a standalone build (experiment
+  only): `HEAD` measured `71`/`23` and the fixed tree `11`/`2`, inside the `30`
+  flaps and run of `4` every continuous term meets. The obstacle half this issue
+  named is therefore fixed to the continuous-term bound.
+- **Blast radius.** Standalone 240-tick canonical state dumps of all 30 named
+  scenarios, `HEAD` versus the working tree: **29 byte-identical**;
+  `sheep-all-influences-diagnostic` differs, first at tick 113, which is the
+  first tick in any fixture where a sheep is held on a contact face. At that tick
+  the term stops publishing `(2.828427, 2.828427)` against `right_wall`, the
+  sheep is pressed onto the line, and `resolve_sheep_against_paddock` refuses the
+  `z` axis and names `right_wall` — the accepted division of labour.
+- **Accepted measurements re-proved unchanged**, by diffing the whole
+  `wide_eye.gameplay_simulation` key report against `HEAD`: zero clips with
+  avoidance on against four with it off, first off-contact ticks `63` and `71`,
+  closest approach `0.758357`, alignment polarization `0.824621` off versus
+  `0.924042` on, and every first-tick dog-term observation. The only keys that
+  moved are the diagnostic run's own stability counts.
+- **New regression**, `wide_eye.gameplay_simulation`: an oracle in its own
+  function holding every simulation on the heap. It pins the query at the clip
+  line (along the face, into the face, already inside the band, a hundredth
+  clear, half clear, exactly at the look-ahead), then runs the dog-pressed
+  fixture for 240 ticks and requires zero flaps for the sheep held on the line
+  and at most one for the sheep that stops turning into it. It fails at `HEAD`
+  (`a_body_travelling_along_a_face_it_touches_reaches_no_obstacle`) and passes
+  with the fix.
+- **Suites.** `ctest --preset dev` 25/25, `ctest --preset release` 25/25,
+  `ctest --preset dev-sanitized` 25/25, `format-check`, `clang-tidy-check`,
+  `cmake -DMODE=check -P tools/qa/qa-tracker.cmake`, `git diff --check`, and
+  `ctest --preset dev -R wide_eye.gameplay_simulation_stack_budget` all pass.
+- Evidence files:
+  `artifacts/phase3/2026-08-22/qa-003-avoidance-flap/` (gitignored).
+
+**What this fix does not close.** The stability oracle's widened flap allowance
+for avoidance and the applied sum is tightened from `20` per hundred ticks with a
+run of `25` to `8` with a run of `20`, but it does not reach the continuous-term
+`5`/`4`. The remainder is a different mechanism, filed as
+[QA-005](../open/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md):
+the response is decided by distance alone rather than by the closing it corrects,
+so a sheep a hundredth clear of a face with a near-parallel heading, and the
+binary drop half, still alternate. The attribution experiment above is what
+separates the two. Correcting that means changing the *shape* of an accepted
+response, including a section of ADR 0008 that considered and rejected grading
+the drop, so it is an owner decision rather than part of this fix.

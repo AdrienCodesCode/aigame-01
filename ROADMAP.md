@@ -135,11 +135,12 @@
   zero bound/speed/turn/arousal breaches, zero non-finite values, no behavior
   round trip, a closest approach to the closed wall line of exactly one body
   radius, and zero allocations. It also found and filed
-  [QA-003](docs/qa/open/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md)
-  (S2, confirmed): obstacle avoidance alternates between its full maximum and
-  exactly zero for a sheep held in contact with a wall face, 90 flaps in 600
-  ticks with a run of 23 consecutive ticks, against 16 and 3 for the worst
-  continuous term. The stack-budget guard stays green — the smallest `ulimit -s`
+  [QA-003](docs/qa/closed/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md)
+  (S2, confirmed, since fixed — see the QA line below): obstacle avoidance
+  alternated between its full maximum and exactly zero for a sheep held in
+  contact with a wall face, 90 flaps in 600 ticks with a run of 23 consecutive
+  ticks, against 16 and 3 for the worst continuous term. The stack-budget guard
+  stays green — the smallest `ulimit -s`
   at which the binary exits 0 moved from `185` to `190` KiB (`dev`), stayed at
   `160` KiB (`release`), and moved from `220` to `225` KiB (`dev-sanitized`),
   against the named 512 KiB budget. Native Windows/Linux graphics and the
@@ -153,6 +154,48 @@
   [stack headroom measurement](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/stack-headroom.txt),
   and
   [verification gates](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/verification-gates.txt).
+- **QA session (2026-08-22, one issue closed, one filed):**
+  [QA-003](docs/qa/closed/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md)
+  is fixed in the obstacle query rather than in the steering caller: a reported
+  contact now lies at or ahead of the body, and touching a shape's boundary while
+  travelling along it is not being inside it — the same strict convention the
+  hard clip already uses for the axis a body is not moving along.
+  [ADR 0008](docs/decisions/0008-obstacle-and-drop-avoidance.md) carries the
+  reasoning as a dated correction section. On WSL Ubuntu 24.04.4 the `dev` and
+  `dev-sanitized` (Clang 18.1.3) and `release` (GNU 13.3.0) configurations each
+  built and passed 25/25 CTests; formatting, bounded clang-tidy, the QA tracker
+  check, `git diff --check`, and `wide_eye.gameplay_simulation_stack_budget` all
+  passed. A new fixture that puts three sheep at the wall line — two on
+  it, one a hundredth of a unit clear — with a stationary dog pressing them onto
+  it measured the reported oscillation at 81 flaps in 240 ticks against `HEAD`
+  (`12700d0`) and 0 with the fix. The 600-tick diagnostic run's worst sheep moved
+  from 90 flaps with a run of 23 to 27 with a run of 10 for avoidance, and from
+  77/17 to 44/17 for the applied sum, so the recorded flap allowance for those
+  two tightens from 20 per hundred ticks with a run of 25 to 8 with a run of 20 —
+  not yet the 5/4 the continuous terms meet. **No accepted measurement changed
+  and none had to be re-derived**: the whole `wide_eye.gameplay_simulation` key
+  report was diffed against `HEAD` and the avoidance clip counts (0 on, 4 off),
+  the closest approach of `0.758357`, the alignment polarization `0.824621` off
+  versus `0.924042` on, and every first-tick dog-term observation are unchanged;
+  only the diagnostic run's own stability counts moved. Standalone 240-tick state
+  dumps of all 30 named scenarios are byte-identical to `HEAD` except
+  `sheep-all-influences-diagnostic`, which first differs at tick 113 — the first
+  tick in any fixture where a sheep is held on a contact face, and where the term
+  now publishes nothing and lets the clip refuse the axis. The remaining
+  oscillation is a different mechanism, filed as
+  [QA-005](docs/qa/open/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md)
+  (S2, confirmed): the response is decided by distance alone rather than by the
+  closing it corrects, so a sheep a hundredth of a unit clear of a face with a
+  near-parallel heading, and the binary drop half, still alternate. Switching the
+  drop half off in a standalone build is what separates the two — `HEAD` measures
+  71 flaps with a run of 23 there and the fixed tree 11 with a run of 2, inside
+  the continuous-term allowance. Fixing QA-005 means changing the shape of an
+  accepted response, including the ADR 0008 section that considered and rejected
+  grading the drop, so it is an owner decision rather than a defect fix.
+  Evidence: [`paddock_collision.cpp`](src/game/paddock_collision.cpp),
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp), and the
+  ignored
+  [QA-003 evidence set](artifacts/phase3/2026-08-22/qa-003-avoidance-flap/).
 - **Prior verification run (2026-08-21, behavior transitions and arousal):** on WSL
   Ubuntu 24.04.4, the development and ASan/UBSan configurations (Clang 18.1.3)
   and the Release configuration (GNU 13.3.0) each built and passed 24/24 CTests; project formatting and
@@ -579,13 +622,18 @@
   accepted tuned gameplay**: it is synthetic causal evidence, no owner has seen
   the motion it produces, and it never occludes the dog, so line of sight remains
   evidenced only by its own paired fixture. And the stability measure it stands
-  on currently *accepts* one real oscillation rather than forbidding it: obstacle
-  avoidance alternates between its full `4.0` maximum and exactly zero for a
-  sheep held in contact with a wall face, filed as
-  [QA-003](docs/qa/open/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md),
-  and the flap allowance for avoidance and for the applied sum is deliberately
-  four times the one every continuous term is held to, naming that issue as its
-  reason until it closes.
+  on still *accepts* a real oscillation rather than forbidding it. The half of it
+  that was
+  [QA-003](docs/qa/closed/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md)
+  — a sheep held in contact with a wall face alternating between the full `4.0`
+  maximum and exactly zero — is fixed. What remains is
+  [QA-005](docs/qa/open/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md):
+  the response is decided by distance alone rather than by the closing it
+  corrects, so a sheep a hundredth of a unit clear of a face with a near-parallel
+  heading, and the binary drop half, still alternate. The flap allowance for
+  avoidance and for the applied sum is therefore still above the one every
+  continuous term is held to — `8` flaps per hundred ticks with a run of `20`
+  against `5` and `4` — and now names QA-005 as its reason until that closes.
 - **Toolchain correction (observed result, 2026-08-22):** the checked-in presets
   do not pin a compiler. On this host `dev` and `dev-sanitized` are configured
   with Clang 18.1.3 while `release` is configured with the default `c++`, GNU
@@ -1666,13 +1714,17 @@ scope. Evidence: the archived
   zero, because a body touching the swept obstacle rectangle contacts it at
   distance zero and the linear falloff turns that into maximum urgency, while a
   billionth of a unit of separation reports nothing ahead. Filed as
-  [QA-003](docs/qa/open/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md)
+  [QA-003](docs/qa/closed/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md)
   (S2, confirmed) rather than fixed, because changing it changes an accepted
   rule. The standing check therefore holds the six continuous terms to `5` flaps
   per hundred ticks with a run of `4`, and holds avoidance and the applied sum to
-  a **deliberately looser recorded allowance** of `20` per hundred with a run of
-  `25` that names QA-003 as its reason; closing the issue should tighten both to
-  the continuous values. One new fixture was added:
+  a **deliberately looser recorded allowance**. That allowance was `20` per
+  hundred with a run of `25` when this item was recorded; QA-003 was fixed on
+  2026-08-22, the same run now measures `27`/`10` for avoidance and `44`/`17` for
+  the applied sum, and the allowance is `8` per hundred with a run of `20`,
+  naming [QA-005](docs/qa/open/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md)
+  — the bang-bang response that remains — as its reason. One new fixture was
+  added:
   `sheep-all-influences-diagnostic`, version 1, seed 0, the only fixture that
   enables every rule at once. **It is a diagnostic, not accepted tuned
   gameplay** — no owner has reviewed the motion it produces, its numbers are not
@@ -1689,13 +1741,14 @@ scope. Evidence: the archived
   synthetic causal evidence rather than player-facing motion acceptance; the dog
   is never occluded in it (`0` occluded sheep-ticks), so line of sight is still
   evidenced only by its own paired fixture; the flap allowance for avoidance and
-  the applied sum currently *accepts* the QA-003 oscillation rather than
-  forbidding it; and determinism is proven on one host and one architecture —
+  the applied sum still *accepts* an oscillation rather than forbidding it —
+  QA-003's half of it is fixed and QA-005's half is not; and determinism is
+  proven on one host and one architecture —
   WSL Ubuntu 24.04.4 on x86-64, Clang 18.1.3 and GNU 13 — which is not a
   cross-platform determinism claim. Evidence:
   [`gameplay_scenario.cpp`](src/game/gameplay_scenario.cpp),
   [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp),
-  [QA-003](docs/qa/open/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md),
+  [QA-003](docs/qa/closed/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md),
   and the ignored
   [oracle output](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/gameplay-simulation-oracle.txt),
   [accepted-scenario comparison](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/accepted-scenario-state-diff.txt),

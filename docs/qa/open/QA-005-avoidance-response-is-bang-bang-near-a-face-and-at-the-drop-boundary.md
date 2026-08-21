@@ -1,0 +1,161 @@
+---
+id: QA-005
+title: Obstacle avoidance answers a grazing approach and a drop with a near-maximum push, so a sheep alternates between most of the maximum and zero
+status: open
+severity: S2
+confidence: confirmed
+area: game
+reporter: agent
+reported: 2026-08-22
+phase: 3
+platform: wsl-ubuntu-24.04
+rule: docs/decisions/0008-obstacle-and-drop-avoidance.md
+verify:
+  - wide_eye.gameplay_simulation
+  - wide_eye.gameplay_simulation_stack_budget
+  - label:unit
+  - label:sanitizer
+---
+
+## Symptom
+
+Obstacle and drop avoidance publishes a push whose size is decided by *distance
+alone*, so a sheep that is barely closing on something gets nearly the whole
+term. The push then removes the closing it was answering, the next tick sees
+nothing, whatever was pressing the sheep restores the approach, and the term
+alternates. Two shapes of this were measured; both survive the QA-003 fix, which
+corrected a different mechanism (a contact reported through a face behind the
+body).
+
+Observed result (2026-08-22, WSL Ubuntu 24.04.4, Clang 18.1.3, `dev` preset,
+working tree with the QA-003 fix applied).
+
+**A grazing approach.** In the new `sheep_avoidance_contact_*` fixture — three
+sheep on the paddock's wall line with one stationary dog pressing them onto it —
+the sheep that starts `0.01` above the line flaps **36 times in 240 ticks**, on a
+two-to-four tick cycle, with no contact and no drop involved:
+
+```
+tick=  2 sheep=2 prior_z=16.509827 prior_v=(1.010414, -0.010380) obstacle=left_wall distance=0.956672 push=(2.395487, 2.395487)
+tick=  3 sheep=2 prior_z=16.510148 prior_v=(1.060711, +0.019265) obstacle=none      distance=0.000000 push=(0.000000, 0.000000)
+tick=  6 sheep=2 prior_z=16.510101 prior_v=(1.091559, -0.010951) obstacle=left_wall distance=1.006812 push=(2.372796, 2.372796)
+tick=  7 sheep=2 prior_z=16.510413 prior_v=(1.141292, +0.018734) obstacle=none      distance=0.000000 push=(0.000000, 0.000000)
+```
+
+The sheep is `0.0098` above the face closing at `0.0104` world units/s. Its swept
+body reaches the face `0.96` along its path, so the linear falloff answers with
+`3.39` of the term's `4.0`. Stopping that closing inside that clearance needs
+about `0.005`; the term applies roughly seven hundred times that, the sheep is
+lifted off its approach in one tick, and the cycle repeats. The count is
+identical at `HEAD` (`12700d0`) and after the QA-003 fix — this mechanism is
+untouched by it.
+
+**The drop boundary.** The drop half is binary by the accepted design, at the
+full maximum whatever the distance, so a sheep whose look-ahead probe sits near
+the paddock bound toggles a `4.0` brake on and off as its heading wanders. In the
+600-tick `sheep-all-influences-diagnostic` run this is what the remaining
+stability-oracle flaps are: worst sheep `27` avoidance flaps with a run of `10`,
+and `44` applied-sum flaps with a run of `17`, against `5`/`4` for the six
+continuous terms. Because the brake points straight back along the approach, it
+reverses the sheep it slows, which reverses the probe direction, which switches
+the answer — a bang-bang controller with no dead zone.
+
+Reproduce:
+
+```bash
+cmake --build --preset dev
+ctest --preset dev -R wide_eye.gameplay_simulation
+./build/Linux/dev/wide_eye_gameplay_simulation_tests | grep -E "contact_face_grazing_flaps|stability_avoidance_worst|stability_applied_worst"
+```
+
+## Investigation
+
+Observed result, same build, date, and platform.
+
+- [`gameplay_simulation.cpp:637`](../../../src/game/gameplay_simulation.cpp#L637)
+  computes `urgency = 1 - contact_distance / look_ahead` and multiplies the
+  term's maximum by it. `contact_distance` is measured *along the sheep's path*,
+  so for a grazing approach it is `perpendicular_clearance / sin(angle)` — a
+  quantity that says nothing about how fast the sheep is closing. The same
+  clearance approached at a hundredth of a radian and at a right angle produce
+  wildly different distances and therefore wildly different pushes, and the
+  shallow one is the case where the push is least warranted.
+- [`gameplay_simulation.cpp:650`](../../../src/game/gameplay_simulation.cpp#L650)
+  applies `-travel * maximum_acceleration` whenever the ground under the
+  look-ahead point is not finite, with no distance term at all. This is the
+  accepted design: [ADR 0008](../../decisions/0008-obstacle-and-drop-avoidance.md)
+  records *why* the drop response is binary and rejects clipping the probe
+  against the paddock's outer bounds.
+
+Attribution measured by switching the drop half off in a standalone
+`clang++-18 -std=c++23 -I src` build of the game sources (experiment only, not a
+change to the tree), worst sheep over the same 600-tick diagnostic run:
+
+| build | drop half | avoidance flaps / run | applied flaps / run |
+| --- | --- | --- | --- |
+| `HEAD` `12700d0` | on | `90` / `23` | `77` / `17` |
+| QA-003 fixed | on | `27` / `10` | `44` / `17` |
+| `HEAD` `12700d0` | off | `71` / `23` | `94` / `17` |
+| QA-003 fixed | off | `11` / `2` | `10` / `2` |
+
+With the drop half switched off, the QA-003 fix takes the term from `71` flaps
+with a run of `23` to `11` with a run of `2` — inside the `30`/`4` allowance every
+continuous term meets. The remaining flaps in the shipped run are therefore the
+drop half and the grazing case above, not the contact face QA-003 named.
+
+Inference: both are the same defect stated twice — the response is decided by
+*where* the geometry is and not by *how fast the sheep is closing on it*, so it
+overshoots by orders of magnitude whenever the closing is slow, and an
+overshooting response that removes its own input oscillates.
+
+## Root cause
+
+The magnitude of both halves is a function of position and direction only.
+Obstacle urgency uses the along-path contact distance, which is not a measure of
+approach; the drop half uses no distance at all. A term whose output is
+near-maximal for an arbitrarily small closing rate necessarily reverses that
+closing in one tick, which removes the condition that produced the output, so the
+term alternates rather than settling.
+
+## Expected behavior
+
+[ADR 0008](../../decisions/0008-obstacle-and-drop-avoidance.md) states continuity
+as a property it wants — "the boundary is continuous rather than a step" — and
+derives its magnitudes from an energy argument (`L = v² / A`) that is explicitly
+about the *speed* a sheep is travelling at the face. A response consistent with
+that derivation would scale with the closing the sheep actually has, so a sheep
+grazing a face at a hundredth of a unit per second would feel a hundredth of the
+push a sheep driving straight at it feels, and the drop half would fall off with
+distance the way the obstacle half does.
+
+## Fix notes
+
+Scope: `apply_avoidance` in `src/game/gameplay_simulation.cpp`. Possibly nothing
+else — the obstacle query already reports the face normal the closing rate would
+be measured against, and the drop half's distance can be located along the probe
+with repeated `ground_height` calls without adding a query or a shape.
+
+**This is a redesign of an accepted rule, not a defect fix, and it needs an owner
+decision before it is written.** ADR 0008 considered and rejected grading the drop
+response; changing it means amending that section rather than correcting a slip.
+Two candidate shapes, both needing that decision:
+
+1. Scale the obstacle half by the component of travel into the named face. Head-on
+   approaches are unchanged (the component is exactly `1`), grazing approaches
+   fall to nearly nothing, and the term becomes continuous as the path turns
+   parallel. Measured as an experiment on 2026-08-22 this moved the worst sheep
+   from `27`/`10` to `6`/`3` for two sheep in the diagnostic run while *raising* a
+   third to `46`/`9`, because the drop half then dominates — so it is not
+   sufficient alone.
+2. Give the drop half a distance by marching `ground_height` along the probe and
+   applying the same linear falloff. Deterministic and allocation-free, but it
+   overturns ADR 0008's "Why the drop response is binary", changes every
+   avoidance-enabled scenario, and needs a stated sampling resolution.
+
+Whichever is chosen, the accepted `sheep-avoidance-on` numbers — zero clips with
+the term on against four with it off, closest approach `0.758357` — must be
+re-proved or re-derived as a deliberate correction, and the flap allowances in
+`wide_eye.gameplay_simulation` (`8` per hundred ticks with a run of `20` for
+avoidance and the applied sum, against `5`/`4` for the continuous terms) and the
+grazing allowance in the contact fixture (`40` flaps in 240 ticks) should then
+come down to the continuous values.

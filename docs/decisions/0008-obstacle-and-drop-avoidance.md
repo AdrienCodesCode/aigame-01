@@ -1,6 +1,7 @@
 # ADR 0008: Steering-level obstacle and drop avoidance
 
-**Status:** Accepted
+**Status:** Accepted; near-boundary contact behavior corrected 2026-08-22 (see
+[Correction — the near boundary](#correction--the-near-boundary-2026-08-22-qa-003))
 **Date:** 2026-08-21
 **Decision owner:** Project owner
 
@@ -179,3 +180,73 @@ procedural terrain is when this half gets a real test.
   navigate: there is no route planning, no memory of what a sheep has already
   bounced off, and no interaction between avoidance and the unimplemented
   behavior states.
+
+## Correction — the near boundary (2026-08-22, QA-003)
+
+This section corrects the decision above rather than restating it. It was written
+after [QA-003](../qa/closed/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md)
+measured the rule as accepted and found the near end of the look-ahead
+discontinuous at exactly the position the collision authority parks a sheep at.
+
+**What was wrong.** `approaching_obstacle` treated a body that merely touched the
+boundary of a radius-expanded rectangle as being inside it, and clamped a
+negative entry fraction to zero so that such a body was reported as contacting
+the shape *now*, at a distance of zero, through whichever slab it had entered
+last — for a body travelling along a face, one it had already passed. The linear
+falloff turned that zero distance into the term's full maximum, pointing
+backwards along the sheep's own travel. Because that push moved the sheep off the
+contact line, the next tick reported nothing at all, and any influence that
+pressed the sheep back onto the face restarted the cycle: the term alternated
+between `4.0` and exactly `0` for as long as a sheep was held on a wall.
+
+**What changed.** Two corrections, both inside the query, neither touching the
+collision authority:
+
+- A reported contact now always lies **at or ahead of the body**. A body already
+  inside an expanded rectangle has no face ahead of it and reports no obstacle;
+  pushing such a body out belongs to the collision authority, and
+  [QA-001](../qa/open/QA-001-paddock-collision-radius-band-passthrough.md) is
+  where what the authority does with it is tracked.
+- Touching a rectangle's boundary while travelling along it is **not** being
+  inside it. `overlaps`, the test the hard clip applies to the axis a body is not
+  moving along, is strict for exactly this reason — it is what lets a body parked
+  at face plus radius slide along that face — so the sweep now agrees with it.
+  This is the decision's own promise that the shape a sheep steers around and the
+  shape that refuses its displacement can never be two different shapes.
+
+**What a contact distance of zero now means, and why that is the right answer.**
+It means the body is touching the face it is moving into, right now, and the
+falloff's maximum is the correct response to it: it points out of that face and
+it is the *same* answer on every tick the sheep keeps pressing into it, so a
+sheep held against a wall gets a steady push rather than an alternating one. A
+sheep travelling along a face it touches gets nothing, which is this decision's
+accepted "a sheep standing beside a wall, or running parallel to one, feels
+nothing at all" applied at zero clearance. The alternative — a nonzero response
+for a body touching a face and travelling along it — was rejected on the
+evidence: any such push moves the body off the contact, the term then switches
+off, and the alternation returns. Making it continuous instead would require the
+graded proximity repulsion this decision already rejected as proximity-aware
+rather than direction-aware.
+
+**Continuity.** The far boundary was already continuous; the near boundary now is
+too. `0.5` clear of a face still reports `0.5`, a hundredth clear still reports a
+hundredth of the way along the path, and zero clear reports zero. The step that
+used to sit between "touching" and "a billionth clear" is gone.
+
+**What did not change.** No published field, contract version, scenario, or
+magnitude. Measured on WSL Ubuntu 24.04.4 with Clang 18.1.3, the canonical state
+dumps of 29 of the 30 named scenarios are byte-identical over 240 scripted ticks;
+only `sheep-all-influences-diagnostic` differs, first at tick 113, which is the
+first tick in any fixture where a sheep is held on a contact face. Every accepted
+avoidance measurement is unchanged, including zero clips with the term on against
+four with it off, and a closest approach to the wall face of `0.758357`.
+
+**What is still wrong, and is not corrected here.** The response is bang-bang
+rather than proportional to the closing it corrects. A sheep a hundredth of a
+unit clear of a face with a near-parallel heading has its contact a full unit
+ahead, so the falloff answers with most of the maximum — a push hundreds of times
+larger than the closing rate justifies — and the drop half remains binary by the
+design above. Both still alternate on a two-to-four tick cycle, and both are
+filed as [QA-005](../qa/open/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md).
+Correcting them means changing the *shape* of the response, which is a decision
+for this ADR's owner rather than a defect fix.

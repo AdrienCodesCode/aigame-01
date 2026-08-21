@@ -1664,6 +1664,297 @@ AvoidanceOracle run_avoidance_oracle() {
     return result;
 }
 
+// The names the state dump already uses, so the run report can say which shape a
+// contact-face answer named without exporting a formatting helper from `game`.
+std::string_view obstacle_name(wide_eye::game::PaddockObstacle obstacle) {
+    switch (obstacle) {
+    case wide_eye::game::PaddockObstacle::none:
+        return "none";
+    case wide_eye::game::PaddockObstacle::left_wall:
+        return "left_wall";
+    case wide_eye::game::PaddockObstacle::right_wall:
+        return "right_wall";
+    case wide_eye::game::PaddockObstacle::gate:
+        return "gate";
+    }
+    return "unknown";
+}
+
+// What the contact-face regression observed, returned so the run report can name
+// the numbers without keeping the fixtures alive in `main`.
+struct AvoidanceContactOracle {
+    bool passed = false;
+    std::uint64_t ticks = 0;
+    std::uint64_t clip_ticks = 0;
+    std::uint64_t parallel_flaps = 0;
+    std::uint64_t turning_flaps = 0;
+    std::uint64_t grazing_flaps = 0;
+    std::uint64_t grazing_flap_allowance = 0;
+    double contact_line_z = 0.0;
+    double minimum_published_distance = 0.0;
+    double into_face_magnitude = 0.0;
+    wide_eye::game::SheepAvoidanceEvidence parallel_contact{};
+    wide_eye::game::SheepAvoidanceEvidence just_clear{};
+    wide_eye::game::SheepAvoidanceEvidence into_face{};
+    wide_eye::game::SheepAvoidanceEvidence drop_at_bound{};
+    wide_eye::game::SheepAvoidanceEvidence drop_past_bound{};
+};
+
+AvoidanceContactOracle run_avoidance_contact_oracle() {
+    AvoidanceContactOracle result;
+    // QA-003. The hard clip parks a sheep at a wall face plus one body radius
+    // and then lets it slide along that face, because the overlap test it uses
+    // for the axis a body is *not* moving along is strict. The look-ahead sweep
+    // used to disagree: it called the same body a contact at distance zero, and
+    // named as "the face it meets" whichever slab the body had entered last —
+    // for a body travelling along a face, one it had already passed. The linear
+    // falloff turned that zero distance into the term's full maximum, pointing
+    // backwards along the sheep's own travel, and because that push moved the
+    // sheep off the contact line the next tick saw nothing at all, so a sheep
+    // held on a face alternated between the maximum and exactly zero.
+    //
+    // The fix is in the query: a reported contact now always lies at or ahead of
+    // the body, and touching a rectangle's boundary while travelling along it is
+    // not being inside it. This oracle pins both the geometry and the dynamics,
+    // because the defect was only visible when something held a sheep on the
+    // line for many consecutive ticks.
+    using wide_eye::game::PaddockObstacle;
+    using wide_eye::game::Vec3;
+    constexpr double kLookAhead = 6.25;
+    constexpr double kMaximumAcceleration = 4.0;
+    constexpr double kRadius = wide_eye::game::kSheepCollisionRadius;
+    // Every paddock shape's north face is at `z = 16`, so one contact line runs
+    // the width of the paddock and a sheep can slide along all three shapes.
+    constexpr double kContactLineZ = 16.0 + kRadius;
+    constexpr double kSlideSpeed = 1.0;
+    constexpr double kTurnSpeed = 0.5;
+    constexpr double kJustClear = 0.01;
+    constexpr std::uint64_t kContactTicks = 240;
+    result.ticks = kContactTicks;
+    result.contact_line_z = kContactLineZ;
+    result.minimum_published_distance = std::numeric_limits<double>::infinity();
+
+    const wide_eye::game::PaddockCollisionField closed_field{false};
+    // The query on its own, at the exact positions the clip produces. A body on
+    // the line travelling along it reaches nothing; the same body turning into
+    // the face reaches it *now*, at a distance of exactly zero and through the
+    // face it is actually entering; and a body already inside the expanded
+    // rectangle — the QA-001 radius band — has no face ahead of it at all.
+    const auto along_the_face = closed_field.approaching_obstacle({.x = 7.0, .z = kContactLineZ},
+                                                                  {.x = 1.0}, kLookAhead, kRadius);
+    const auto into_the_face = closed_field.approaching_obstacle(
+        {.x = 7.0, .z = kContactLineZ}, {.x = 1.0, .z = -1.0}, kLookAhead, kRadius);
+    const auto inside_the_band = closed_field.approaching_obstacle(
+        {.x = 7.0, .z = 16.0 + kRadius / 2.0}, {.x = 1.0}, kLookAhead, kRadius);
+    const auto just_clear_along = closed_field.approaching_obstacle(
+        {.x = 7.0, .z = kContactLineZ + kJustClear}, {.x = 1.0}, kLookAhead, kRadius);
+    const auto half_clear_into = closed_field.approaching_obstacle(
+        {.x = 7.0, .z = kContactLineZ + kRadius}, {.z = -1.0}, kLookAhead, kRadius);
+    const auto at_the_look_ahead = closed_field.approaching_obstacle(
+        {.x = 7.0, .z = kContactLineZ + kLookAhead}, {.z = -1.0}, kLookAhead, kRadius);
+    if (!check(along_the_face.obstacle == PaddockObstacle::none &&
+                   along_the_face.face_normal == Vec3{} &&
+                   just_clear_along.obstacle == PaddockObstacle::none,
+               "a_body_travelling_along_a_face_it_touches_reaches_no_obstacle") ||
+        !check(into_the_face.obstacle == PaddockObstacle::left_wall &&
+                   into_the_face.contact_distance == 0.0 &&
+                   into_the_face.face_normal == Vec3{.z = 1.0},
+               "a_body_turning_into_the_face_it_touches_reaches_it_at_zero") ||
+        !check(inside_the_band.obstacle == PaddockObstacle::none,
+               "a_body_already_inside_an_expanded_rectangle_reaches_no_obstacle") ||
+        // The distances either side of the contact line are unchanged, so the
+        // near boundary is now continuous in the same way the far one was.
+        !check(half_clear_into.obstacle == PaddockObstacle::left_wall &&
+                   half_clear_into.contact_distance == kRadius &&
+                   at_the_look_ahead.obstacle == PaddockObstacle::left_wall &&
+                   at_the_look_ahead.contact_distance == kLookAhead,
+               "the_distances_either_side_of_the_contact_line_are_unchanged")) {
+        return result;
+    }
+
+    // The dynamics. Two sheep sit on the contact line while a stationary dog
+    // presses them onto it, which is the configuration QA-003 reproduced: the
+    // clip refuses the `z` axis every tick and clears that velocity component,
+    // so each of them begins every tick exactly on the line travelling exactly
+    // along it. A third starts a hundredth clear of the same line, which is
+    // QA-005's grazing case rather than this one. Two more sit either side of
+    // the drop boundary. Every one of them is at least one body radius clear of
+    // every obstacle face, so none of them starts inside the radius band QA-001
+    // is about.
+    const auto avoid_on_scenario = wide_eye::game::find_gameplay_scenario("sheep-avoidance-on");
+    if (!check(avoid_on_scenario.has_value(), "the_contact_fixture_has_a_paired_parent")) {
+        return result;
+    }
+    auto contact_scenario = *avoid_on_scenario;
+    contact_scenario.dog.initial_state = {
+        .position = {.x = 8.0, .y = 1.0, .z = 19.5}, .heading_radians = 0.0, .grounded = true};
+    // Dog pressure is the influence that holds a sheep against a face in play,
+    // and it is the one QA-003 observed doing it. Nothing else is enabled, so
+    // every published avoidance vector below is the term's own answer.
+    contact_scenario.sheep_dog_pressure = {.enabled = true};
+    contact_scenario.initial_sheep = {{
+        {.id = 1,
+         .position = {.x = 9.0, .y = 1.0, .z = kContactLineZ},
+         .velocity = {.x = kSlideSpeed},
+         .heading_radians = 1.57079632679489661923,
+         .grounded = true},
+        {.id = 2,
+         .position = {.x = 11.0, .y = 1.0, .z = kContactLineZ + kJustClear},
+         .velocity = {.x = kSlideSpeed},
+         .heading_radians = 1.57079632679489661923,
+         .grounded = true},
+        {.id = 3,
+         .position = {.x = 13.0, .y = 1.0, .z = kContactLineZ},
+         .velocity = {.x = kSlideSpeed, .z = -kTurnSpeed},
+         .heading_radians = 1.57079632679489661923,
+         .grounded = true},
+        // Either side of the drop boundary, out of the dog's reach so their
+        // first-tick answers are the drop half alone. The probe of the first
+        // lands exactly on the paddock's own bound, where the ground is still
+        // finite; the probe of the second lands a hundredth past it.
+        {.id = 4,
+         .position = {.x = kLookAhead, .y = 1.0, .z = 27.0},
+         .velocity = {.x = -3.0},
+         .heading_radians = -1.57079632679489661923,
+         .grounded = true},
+        {.id = 5,
+         .position = {.x = kLookAhead - kJustClear, .y = 1.0, .z = 29.0},
+         .velocity = {.x = -3.0},
+         .heading_radians = -1.57079632679489661923,
+         .grounded = true},
+    }};
+
+    const SimulationHandle contact = make_simulation(contact_scenario);
+    std::array<Vec3, 3> previous_push{};
+    std::array<bool, 3> previous_live{};
+    bool contact_line_held = true;
+    bool every_published_distance_is_forward = true;
+    for (std::uint64_t tick = 1; tick <= kContactTicks; ++tick) {
+        contact->fixed_update({});
+        const auto& snapshot = contact->current_snapshot();
+        if (tick == 1) {
+            result.parallel_contact = evidence_with_id(snapshot.sheep_avoidance_evidence, 1);
+            result.just_clear = evidence_with_id(snapshot.sheep_avoidance_evidence, 2);
+            result.into_face = evidence_with_id(snapshot.sheep_avoidance_evidence, 3);
+            result.drop_at_bound = evidence_with_id(snapshot.sheep_avoidance_evidence, 4);
+            result.drop_past_bound = evidence_with_id(snapshot.sheep_avoidance_evidence, 5);
+            result.into_face_magnitude = std::hypot(result.into_face.avoidance_acceleration.x,
+                                                    result.into_face.avoidance_acceleration.z);
+        }
+        for (std::uint32_t id = 1; id <= 3; ++id) {
+            const auto& member = sheep_with_id(snapshot.sheep, id);
+            const auto& contact_evidence = evidence_with_id(snapshot.sheep_collision_evidence, id);
+            const auto& avoid = evidence_with_id(snapshot.sheep_avoidance_evidence, id);
+            const std::size_t slot = id - 1;
+            // Sheep 2 starts a hundredth clear and is pressed down onto the line
+            // within the window, so the assertion is that no sheep is ever
+            // *below* the line and that the ones on it stay exactly on it.
+            contact_line_held = contact_line_held && member.position.z >= kContactLineZ;
+            if (contact_evidence.clipped_z) {
+                ++result.clip_ticks;
+                contact_line_held = contact_line_held && member.position.z == kContactLineZ;
+            }
+            if (avoid.obstacle != PaddockObstacle::none) {
+                every_published_distance_is_forward =
+                    every_published_distance_is_forward && avoid.obstacle_distance >= 0.0;
+                result.minimum_published_distance =
+                    std::min(result.minimum_published_distance, avoid.obstacle_distance);
+            }
+            const Vec3 push = avoid.avoidance_acceleration;
+            const bool live = std::hypot(push.x, push.z) > 1.0e-6;
+            bool unsettled = false;
+            if (tick > 1) {
+                unsettled =
+                    live != previous_live[slot] ||
+                    (live && push.x * previous_push[slot].x + push.z * previous_push[slot].z < 0.0);
+            }
+            if (unsettled) {
+                if (id == 1) {
+                    ++result.parallel_flaps;
+                } else if (id == 3) {
+                    ++result.turning_flaps;
+                } else {
+                    ++result.grazing_flaps;
+                }
+            }
+            previous_push[slot] = push;
+            previous_live[slot] = live;
+        }
+    }
+
+    if (!check(result.parallel_contact.avoidance_evaluated &&
+                   result.parallel_contact.obstacle == PaddockObstacle::none &&
+                   result.parallel_contact.obstacle_distance == 0.0 &&
+                   !result.parallel_contact.drop_ahead &&
+                   result.parallel_contact.avoidance_acceleration == Vec3{},
+               "a_sheep_touching_the_face_it_slides_along_is_left_alone") ||
+        !check(result.just_clear.avoidance_evaluated &&
+                   result.just_clear.obstacle == PaddockObstacle::none &&
+                   result.just_clear.avoidance_acceleration == Vec3{},
+               "a_sheep_a_hundredth_clear_of_the_same_face_answers_the_same") ||
+        // "Already as close as the geometry allows" is what a contact distance
+        // of zero now means, and the response to it is the term's maximum
+        // through the face the sheep is entering — outward, plus the way round
+        // — rather than a brake pointing back down its own path.
+        !check(result.into_face.avoidance_evaluated &&
+                   result.into_face.obstacle == PaddockObstacle::left_wall &&
+                   result.into_face.obstacle_distance == 0.0 &&
+                   result.into_face.avoidance_acceleration.z > 0.0 &&
+                   result.into_face.avoidance_acceleration.x ==
+                       result.into_face.avoidance_acceleration.z &&
+                   std::abs(result.into_face_magnitude - kMaximumAcceleration) < 1.0e-12,
+               "a_sheep_touching_the_face_it_turns_into_gets_the_maximum_outward")) {
+        return result;
+    }
+
+    if (!check(result.clip_ticks > 0 && contact_line_held,
+               "the_hard_clip_held_the_flock_on_the_contact_line_throughout") ||
+        !check(every_published_distance_is_forward && result.minimum_published_distance >= 0.0,
+               "every_published_contact_distance_lies_ahead_of_the_sheep") ||
+        // The defect itself: before the fix these two sheep alternated between
+        // the term's full maximum and exactly zero for as long as the dog held
+        // them on the line. A settled term switches once, when the sheep stops
+        // turning into the face, and never again.
+        !check(result.parallel_flaps == 0,
+               "a_sheep_held_on_a_contact_face_publishes_one_settled_answer") ||
+        !check(result.turning_flaps <= 1,
+               "a_sheep_that_stops_turning_into_a_face_settles_once_and_stays_settled")) {
+        return result;
+    }
+
+    // Sheep 2 is **not** held to that bound, and the allowance below is a defect
+    // record rather than a design choice. It is pressed onto the line rather
+    // than sitting on it, so for as long as it is a hundredth of a unit clear
+    // with a near-parallel heading, its swept body reaches the face about one
+    // unit ahead and the falloff answers with most of the term's maximum — a
+    // push hundreds of times larger than the closing it corrects. That push
+    // lifts the sheep off the approach, the next tick sees nothing, and dog
+    // pressure presses it back: a two-to-four tick cycle with no contact and no
+    // drop involved. QA-005 records the reproduction and this measured value.
+    constexpr std::uint64_t kGrazingFlapAllowance = 40;
+    result.grazing_flap_allowance = kGrazingFlapAllowance;
+    if (!check(result.grazing_flaps <= kGrazingFlapAllowance,
+               "a_grazing_sheep_flaps_no_more_than_its_recorded_allowance")) {
+        return result;
+    }
+
+    // The drop boundary, pinned as it stands. The step from nothing to the full
+    // maximum across a hundredth of a world unit is the accepted binary shape of
+    // the drop half, and it is the remaining flap source the stability oracle
+    // still records an allowance for.
+    if (!check(result.drop_at_bound.avoidance_evaluated && !result.drop_at_bound.drop_ahead &&
+                   result.drop_at_bound.avoidance_acceleration == Vec3{},
+               "a_probe_landing_exactly_on_the_paddock_bound_is_not_a_drop") ||
+        !check(result.drop_past_bound.drop_ahead &&
+                   result.drop_past_bound.avoidance_acceleration == Vec3{.x = kMaximumAcceleration},
+               "a_probe_landing_past_the_paddock_bound_is_a_drop_at_full_maximum")) {
+        return result;
+    }
+
+    result.passed = true;
+    return result;
+}
+
 // What the behavior-transition oracle observed, returned so the run report can
 // name the numbers without keeping the fixtures alive in `main`.
 struct BehaviorTransitionOracle {
@@ -2842,25 +3133,29 @@ SteeringStabilityOracle run_steering_stability_oracle() {
     //
     // The second allowance is a **defect record, not a design choice**. Six of
     // the seven terms are continuous functions of the geometry and settle.
-    // Obstacle avoidance does not: two of its answers are binary — a body
-    // touching the swept obstacle rectangle contacts it at distance zero, which
-    // the linear falloff turns into the full maximum, and the ground under the
-    // look-ahead point either exists or does not — so a sheep held against a
-    // wall face, or sitting on the drop boundary, alternates between the maximum
-    // and exactly nothing, and the applied sum inherits it. QA-003 records the
-    // reproduction and these measured values; when it closes, the two allowances
-    // become one.
+    // Obstacle avoidance does not, and the applied sum inherits whatever it
+    // does. QA-003 accounted for part of that and is closed: a body touching a
+    // swept obstacle rectangle is no longer reported as contacting it at
+    // distance zero through a face behind itself, so a sheep held on a wall face
+    // no longer alternates. What remains is QA-005: the response is bang-bang
+    // rather than proportional to the closing it corrects, so a sheep a
+    // hundredth of a unit clear of a face with a near-parallel heading, or one
+    // sitting on the drop boundary, still alternates between most of the term's
+    // maximum and exactly nothing on a two-to-four tick cycle. QA-005 records
+    // the reproduction and these measured values; when it closes, the two
+    // allowances become one.
     //
     // Each allowance is the worst value this run actually measured, rounded up:
     // the continuous terms peak at `2.67` flaps per hundred ticks with a longest
-    // run of `3` consecutive ticks, and avoidance peaks at `15.0` per hundred
-    // with a run of `23`. Rounding up rather than pinning the exact measurement
-    // keeps the check from failing on an unrelated fixture change while still
-    // failing on a term that started alternating.
+    // run of `3` consecutive ticks, avoidance peaks at `4.5` per hundred with a
+    // run of `10`, and the applied sum at `7.34` per hundred with a run of `17`.
+    // Rounding up rather than pinning the exact measurement keeps the check from
+    // failing on an unrelated fixture change while still failing on a term that
+    // started alternating.
     constexpr std::uint64_t kContinuousFlapAllowance = 5;
     constexpr std::uint64_t kContinuousFlapRunAllowance = 4;
-    constexpr std::uint64_t kBinaryFlapAllowance = 20;
-    constexpr std::uint64_t kBinaryFlapRunAllowance = 25;
+    constexpr std::uint64_t kBinaryFlapAllowance = 8;
+    constexpr std::uint64_t kBinaryFlapRunAllowance = 20;
     result.term_flap_allowance = {kContinuousFlapAllowance, kContinuousFlapAllowance,
                                   kContinuousFlapAllowance, kContinuousFlapAllowance,
                                   kContinuousFlapAllowance, kContinuousFlapAllowance,
@@ -5049,6 +5344,12 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // The QA-003 contact-face regression owns its own frame for the same reason.
+    const AvoidanceContactOracle avoidance_contact = run_avoidance_contact_oracle();
+    if (!avoidance_contact.passed) {
+        return EXIT_FAILURE;
+    }
+
     // The behavior-transition oracle owns its own frame for the same reason.
     const BehaviorTransitionOracle behavior = run_behavior_transition_oracle();
     if (!behavior.passed) {
@@ -5404,6 +5705,38 @@ int main() {
         << "sheep_avoidance_replaces_hard_collision=no\n"
         << "sheep_avoidance_verified_drop=paddock_edge_only\n"
         << "sheep_avoidance_steady_state_allocations=" << avoidance.allocations << '\n'
+        << "sheep_avoidance_contact_face_fixture=dog_pressed_against_the_wall_line\n"
+        << "sheep_avoidance_contact_face_ticks=" << avoidance_contact.ticks << '\n'
+        << "sheep_avoidance_contact_face_line_z=" << avoidance_contact.contact_line_z << '\n'
+        << "sheep_avoidance_contact_face_clip_ticks=" << avoidance_contact.clip_ticks << '\n'
+        << "sheep_avoidance_contact_face_parallel_obstacle="
+        << obstacle_name(avoidance_contact.parallel_contact.obstacle) << '\n'
+        << "sheep_avoidance_contact_face_parallel_magnitude="
+        << std::hypot(avoidance_contact.parallel_contact.avoidance_acceleration.x,
+                      avoidance_contact.parallel_contact.avoidance_acceleration.z)
+        << '\n'
+        << "sheep_avoidance_contact_face_just_clear_magnitude="
+        << std::hypot(avoidance_contact.just_clear.avoidance_acceleration.x,
+                      avoidance_contact.just_clear.avoidance_acceleration.z)
+        << '\n'
+        << "sheep_avoidance_contact_face_into_face_obstacle="
+        << obstacle_name(avoidance_contact.into_face.obstacle) << '\n'
+        << "sheep_avoidance_contact_face_into_face_distance="
+        << avoidance_contact.into_face.obstacle_distance << '\n'
+        << "sheep_avoidance_contact_face_into_face_magnitude="
+        << avoidance_contact.into_face_magnitude << '\n'
+        << "sheep_avoidance_contact_face_minimum_published_distance="
+        << avoidance_contact.minimum_published_distance << '\n'
+        << "sheep_avoidance_contact_face_parallel_flaps=" << avoidance_contact.parallel_flaps
+        << '\n'
+        << "sheep_avoidance_contact_face_turning_flaps=" << avoidance_contact.turning_flaps << '\n'
+        << "sheep_avoidance_contact_face_grazing_flaps=" << avoidance_contact.grazing_flaps << '\n'
+        << "sheep_avoidance_contact_face_grazing_flap_allowance="
+        << avoidance_contact.grazing_flap_allowance << '\n'
+        << "sheep_avoidance_contact_face_drop_at_bound="
+        << (avoidance_contact.drop_at_bound.drop_ahead ? "yes" : "no") << '\n'
+        << "sheep_avoidance_contact_face_drop_past_bound="
+        << (avoidance_contact.drop_past_bound.drop_ahead ? "yes" : "no") << '\n'
         << "sheep_behavior_fixture=exact_stimulus_curve_paired_control\n"
         << "sheep_behavior_arousal_is_physiological=no\n"
         << "sheep_behavior_arousal_range=[" << wide_eye::game::kSheepMinimumArousal << ','

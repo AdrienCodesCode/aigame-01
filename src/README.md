@@ -256,10 +256,16 @@ values — the maximum is the strongest single accepted influence and the look-a
 is exactly the room that maximum needs to stop a sheep travelling at the accepted
 maximum speed — and inherit their provisional status;
 [`ADR 0008`](../docs/decisions/0008-obstacle-and-drop-avoidance.md) records the
-rule, why the drop response is binary, and the limits left standing. The term is
-direction-aware rather than proximity-aware, so a sheep standing beside a wall or
-running parallel to one feels nothing, and a sheep with no measurable motion
-publishes an unevaluated record instead of a direction rounding invented. The
+rule, why the drop response is binary, the near-boundary correction that closed
+QA-003, and the limits left standing. The term is direction-aware rather than
+proximity-aware, so a sheep standing beside a wall or running parallel to one
+feels nothing — including at zero clearance, because a reported contact always
+lies at or ahead of the body and touching a shape's boundary while travelling
+along it is not being inside it, exactly as the hard clip's own overlap test is
+strict — and a sheep with no measurable motion publishes an unevaluated record
+instead of a direction rounding invented. A contact distance of zero therefore
+means the body is touching the face it is moving into, and the maximum it earns
+is the same answer on every tick it keeps pressing. The
 paddock's ground is finite everywhere inside its own bounds, so the only drop
 that exists today is the paddock edge. Paired `sheep-avoidance-off` and
 `sheep-avoidance-on` fixtures enable no other steering term, start every driven
