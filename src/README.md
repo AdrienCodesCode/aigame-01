@@ -100,8 +100,8 @@ configuration, and future objective fixture; the dog motor receives only its
 initial state plus the scenario's gate flag. The analytic paddock shapes, their
 `PaddockObstacle` identities, and the collision/sight-line queries over them live
 in a neutral `paddock_collision` boundary, so sheep rules never depend on a
-dog-named header and dog collision, sheep collision, and occlusion cannot
-describe three different walls. These boundaries are recorded in
+dog-named header and dog collision, sheep collision, occlusion, and the
+steering-level look-ahead cannot describe four different walls. These boundaries are recorded in
 [`ADR 0004`](../docs/decisions/0004-gameplay-scenario-ownership.md) and
 [`ADR 0005`](../docs/decisions/0005-paddock-collision-ownership.md).
 The core `FixedStepAccumulator` is the only
@@ -128,8 +128,10 @@ selection, separated social influences, and prior-state dog distance, relative
 bearing, approach speed, facing alignment, line-of-sight blocking with its named
 paddock occluder, separated pressure/approach/facing evidence, the
 combined-influence bound's pre-bound summed magnitude, applied scale, and applied
-acceleration, and the motion limits' integrated speed, applied speed scale,
-applied speed, motion direction, and applied heading change.
+acceleration, the motion limits' integrated speed, applied speed scale,
+applied speed, motion direction, and applied heading change, and avoidance's
+named obstacle ahead, its distance, whether a drop lies ahead, and the
+acceleration the term produced.
 Compatibility validation completes before replay mutation, and canonical
 compact JSON writers expose replay plus published state. The bounded
 presentation capture path can write the latter beside a frame; file decoding
@@ -229,7 +231,33 @@ so a sheep pushed sideways still moves sideways while its facing catches up, and
 that choice and its consequence. Paired `sheep-motion-limit-off` and
 `sheep-motion-limit-on` fixtures enable no steering term at all and instead give
 five sheep exact initial velocities and headings, so the two limits are the only
-thing that can change their motion. Damping, obstacle and drop avoidance, the
+thing that can change their motion. One further steering term looks at where a
+sheep is going rather than at how hard it is pushed: obstacle and drop avoidance
+probes along the sheep's own prior direction of travel, asks the same analytic
+field which shape its swept body reaches first, and pushes away from the face it
+would enter — turned exactly halfway toward the nearer free edge of that same
+shape when such an edge lies within the look-ahead, so the sheep is steered aside
+as well as slowed — while a look-ahead point whose `ground_height` is not finite
+pushes it straight back from the drop. The response falls off linearly over the
+look-ahead, both halves are held to one named maximum, and the whole thing is a
+term like every other: it publishes its own vector, that vector joins the same
+sum, the combined bound scales it identically, and it replaces nothing. The
+paddock still resolves every displacement last, and avoidance is deliberately not
+exempt from the bound, because the hard boundary rather than the steering term is
+what guarantees a wall stops a sheep. Both magnitudes are derived from accepted
+values — the maximum is the strongest single accepted influence and the look-ahead
+is exactly the room that maximum needs to stop a sheep travelling at the accepted
+maximum speed — and inherit their provisional status;
+[`ADR 0008`](../docs/decisions/0008-obstacle-and-drop-avoidance.md) records the
+rule, why the drop response is binary, and the limits left standing. The term is
+direction-aware rather than proximity-aware, so a sheep standing beside a wall or
+running parallel to one feels nothing, and a sheep with no measurable motion
+publishes an unevaluated record instead of a direction rounding invented. The
+paddock's ground is finite everywhere inside its own bounds, so the only drop
+that exists today is the paddock edge. Paired `sheep-avoidance-off` and
+`sheep-avoidance-on` fixtures enable no other steering term, start every driven
+sheep exactly half a look-ahead from the face it is heading at, and differ only by
+the avoidance switch. Damping, terrain, avoidance against an interior ledge, the
 terrain pressure factor, and behavior-state transitions remain deferred. Flock-level
 dog-relative and response-timing observables also remain deferred until their
 required behavior
@@ -248,6 +276,7 @@ meshes; the same game-owned field answers the sheep sight-line query. Version 1,
 `sheep-paddock-collision-open-gate`, `sheep-temperament-neutral`,
 `sheep-temperament-varied`, `sheep-combined-influence-off`,
 `sheep-combined-influence-on`, `sheep-motion-limit-off`, `sheep-motion-limit-on`,
+`sheep-avoidance-off`, `sheep-avoidance-on`,
 `wall-contact`, `closed-gate`, and `open-gate` gameplay definitions provide
 deterministic initialization and exact restart. The
 gameplay camera owns orbit yaw/pitch independently of dog facing; orchestration

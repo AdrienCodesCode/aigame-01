@@ -1,10 +1,10 @@
 # Gameplay replay and state-dump contracts
 
-**Status:** Version 1 seed/action/replay and version 12 dog, five-sheep, social-
+**Status:** Version 1 seed/action/replay and version 13 dog, five-sheep, social-
 evidence, dog-stimulus-evidence, sheep-temperament, sheep-collision-evidence,
-combined-influence-bound, and sheep-motion-limit state dump implemented; the
-presentation capture CLI can write a state dump, while JSON decoding and general
-replay/seed CLI integration remain pending
+combined-influence-bound, sheep-motion-limit, and sheep-avoidance state dump
+implemented; the presentation capture CLI can write a state dump, while JSON
+decoding and general replay/seed CLI integration remain pending
 
 **Last revised:** 2026-08-21
 
@@ -39,10 +39,10 @@ The contracts use four independently named versions:
   authoritative tick;
 - replay format `1` binds the tick rate, seed contract, action-input version,
   and complete action sequence;
-- state-dump format `12` records the seed contract, tick rate, restart count, and
+- state-dump format `13` records the seed contract, tick rate, restart count, and
   published previous/current dog, five-sheep, social-evidence, dog-stimulus-
-  evidence, sheep-collision-evidence, combined-influence-bound, and
-  sheep-motion-limit snapshots. Version 1 was dog-only,
+  evidence, sheep-collision-evidence, combined-influence-bound,
+  sheep-motion-limit, and sheep-avoidance snapshots. Version 1 was dog-only,
   version 2 added sheep state, version 3 added attraction evidence, version 4
   added alignment evidence, version 5 added dog distance, relative bearing, and
   pressure acceleration, version 6 added dog approach speed and a separate
@@ -56,7 +56,11 @@ The contracts use four independently named versions:
   to that sum, and the acceleration integration actually used, and version 12
   added the per-sheep motion-limit record: the integrated planar speed, the scale
   the speed clamp applied to it, the speed the sheep kept, and the direction of
-  motion the heading turned toward with the rotation the turn rate allowed. No
+  motion the heading turned toward with the rotation the turn rate allowed, and
+  version 13 added the per-sheep avoidance record: whether the term ran, the
+  named analytic obstacle the sheep's look-ahead path reaches first and how far
+  along it that shape lies, whether the ground under the look-ahead point is not
+  finite, and the acceleration the term produced. No
   older version is silently reinterpreted.
 
 A replay consumer must reject an unsupported version, a tick rate other than
@@ -89,7 +93,7 @@ decoder, replay file path, checked-in replay fixture, and executable
 `--replay`/`--seed` flags are intentionally deferred. No untrusted or external
 JSON is accepted by the engine yet.
 
-## State dump version 12
+## State dump version 13
 
 The schema name is `wide-eye.gameplay-state`. The dump contains the scenario
 seed contract, fixed rate, restart count, and complete published previous and
@@ -199,6 +203,36 @@ record to leave every field zero.
 magnitudes, the heading floor, and why motion is deliberately not slaved to
 heading yet.
 
+A sixth fixed-size record per sheep publishes the steering term whose job is to
+make the hard collision authority unnecessary. `avoidance_evaluated` states
+whether the term ran at all; a scenario with it switched off never runs it, and
+neither does a sheep whose prior planar speed is at or below the named sheep
+heading-motion floor, because the term probes along the sheep's own direction of
+travel and a sheep that is not measurably moving has no direction to probe.
+`obstacle_ahead` names the analytic paddock shape the look-ahead path reaches
+first, using the same `none`, `left_wall`, `right_wall`, `gate` identity as the
+occluder and the contact obstacle, and `obstacle_distance` is how far along that
+path the shape lies. The body is swept against the same radius-expanded
+rectangles the collision resolver stops it against, so the shape a sheep steers
+around and the shape that refuses its displacement are the same shape.
+`drop_ahead` is true when `ground_height` under the look-ahead point is not
+finite. `avoidance_acceleration` is the vector the term produced: away from the
+face the sheep would enter, turned exactly halfway toward the nearer free edge of
+that same shape when such an edge exists within the look-ahead, and straight back
+along the approach for a drop. The magnitude falls off linearly over the
+look-ahead, so a shape exactly at the look-ahead distance is named with a vector
+of exactly zero and the boundary is continuous. Avoidance is a steering term like
+every other one: its vector joins the same sum, the combined bound scales it
+identically, and it never rewrites another term or the collision stage. The
+writer requires an unevaluated record to leave every field zero, requires a
+published distance to name a shape, and requires a non-zero vector to name either
+a shape or a drop.
+[`ADR 0008`](../decisions/0008-obstacle-and-drop-avoidance.md) records the rule,
+why both magnitudes are derived from already-accepted values, why the drop
+response is binary, and the limits that are recorded rather than fixed — including
+that the flat paddock has no interior drop, so the drop half is verified only
+against the paddock edge until Phase 5 terrain exists.
+
 IDs 1–5 initialize in a fixed contiguous buffer with `settled` behavior and zero
 arousal. The default scenarios keep them stationary. The version 1, seed-zero
 `presentation-motion` fixture moves them through a deterministic scripted path
@@ -264,9 +298,20 @@ can change a sheep's motion and every published number is exact arithmetic on th
 fixture's own values: one sheep runs at two and a half times the maximum along
 one axis, one at the same speed on an exact 3-4-5 diagonal, one under the maximum
 already facing its motion, one standing still with a non-zero heading, and one
-travelling in exactly the opposite direction to its heading. Terrain,
-behavior-state transitions, damping, and obstacle and drop avoidance remain
-absent. A non-finite state is rejected because JSON has no portable
+travelling in exactly the opposite direction to its heading. The paired
+`sheep-avoidance-off` and `sheep-avoidance-on` fixtures likewise enable no other
+steering term and give five sheep exact initial velocities, and differ only by the
+avoidance switch and the required scenario ID. Every driven sheep starts exactly
+half a look-ahead from the face it is heading at, so the linear falloff is exactly
+one half: one runs head-on at a wall whose free edges are both further away than
+it can see, one runs at the same wall near an end it can reach and is deflected
+along it, one runs head-on at the exact middle of the closed gate where neither
+free edge is nearer, one runs at the paddock's own outer bound — the only drop
+that exists while the ground is flat — and one runs parallel to the wall line
+closer than the look-ahead and is left exactly alone. Terrain,
+behavior-state transitions, and damping remain absent, and avoidance does not
+replace the hard collision authority: the paddock still resolves every
+displacement last. A non-finite state is rejected because JSON has no portable
 representation for NaN or infinity.
 
 The state dump is an observation, not a save format. It does not restore a
@@ -560,6 +605,51 @@ bounded clang-tidy passed. The `5.0` maximum speed and `3.75` maximum turn rate
 are provisional legibility choices, not measured or tuned values, and this is
 synthetic causal evidence rather than player-facing motion acceptance.
 
+**Observed result (2026-08-21):** the required per-sheep avoidance record
+advanced the state dump to version 13 when steering gained obstacle and drop
+avoidance. The paired avoidance fixture enables no other steering term and starts
+every driven sheep exactly `3.125` — half the `6.25` look-ahead — from the face it
+is heading at, so the linear falloff is exactly one half and every first-tick
+number below is exact arithmetic. The sheep heading at the middle of the left
+wall published `left_wall` at exactly `3.125` and a vector of exactly `(0, 2)`
+with no lateral component, because its nearer free edge is `6.5` away — further
+than it can see. The sheep heading at the same wall `1.5` from its `+x` end
+published the same shape and distance with the two components exactly equal at
+`1.4142135623730949` and a magnitude of `2`, so a reachable way round turns the
+push exactly halfway toward it. The sheep heading at the exact middle of the
+closed gate published `gate` with exactly `(0, 2)`, because neither free edge is
+nearer and no side is invented. The sheep heading at the paddock's outer bound
+published no shape, `drop_ahead` true, and exactly `(4, 0)` — the full maximum
+straight back along its approach. The sheep running parallel to the wall line and
+only `3.5` from it published an evaluated record with an exactly zero vector and
+was bit-identical to the control, as was a derived sheep heading away from the
+same wall, so the term reads travel direction rather than proximity. A derived
+sheep with no velocity published an unevaluated zeroed record. A shape at exactly
+the `6.25` look-ahead was named with a vector of exactly zero and one `0.05`
+beyond it was not seen, so the boundary is continuous. A derived scenario with the
+combined bound at `2.0` left the published avoidance vector at exactly `(4, 0)`
+while the bound published a summed magnitude of exactly `4`, a scale of exactly
+`0.5`, and an applied acceleration of exactly `(2, 0)`, so avoidance is bounded
+with every other term rather than escaping the bound. Over 240 ticks the on member
+recorded `0` contact ticks against the control's `4`, with the control first
+clipped at tick 63 by a wall and at tick 71 by the outer bound; the closest any
+avoiding sheep came to the wall face was `0.758357`. A derived scenario whose
+maximum was lowered to `0.25` was overwhelmed: its sheep was still clipped, at
+tick 65 rather than 63, by `left_wall`, and came to rest at exactly `16.5`, so the
+hard collision authority still works when the steering term loses. A direct
+comparison against a pre-change build ran all twenty-five earlier scenarios for
+240 scripted ticks each and found every canonical dump byte-identical once the new
+key and the version number were removed, so version 13 adds fields without
+reinterpreting version 12 values. The oracle also proved that reversed sheep
+storage preserved exact per-ID state and evidence, that restart was exact, and
+that 600 enabled ticks allocated no heap memory. On WSL Ubuntu 24.04.4 with Clang
+18.1.3, development, Release, and ASan/UBSan configurations each passed 24/24
+CTests; formatting and bounded clang-tidy passed. The `4.0` maximum and the `6.25`
+look-ahead derived from it inherit the provisional status of the accepted values
+they come from. The paddock is flat, so the drop half is exercised only against
+the paddock edge and nothing here is evidence about an interior ledge. This is
+synthetic causal evidence rather than player-facing motion acceptance.
+
 **Observed result (2026-08-16):** the earlier native Windows Release capture
 commands wrote canonical version 2 state at presentation ticks 1, 61, and 121.
 The independent normal, repeat-normal, and face-normal debug commands at tick 61
@@ -568,7 +658,8 @@ byte-identical state files with SHA-256
 `8b2921e4a87bc2e8b8b86e08f4f17d8b3a7bf7c9413293b90b03b728ec27a905`.
 This is local same-platform evidence, not a cross-platform identity claim.
 
-Native Linux graphics, a native Windows version 12 capture, JSON decoding, CLI
+Native Linux graphics, a native Windows version 13 capture, JSON decoding, CLI
 replay/seed ingestion, persistent replay files, the terrain pressure factor,
-damping, obstacle and drop avoidance, behavior transitions, objective outcomes,
+damping, avoidance against terrain rather than against the paddock edge, behavior
+transitions, objective outcomes,
 and cross-platform state or text identity remain untested or unimplemented.

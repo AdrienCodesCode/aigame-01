@@ -150,6 +150,17 @@ evidence_with_id(const wide_eye::game::SheepCollisionEvidenceBuffer& evidence, s
     return *member;
 }
 
+const wide_eye::game::SheepAvoidanceEvidence&
+evidence_with_id(const wide_eye::game::SheepAvoidanceEvidenceBuffer& evidence, std::uint32_t id) {
+    const auto member = std::find_if(evidence.begin(), evidence.end(), [id](const auto& candidate) {
+        return candidate.subject_id == id;
+    });
+    if (member == evidence.end()) {
+        std::abort();
+    }
+    return *member;
+}
+
 const wide_eye::game::SheepCombinedInfluenceEvidence&
 evidence_with_id(const wide_eye::game::SheepCombinedInfluenceEvidenceBuffer& evidence,
                  std::uint32_t id) {
@@ -176,14 +187,18 @@ evidence_with_id(const wide_eye::game::SheepMotionLimitEvidenceBuffer& evidence,
 // The unbounded sum the combined-influence bound acts on, added in the same left
 // to right order the simulation adds it so an oracle can compare exactly instead
 // of within a tolerance.
-wide_eye::game::Vec3 summed_steering_terms(const wide_eye::game::SheepSocialEvidence& social,
-                                           const wide_eye::game::SheepDogPressureEvidence& dog) {
+wide_eye::game::Vec3
+summed_steering_terms(const wide_eye::game::SheepSocialEvidence& social,
+                      const wide_eye::game::SheepDogPressureEvidence& dog,
+                      const wide_eye::game::SheepAvoidanceEvidence& avoidance) {
     return {.x = social.separation_acceleration.x + social.attraction_acceleration.x +
                  social.alignment_acceleration.x + dog.pressure_acceleration.x +
-                 dog.approach_acceleration.x + dog.facing_acceleration.x,
+                 dog.approach_acceleration.x + dog.facing_acceleration.x +
+                 avoidance.avoidance_acceleration.x,
             .z = social.separation_acceleration.z + social.attraction_acceleration.z +
                  social.alignment_acceleration.z + dog.pressure_acceleration.z +
-                 dog.approach_acceleration.z + dog.facing_acceleration.z};
+                 dog.approach_acceleration.z + dog.facing_acceleration.z +
+                 avoidance.avoidance_acceleration.z};
 }
 
 // Applied acceleration is the summed terms after the combined-influence bound,
@@ -407,7 +422,9 @@ CombinedInfluenceOracle run_combined_influence_oracle(
             evidence_with_id(combined_on_after_one.sheep_dog_pressure_evidence, subject_id);
         const auto& off_dog =
             evidence_with_id(combined_off_after_one.sheep_dog_pressure_evidence, subject_id);
-        const auto summed = summed_steering_terms(on_social, on_dog);
+        const auto summed = summed_steering_terms(
+            on_social, on_dog,
+            evidence_with_id(combined_on_after_one.sheep_avoidance_evidence, subject_id));
         const auto& prior_member = sheep_with_id(combined_initial.sheep, subject_id);
         const auto applied = [&prior_member](const wide_eye::game::SheepState& member) {
             return wide_eye::game::Vec3{.x = (member.velocity.x - prior_member.velocity.x) /
@@ -469,7 +486,9 @@ CombinedInfluenceOracle run_combined_influence_oracle(
     const auto& diagonal_social = evidence_with_id(combined_on_after_one.sheep_social_evidence, 5);
     const auto& diagonal_dog =
         evidence_with_id(combined_on_after_one.sheep_dog_pressure_evidence, 5);
-    const auto diagonal_summed = summed_steering_terms(diagonal_social, diagonal_dog);
+    const auto diagonal_summed =
+        summed_steering_terms(diagonal_social, diagonal_dog,
+                              evidence_with_id(combined_on_after_one.sheep_avoidance_evidence, 5));
     // Exact equality rather than a tolerance: the fixture is built so the
     // over-bound sheep's six terms sum to exactly twice the bound along one axis,
     // which makes the scale an exact power of two and the bounded magnitude
@@ -1138,6 +1157,501 @@ MotionLimitOracle run_motion_limit_oracle() {
     return result;
 }
 
+// What the avoidance oracle observed, returned so the run report can name the
+// numbers without keeping the fixtures alive in `main`.
+struct AvoidanceOracle {
+    bool passed = false;
+    double look_ahead = 0.0;
+    double maximum_acceleration = 0.0;
+    double probe_distance = 0.0;
+    std::uint64_t contact_ticks = 0;
+    wide_eye::game::SheepAvoidanceEvidence wall_head_on{};
+    wide_eye::game::SheepAvoidanceEvidence wall_near_end{};
+    wide_eye::game::SheepAvoidanceEvidence closed_gate{};
+    wide_eye::game::SheepAvoidanceEvidence drop{};
+    wide_eye::game::SheepAvoidanceEvidence parallel{};
+    std::uint32_t on_contacts = 0;
+    std::uint32_t off_contacts = 0;
+    std::uint64_t off_first_wall_contact_tick = 0;
+    std::uint64_t off_first_drop_contact_tick = 0;
+    double on_closest_wall_gap = 0.0;
+    double on_deflected_x = 0.0;
+    double off_deflected_x = 0.0;
+    double on_drop_rest_x = 0.0;
+    double off_drop_rest_x = 0.0;
+    double overwhelmed_maximum = 0.0;
+    std::uint64_t overwhelmed_contact_tick = 0;
+    double overwhelmed_rest_z = 0.0;
+    double bounded_maximum = 0.0;
+    wide_eye::game::SheepCombinedInfluenceEvidence bounded_drop{};
+    std::size_t allocations = 0;
+};
+
+AvoidanceOracle run_avoidance_oracle() {
+    AvoidanceOracle result;
+    // Obstacle and drop avoidance. Every accepted rule so far decides how hard a
+    // sheep is pushed and how fast it may end up moving; none of them looks at
+    // where the sheep is going. A sheep driven at a wall therefore ran into it
+    // and was stopped by the hard collision authority, which is a boundary doing
+    // a steering job. This term probes ahead along the sheep's own direction of
+    // travel and publishes one more acceleration vector, summed and bounded with
+    // the rest. It deliberately replaces nothing: `resolve_sheep_against_paddock`
+    // is still the last positional authority, and the oracle below proves both
+    // that avoidance makes the clip unnecessary and that the clip still fires
+    // when avoidance is switched off or overwhelmed.
+    //
+    // The paired fixture enables no other steering term, so every first-tick
+    // number is exact arithmetic on the fixture's own velocities.
+    constexpr double kLookAhead = 6.25;
+    constexpr double kMaximumAcceleration = 4.0;
+    constexpr double kProbeDistance = 3.125;
+    constexpr double kProbeMagnitude = 2.0;
+    constexpr double kParallelWallGap = 3.5;
+    constexpr double kOutOfReachClearance = 6.5;
+    constexpr std::uint64_t kAvoidanceContactTicks = 240;
+    constexpr double kOverwhelmedMaximum = 0.25;
+    constexpr double kBoundedMaximum = 2.0;
+    constexpr double kWallFaceZ = 16.5;
+    constexpr double kSheepSpeed = 3.0;
+    result.look_ahead = kLookAhead;
+    result.maximum_acceleration = kMaximumAcceleration;
+    result.probe_distance = kProbeDistance;
+    result.contact_ticks = kAvoidanceContactTicks;
+    result.overwhelmed_maximum = kOverwhelmedMaximum;
+    result.bounded_maximum = kBoundedMaximum;
+
+    const auto avoid_off_scenario = wide_eye::game::find_gameplay_scenario("sheep-avoidance-off");
+    const auto avoid_on_scenario = wide_eye::game::find_gameplay_scenario("sheep-avoidance-on");
+    auto avoid_on_as_control =
+        avoid_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
+    if (avoid_off_scenario.has_value()) {
+        avoid_on_as_control.id = avoid_off_scenario->id;
+    }
+    avoid_on_as_control.sheep_avoidance.enabled = false;
+    if (!check(
+            avoid_off_scenario.has_value() && avoid_on_scenario.has_value() &&
+                avoid_off_scenario->id == wide_eye::game::GameplayScenarioId::sheep_avoidance_off &&
+                avoid_on_scenario->id == wide_eye::game::GameplayScenarioId::sheep_avoidance_on &&
+                avoid_on_as_control == *avoid_off_scenario &&
+                avoid_on_scenario->sheep_avoidance.enabled &&
+                !avoid_off_scenario->sheep_avoidance.enabled &&
+                avoid_on_scenario->sheep_avoidance.look_ahead_distance == kLookAhead &&
+                avoid_on_scenario->sheep_avoidance.maximum_acceleration == kMaximumAcceleration &&
+                avoid_off_scenario->version == 1 && avoid_off_scenario->seed == 0,
+            "paired_avoidance_fixture_differs_only_by_the_avoidance_switch") ||
+        // The fixture must isolate avoidance: any other enabled term would make
+        // the observed accelerations a sum rather than this term's own vector.
+        !check(!avoid_off_scenario->sheep_separation.enabled &&
+                   !avoid_off_scenario->sheep_attraction.enabled &&
+                   !avoid_off_scenario->sheep_alignment.enabled &&
+                   !avoid_off_scenario->sheep_dog_pressure.enabled &&
+                   !avoid_off_scenario->sheep_dog_approach.enabled &&
+                   !avoid_off_scenario->sheep_dog_facing.enabled &&
+                   !avoid_off_scenario->sheep_dog_line_of_sight.enabled &&
+                   !avoid_off_scenario->sheep_temperament.enabled &&
+                   !avoid_off_scenario->sheep_combined_influence.enabled &&
+                   !avoid_off_scenario->sheep_motion_limit.enabled,
+               "the_avoidance_fixture_enables_no_other_steering_term") ||
+        // The magnitudes are derived, not picked. The maximum is the strongest
+        // single influence the flock already accepts, and the look-ahead is
+        // exactly the room that maximum needs, under the linear falloff, to
+        // bring a sheep travelling at the accepted maximum speed to rest at the
+        // face it is heading for.
+        !check(kMaximumAcceleration ==
+                       wide_eye::game::SheepSeparationConfiguration{}.maximum_acceleration &&
+                   kMaximumAcceleration ==
+                       wide_eye::game::SheepCombinedInfluenceConfiguration{}.maximum_acceleration &&
+                   kLookAhead == wide_eye::game::SheepMotionLimitConfiguration{}.maximum_speed *
+                                     wide_eye::game::SheepMotionLimitConfiguration{}.maximum_speed /
+                                     kMaximumAcceleration,
+               "the_avoidance_magnitudes_are_derived_from_accepted_values")) {
+        return result;
+    }
+
+    const SimulationHandle avoid_off = make_simulation(*avoid_off_scenario);
+    const SimulationHandle avoid_on = make_simulation(*avoid_on_scenario);
+    const auto avoid_initial = avoid_on->current_snapshot();
+    avoid_off->fixed_update({});
+    avoid_on->fixed_update({});
+    const auto avoid_off_after_one = avoid_off->current_snapshot();
+    const auto avoid_on_after_one = avoid_on->current_snapshot();
+    if (!check(avoid_on->previous_snapshot() == avoid_initial,
+               "avoidance_reads_the_immutable_prior_snapshot")) {
+        return result;
+    }
+
+    for (const auto& on_avoidance : avoid_on_after_one.sheep_avoidance_evidence) {
+        const std::uint32_t subject_id = on_avoidance.subject_id;
+        const auto& off_avoidance =
+            evidence_with_id(avoid_off_after_one.sheep_avoidance_evidence, subject_id);
+        const auto& on_combined =
+            evidence_with_id(avoid_on_after_one.sheep_combined_influence_evidence, subject_id);
+        const auto& prior_member = sheep_with_id(avoid_initial.sheep, subject_id);
+        const auto& on_member = sheep_with_id(avoid_on_after_one.sheep, subject_id);
+        const wide_eye::game::Vec3 applied{
+            .x = (on_member.velocity.x - prior_member.velocity.x) /
+                 wide_eye::game::GameplaySimulation::kFixedDeltaSeconds,
+            .z = (on_member.velocity.z - prior_member.velocity.z) /
+                 wide_eye::game::GameplaySimulation::kFixedDeltaSeconds};
+        if ( // Avoidance may not rewrite another term. Every published social,
+             // dog, and motion-limit record must be identical between the two
+             // members; only this term's own vector differs.
+            !check(
+                evidence_with_id(avoid_on_after_one.sheep_social_evidence, subject_id) ==
+                        evidence_with_id(avoid_off_after_one.sheep_social_evidence, subject_id) &&
+                    evidence_with_id(avoid_on_after_one.sheep_dog_pressure_evidence, subject_id) ==
+                        evidence_with_id(avoid_off_after_one.sheep_dog_pressure_evidence,
+                                         subject_id) &&
+                    evidence_with_id(avoid_on_after_one.sheep_motion_limit_evidence, subject_id) ==
+                        evidence_with_id(avoid_off_after_one.sheep_motion_limit_evidence,
+                                         subject_id),
+                "avoidance_leaves_every_other_published_record_identical") ||
+            !check(on_avoidance.avoidance_evaluated && !off_avoidance.avoidance_evaluated &&
+                       off_avoidance ==
+                           wide_eye::game::SheepAvoidanceEvidence{.subject_id = subject_id},
+                   "the_off_member_publishes_an_unevaluated_zeroed_avoidance_record") ||
+            // The term holds itself to its own named maximum, exactly as every
+            // other term does.
+            !check(std::hypot(on_avoidance.avoidance_acceleration.x,
+                              on_avoidance.avoidance_acceleration.z) <=
+                       kMaximumAcceleration + 1.0e-12,
+                   "no_avoidance_vector_exceeds_the_terms_own_maximum") ||
+            // Avoidance is a term in the sum, not a private correction: with it
+            // as the only enabled term the summed and applied acceleration is
+            // exactly the vector it published.
+            !check(on_combined.applied_acceleration == on_avoidance.avoidance_acceleration &&
+                       on_combined.applied_scale == 1.0 &&
+                       std::abs(on_combined.summed_acceleration_magnitude -
+                                std::hypot(on_avoidance.avoidance_acceleration.x,
+                                           on_avoidance.avoidance_acceleration.z)) < 1.0e-12,
+                   "the_published_avoidance_vector_is_what_the_sum_carried") ||
+            !check(std::abs(applied.x - on_avoidance.avoidance_acceleration.x) < 1.0e-12 &&
+                       std::abs(applied.z - on_avoidance.avoidance_acceleration.z) < 1.0e-12,
+                   "the_published_avoidance_vector_is_what_integration_used") ||
+            // A named distance needs a named shape, and a push needs one of the
+            // two things this term can see.
+            !check((on_avoidance.obstacle != wide_eye::game::PaddockObstacle::none ||
+                    on_avoidance.obstacle_distance == 0.0) &&
+                       (on_avoidance.obstacle != wide_eye::game::PaddockObstacle::none ||
+                        on_avoidance.drop_ahead ||
+                        on_avoidance.avoidance_acceleration == wide_eye::game::Vec3{}),
+                   "an_avoidance_push_always_names_the_thing_it_avoided")) {
+            return result;
+        }
+    }
+
+    // Copies, not references: the restart oracle below rewinds this simulation.
+    result.wall_head_on = evidence_with_id(avoid_on_after_one.sheep_avoidance_evidence, 1);
+    result.wall_near_end = evidence_with_id(avoid_on_after_one.sheep_avoidance_evidence, 2);
+    result.closed_gate = evidence_with_id(avoid_on_after_one.sheep_avoidance_evidence, 3);
+    result.drop = evidence_with_id(avoid_on_after_one.sheep_avoidance_evidence, 4);
+    result.parallel = evidence_with_id(avoid_on_after_one.sheep_avoidance_evidence, 5);
+    // Exact equalities rather than tolerances: every driven sheep starts exactly
+    // half a look-ahead from the face it is heading at, so the linear falloff is
+    // exactly one half and the magnitude is exactly half the maximum.
+    if (!check(result.wall_head_on.obstacle == wide_eye::game::PaddockObstacle::left_wall &&
+                   result.wall_head_on.obstacle_distance == kProbeDistance &&
+                   !result.wall_head_on.drop_ahead &&
+                   result.wall_head_on.avoidance_acceleration ==
+                       wide_eye::game::Vec3{.z = kProbeMagnitude},
+               "a_sheep_heading_at_a_wall_is_pushed_exactly_away_from_it") ||
+        // The pure push is not laziness: this sheep's nearer free edge is
+        // further away than it can see, so the geometry named no way round.
+        !check(kOutOfReachClearance > kLookAhead &&
+                   result.wall_head_on.avoidance_acceleration.x == 0.0,
+               "a_way_round_beyond_the_look_ahead_is_not_taken") ||
+        // The steer-aside case: the same wall, the same magnitude, but with a
+        // reachable free edge the push is turned exactly halfway toward it, so
+        // the two components are exactly equal and both positive.
+        !check(result.wall_near_end.obstacle == wide_eye::game::PaddockObstacle::left_wall &&
+                   result.wall_near_end.obstacle_distance == kProbeDistance &&
+                   result.wall_near_end.avoidance_acceleration.x ==
+                       result.wall_near_end.avoidance_acceleration.z &&
+                   result.wall_near_end.avoidance_acceleration.x > 0.0 &&
+                   std::abs(std::hypot(result.wall_near_end.avoidance_acceleration.x,
+                                       result.wall_near_end.avoidance_acceleration.z) -
+                            kProbeMagnitude) < 1.0e-12,
+               "a_sheep_with_a_reachable_way_round_is_steered_aside_as_well_as_slowed") ||
+        // A closed gate is avoided by name, and this sheep sits exactly between
+        // the gate's two free edges, so neither is nearer and no side is
+        // invented.
+        !check(result.closed_gate.obstacle == wide_eye::game::PaddockObstacle::gate &&
+                   result.closed_gate.obstacle_distance == kProbeDistance &&
+                   result.closed_gate.avoidance_acceleration ==
+                       wide_eye::game::Vec3{.z = kProbeMagnitude},
+               "a_closed_gate_is_avoided_by_name_and_an_exact_tie_invents_no_side") ||
+        // The drop is the ground boundary, not an obstacle: no shape is named,
+        // and the push is the full maximum straight back along the approach.
+        !check(result.drop.drop_ahead &&
+                   result.drop.obstacle == wide_eye::game::PaddockObstacle::none &&
+                   result.drop.obstacle_distance == 0.0 &&
+                   result.drop.avoidance_acceleration ==
+                       wide_eye::game::Vec3{.x = kMaximumAcceleration},
+               "a_sheep_heading_at_the_drop_is_pushed_exactly_back_from_it") ||
+        // Direction, not proximity: this sheep is closer to the wall than the
+        // look-ahead but running parallel to it, so it is untouched and stays
+        // bit-identical to the control.
+        !check(result.parallel.avoidance_evaluated &&
+                   result.parallel.obstacle == wide_eye::game::PaddockObstacle::none &&
+                   !result.parallel.drop_ahead &&
+                   result.parallel.avoidance_acceleration == wide_eye::game::Vec3{} &&
+                   kParallelWallGap < kLookAhead &&
+                   sheep_with_id(avoid_on_after_one.sheep, 5) ==
+                       sheep_with_id(avoid_off_after_one.sheep, 5),
+               "a_sheep_running_parallel_to_a_wall_is_left_exactly_alone")) {
+        return result;
+    }
+
+    // A sheep heading away from the same wall it was heading at is untouched
+    // too, so the term reads travel direction rather than position.
+    auto away_on_scenario = *avoid_on_scenario;
+    away_on_scenario.initial_sheep[0].velocity.z = kSheepSpeed;
+    auto away_off_scenario = *avoid_off_scenario;
+    away_off_scenario.initial_sheep[0].velocity.z = kSheepSpeed;
+    const SimulationHandle away_on = make_simulation(away_on_scenario);
+    const SimulationHandle away_off = make_simulation(away_off_scenario);
+    away_on->fixed_update({});
+    away_off->fixed_update({});
+    const auto& away_evidence =
+        evidence_with_id(away_on->current_snapshot().sheep_avoidance_evidence, 1);
+    // A sheep with no measurable motion has no direction to probe, so the term
+    // does not run for it at all rather than steering away from rounding noise.
+    auto still_scenario = *avoid_on_scenario;
+    still_scenario.initial_sheep[0].velocity = {};
+    const SimulationHandle still = make_simulation(still_scenario);
+    still->fixed_update({});
+    const auto& still_evidence =
+        evidence_with_id(still->current_snapshot().sheep_avoidance_evidence, 1);
+    if (!check(away_evidence.avoidance_evaluated &&
+                   away_evidence.obstacle == wide_eye::game::PaddockObstacle::none &&
+                   away_evidence.avoidance_acceleration == wide_eye::game::Vec3{} &&
+                   sheep_with_id(away_on->current_snapshot().sheep, 1) ==
+                       sheep_with_id(away_off->current_snapshot().sheep, 1),
+               "a_sheep_heading_away_from_a_wall_is_left_exactly_alone") ||
+        !check(!still_evidence.avoidance_evaluated &&
+                   still_evidence == wide_eye::game::SheepAvoidanceEvidence{.subject_id = 1},
+               "a_sheep_with_no_direction_of_travel_publishes_an_unevaluated_record")) {
+        return result;
+    }
+
+    // The look-ahead boundary is continuous rather than a step: a shape exactly
+    // at the look-ahead distance is named with a vector of exactly zero, and one
+    // just beyond it is not seen at all.
+    auto at_boundary_scenario = *avoid_on_scenario;
+    at_boundary_scenario.initial_sheep[0].position.z = kWallFaceZ + kLookAhead;
+    auto past_boundary_scenario = *avoid_on_scenario;
+    past_boundary_scenario.initial_sheep[0].position.z = kWallFaceZ + kLookAhead + 0.05;
+    const SimulationHandle at_boundary = make_simulation(at_boundary_scenario);
+    const SimulationHandle past_boundary = make_simulation(past_boundary_scenario);
+    at_boundary->fixed_update({});
+    past_boundary->fixed_update({});
+    const auto& at_boundary_evidence =
+        evidence_with_id(at_boundary->current_snapshot().sheep_avoidance_evidence, 1);
+    const auto& past_boundary_evidence =
+        evidence_with_id(past_boundary->current_snapshot().sheep_avoidance_evidence, 1);
+    if (!check(at_boundary_evidence.obstacle == wide_eye::game::PaddockObstacle::left_wall &&
+                   at_boundary_evidence.obstacle_distance == kLookAhead &&
+                   at_boundary_evidence.avoidance_acceleration == wide_eye::game::Vec3{},
+               "a_shape_exactly_at_the_look_ahead_is_named_with_a_zero_push") ||
+        !check(past_boundary_evidence.obstacle == wide_eye::game::PaddockObstacle::none &&
+                   past_boundary_evidence.avoidance_acceleration == wide_eye::game::Vec3{},
+               "a_shape_beyond_the_look_ahead_is_not_seen")) {
+        return result;
+    }
+
+    // Avoidance is bounded with the other terms rather than escaping the bound.
+    // The drop sheep's push is exactly the maximum, so a combined bound at half
+    // that must publish a scale of exactly one half and halve the applied
+    // vector while leaving this term's published vector alone.
+    auto bounded_scenario = *avoid_on_scenario;
+    bounded_scenario.sheep_combined_influence = {.enabled = true,
+                                                 .maximum_acceleration = kBoundedMaximum};
+    const SimulationHandle bounded = make_simulation(bounded_scenario);
+    bounded->fixed_update({});
+    result.bounded_drop =
+        evidence_with_id(bounded->current_snapshot().sheep_combined_influence_evidence, 4);
+    const auto& bounded_avoidance =
+        evidence_with_id(bounded->current_snapshot().sheep_avoidance_evidence, 4);
+    if (!check(bounded_avoidance == result.drop &&
+                   result.bounded_drop.summed_acceleration_magnitude == kMaximumAcceleration &&
+                   result.bounded_drop.applied_scale == kBoundedMaximum / kMaximumAcceleration &&
+                   result.bounded_drop.applied_acceleration ==
+                       wide_eye::game::Vec3{.x = kBoundedMaximum},
+               "the_combined_bound_scales_avoidance_exactly_as_it_scales_any_term")) {
+        return result;
+    }
+
+    // The invariant this term exists for: a sheep driven at a wall or at the
+    // drop must stop needing the hard clip, while the control must show that the
+    // clip is exactly what it needed before. Neither claim is worth anything
+    // without the other.
+    const SimulationHandle contact_on = make_simulation(*avoid_on_scenario);
+    const SimulationHandle contact_off = make_simulation(*avoid_off_scenario);
+    result.on_closest_wall_gap = std::numeric_limits<double>::infinity();
+    bool off_member_holds_its_fixture_velocity = true;
+    std::array<bool, wide_eye::game::kGameplaySheepCount> off_contacted{};
+    for (std::uint64_t tick = 1; tick <= kAvoidanceContactTicks; ++tick) {
+        contact_on->fixed_update({});
+        contact_off->fixed_update({});
+        const auto& on_snapshot = contact_on->current_snapshot();
+        const auto& off_snapshot = contact_off->current_snapshot();
+        for (std::size_t index = 0; index < on_snapshot.sheep.size(); ++index) {
+            const auto& on_contact = on_snapshot.sheep_collision_evidence[index];
+            const auto& off_contact = off_snapshot.sheep_collision_evidence[index];
+            if (on_contact.clipped_x || on_contact.clipped_z) {
+                ++result.on_contacts;
+            }
+            if (off_contact.clipped_x || off_contact.clipped_z) {
+                ++result.off_contacts;
+                if (!off_contacted[index]) {
+                    off_contacted[index] = true;
+                    if (off_contact.obstacle != wide_eye::game::PaddockObstacle::none &&
+                        result.off_first_wall_contact_tick == 0) {
+                        result.off_first_wall_contact_tick = tick;
+                    }
+                    if (off_contact.obstacle == wide_eye::game::PaddockObstacle::none &&
+                        result.off_first_drop_contact_tick == 0) {
+                        result.off_first_drop_contact_tick = tick;
+                    }
+                }
+            }
+            // Until the paddock refuses it, an off-member sheep must still be
+            // travelling at exactly the velocity its fixture gave it: that is
+            // what "the control reproduces today's behavior" means here.
+            if (!off_contacted[index]) {
+                off_member_holds_its_fixture_velocity =
+                    off_member_holds_its_fixture_velocity &&
+                    off_snapshot.sheep[index].velocity ==
+                        avoid_off_scenario->initial_sheep[index].velocity;
+            }
+        }
+        for (std::uint32_t id = 1; id <= 3; ++id) {
+            result.on_closest_wall_gap =
+                std::min(result.on_closest_wall_gap,
+                         sheep_with_id(on_snapshot.sheep, id).position.z - kWallFaceZ);
+        }
+    }
+    result.on_deflected_x = sheep_with_id(contact_on->current_snapshot().sheep, 2).position.x;
+    result.off_deflected_x = sheep_with_id(contact_off->current_snapshot().sheep, 2).position.x;
+    result.on_drop_rest_x = sheep_with_id(contact_on->current_snapshot().sheep, 4).position.x;
+    result.off_drop_rest_x = sheep_with_id(contact_off->current_snapshot().sheep, 4).position.x;
+    if (!check(result.on_contacts == 0 && result.on_closest_wall_gap > 0.0,
+               "no_avoiding_sheep_ever_needs_the_hard_clip") ||
+        !check(result.off_contacts == 4 && result.off_first_wall_contact_tick != 0 &&
+                   result.off_first_drop_contact_tick != 0,
+               "every_driven_control_sheep_needed_the_hard_clip") ||
+        !check(off_member_holds_its_fixture_velocity,
+               "the_off_member_reproduces_straight_line_travel_until_the_paddock_refuses_it") ||
+        // Visible as motion, not only as evidence: the steered sheep ends the
+        // window displaced along the wall while its control is pinned against
+        // it, and the drop sheep rests clear of the bound its control is held
+        // at.
+        !check(result.on_deflected_x > result.off_deflected_x &&
+                   result.off_deflected_x == avoid_off_scenario->initial_sheep[1].position.x &&
+                   result.on_drop_rest_x > result.off_drop_rest_x,
+               "an_avoiding_sheep_is_visibly_steered_where_its_control_is_pinned")) {
+        return result;
+    }
+
+    // Avoidance must never be able to hide a collision failure. Weakened until
+    // it cannot stop the same sheep, the term still publishes its push and the
+    // hard clip still refuses the displacement and still names the wall.
+    auto overwhelmed_scenario = *avoid_on_scenario;
+    overwhelmed_scenario.sheep_avoidance.maximum_acceleration = kOverwhelmedMaximum;
+    const SimulationHandle overwhelmed = make_simulation(overwhelmed_scenario);
+    bool overwhelmed_named_the_wall = false;
+    // The avoidance record as it stood on the tick the clip fired, so the oracle
+    // can say the term was live and still lost rather than that it had given up.
+    // A sheep the paddock has already pinned has no velocity left, so its later
+    // records are correctly unevaluated.
+    wide_eye::game::SheepAvoidanceEvidence overwhelmed_push{};
+    for (std::uint64_t tick = 1; tick <= kAvoidanceContactTicks; ++tick) {
+        overwhelmed->fixed_update({});
+        const auto& contact = overwhelmed->current_snapshot().sheep_collision_evidence[0];
+        if ((contact.clipped_x || contact.clipped_z) && result.overwhelmed_contact_tick == 0) {
+            result.overwhelmed_contact_tick = tick;
+            overwhelmed_named_the_wall =
+                contact.obstacle == wide_eye::game::PaddockObstacle::left_wall;
+            overwhelmed_push =
+                evidence_with_id(overwhelmed->current_snapshot().sheep_avoidance_evidence, 1);
+        }
+    }
+    result.overwhelmed_rest_z = sheep_with_id(overwhelmed->current_snapshot().sheep, 1).position.z;
+    if (!check(result.overwhelmed_contact_tick != 0 && overwhelmed_named_the_wall &&
+                   result.overwhelmed_rest_z == kWallFaceZ &&
+                   overwhelmed_push.avoidance_evaluated &&
+                   overwhelmed_push.obstacle == wide_eye::game::PaddockObstacle::left_wall &&
+                   overwhelmed_push.avoidance_acceleration.z > 0.0,
+               "an_overwhelmed_avoidance_term_still_leaves_the_hard_clip_in_charge") ||
+        // The clip fires later than it did without avoidance, so the weakened
+        // term is doing something rather than nothing.
+        !check(result.overwhelmed_contact_tick > result.off_first_wall_contact_tick,
+               "even_a_weak_avoidance_term_delays_the_contact_it_cannot_prevent")) {
+        return result;
+    }
+
+    auto reversed_avoidance_scenario = *avoid_on_scenario;
+    std::reverse(reversed_avoidance_scenario.initial_sheep.begin(),
+                 reversed_avoidance_scenario.initial_sheep.end());
+    const SimulationHandle reversed_avoidance = make_simulation(reversed_avoidance_scenario);
+    reversed_avoidance->fixed_update({});
+    for (const auto& member : avoid_on_after_one.sheep) {
+        if (!check(member == sheep_with_id(reversed_avoidance->current_snapshot().sheep, member.id),
+                   "avoidance_result_is_stable_by_id_under_reversed_storage") ||
+            !check(
+                evidence_with_id(avoid_on_after_one.sheep_avoidance_evidence, member.id) ==
+                    evidence_with_id(
+                        reversed_avoidance->current_snapshot().sheep_avoidance_evidence, member.id),
+                "avoidance_evidence_is_stable_under_reversed_storage")) {
+            return result;
+        }
+    }
+
+    const auto avoidance_state = wide_eye::game::gameplay_state_dump_json(*avoid_on);
+    const auto control_state = wide_eye::game::gameplay_state_dump_json(*avoid_off);
+    if (!check(avoidance_state &&
+                   avoidance_state.text.find(
+                       "\"sheep_avoidance_evidence\":[{\"subject_id\":1,"
+                       "\"avoidance_evaluated\":true,\"obstacle_ahead\":\"left_wall\","
+                       "\"obstacle_distance\":3.125,\"drop_ahead\":false,"
+                       "\"avoidance_acceleration\":{\"x\":0,\"y\":0,\"z\":2}}") !=
+                       std::string::npos &&
+                   avoidance_state.text.find("\"obstacle_ahead\":\"gate\"") != std::string::npos &&
+                   avoidance_state.text.find("\"drop_ahead\":true,\"avoidance_acceleration\":{"
+                                             "\"x\":4,\"y\":0,\"z\":0}") != std::string::npos,
+               "state_dump_contains_the_avoidance_evidence") ||
+        !check(control_state &&
+                   control_state.text.find(
+                       "\"avoidance_evaluated\":false,\"obstacle_ahead\":\"none\","
+                       "\"obstacle_distance\":0,\"drop_ahead\":false,") != std::string::npos,
+               "a_fixture_without_avoidance_publishes_an_unevaluated_record")) {
+        return result;
+    }
+
+    const SimulationHandle allocation_avoidance = make_simulation(*avoid_on_scenario);
+    const std::size_t avoidance_allocations_before = g_allocation_count;
+    for (std::uint32_t tick = 0; tick < 600; ++tick) {
+        allocation_avoidance->fixed_update({});
+    }
+    result.allocations = g_allocation_count - avoidance_allocations_before;
+    if (!check(result.allocations == 0, "avoidance_fixed_updates_do_not_allocate")) {
+        return result;
+    }
+
+    for (std::uint32_t tick = 0; tick < 120; ++tick) {
+        avoid_on->fixed_update({});
+    }
+    avoid_on->restart();
+    if (!check(avoid_on->current_snapshot() == avoid_initial &&
+                   avoid_on->previous_snapshot() == avoid_initial,
+               "avoidance_restart_restores_the_paired_fixture")) {
+        return result;
+    }
+
+    result.passed = true;
+    return result;
+}
+
 } // namespace
 
 int main() {
@@ -1167,6 +1681,8 @@ int main() {
     static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepDogPressureEvidenceBuffer>);
     static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepCollisionEvidence>);
     static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepCollisionEvidenceBuffer>);
+    static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepAvoidanceEvidence>);
+    static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepAvoidanceEvidenceBuffer>);
     static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepCombinedInfluenceEvidence>);
     static_assert(
         std::is_trivially_copyable_v<wide_eye::game::SheepCombinedInfluenceEvidenceBuffer>);
@@ -3152,6 +3668,12 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // The avoidance oracle owns its own frame for the same reason.
+    const AvoidanceOracle avoidance = run_avoidance_oracle();
+    if (!avoidance.passed) {
+        return EXIT_FAILURE;
+    }
+
     wide_eye::game::GameplaySimulation replay_a{*scenario};
     wide_eye::game::GameplaySimulation replay_b{*scenario};
     const wide_eye::game::GameplayReplay replay = sample_replay(replay_a);
@@ -3159,7 +3681,7 @@ int main() {
     if (!check(wide_eye::game::kGameplaySeedFormatVersion == 1 &&
                    wide_eye::game::kGameplayActionInputFormatVersion == 1 &&
                    wide_eye::game::kGameplayReplayFormatVersion == 1 &&
-                   wide_eye::game::kGameplayStateDumpFormatVersion == 12,
+                   wide_eye::game::kGameplayStateDumpFormatVersion == 13,
                "contract_versions_are_explicit") ||
         !check(replay_text &&
                    replay_text.text ==
@@ -3184,7 +3706,7 @@ int main() {
     const auto state_b = wide_eye::game::gameplay_state_dump_json(replay_b);
     if (!check(state_a && state_b && state_a.text == state_b.text,
                "canonical_state_dump_repeats") ||
-        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":12,"
+        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":13,"
                                         "\"tick_rate\":60,\"scenario\":{"),
                "state_dump_schema_header") ||
         !check(state_a.text.find("\"current\":{\"tick\":3") != std::string::npos,
@@ -3447,6 +3969,52 @@ int main() {
         << '\n'
         << "sheep_motion_limit_turn_limits_motion=no\n"
         << "sheep_motion_limit_steady_state_allocations=" << motion_limit.allocations << '\n'
+        << "sheep_avoidance_fixture=exact_velocity_paired_control\n"
+        << "sheep_avoidance_look_ahead=" << avoidance.look_ahead << '\n'
+        << "sheep_avoidance_maximum_acceleration=" << avoidance.maximum_acceleration << '\n'
+        << "sheep_avoidance_probe_distance=" << avoidance.probe_distance << '\n'
+        << "sheep_avoidance_wall_head_on_obstacle_distance="
+        << avoidance.wall_head_on.obstacle_distance << '\n'
+        << "sheep_avoidance_wall_head_on_x=" << avoidance.wall_head_on.avoidance_acceleration.x
+        << '\n'
+        << "sheep_avoidance_wall_head_on_z=" << avoidance.wall_head_on.avoidance_acceleration.z
+        << '\n'
+        << "sheep_avoidance_wall_near_end_x=" << avoidance.wall_near_end.avoidance_acceleration.x
+        << '\n'
+        << "sheep_avoidance_wall_near_end_z=" << avoidance.wall_near_end.avoidance_acceleration.z
+        << '\n'
+        << "sheep_avoidance_closed_gate_z=" << avoidance.closed_gate.avoidance_acceleration.z
+        << '\n'
+        << "sheep_avoidance_drop_ahead=" << (avoidance.drop.drop_ahead ? "yes" : "no") << '\n'
+        << "sheep_avoidance_drop_x=" << avoidance.drop.avoidance_acceleration.x << '\n'
+        << "sheep_avoidance_parallel_magnitude="
+        << std::hypot(avoidance.parallel.avoidance_acceleration.x,
+                      avoidance.parallel.avoidance_acceleration.z)
+        << '\n'
+        << "sheep_avoidance_contact_window_ticks=" << avoidance.contact_ticks << '\n'
+        << "sheep_avoidance_on_contact_ticks=" << avoidance.on_contacts << '\n'
+        << "sheep_avoidance_off_contact_ticks=" << avoidance.off_contacts << '\n'
+        << "sheep_avoidance_off_first_wall_contact_tick=" << avoidance.off_first_wall_contact_tick
+        << '\n'
+        << "sheep_avoidance_off_first_drop_contact_tick=" << avoidance.off_first_drop_contact_tick
+        << '\n'
+        << "sheep_avoidance_on_closest_wall_gap=" << avoidance.on_closest_wall_gap << '\n'
+        << "sheep_avoidance_on_steered_x=" << avoidance.on_deflected_x << '\n'
+        << "sheep_avoidance_off_pinned_x=" << avoidance.off_deflected_x << '\n'
+        << "sheep_avoidance_on_drop_rest_x=" << avoidance.on_drop_rest_x << '\n'
+        << "sheep_avoidance_off_drop_rest_x=" << avoidance.off_drop_rest_x << '\n'
+        << "sheep_avoidance_overwhelmed_maximum=" << avoidance.overwhelmed_maximum << '\n'
+        << "sheep_avoidance_overwhelmed_contact_tick=" << avoidance.overwhelmed_contact_tick << '\n'
+        << "sheep_avoidance_overwhelmed_rest_z=" << avoidance.overwhelmed_rest_z << '\n'
+        << "sheep_avoidance_combined_bound=" << avoidance.bounded_maximum << '\n'
+        << "sheep_avoidance_combined_summed_magnitude="
+        << avoidance.bounded_drop.summed_acceleration_magnitude << '\n'
+        << "sheep_avoidance_combined_applied_scale=" << avoidance.bounded_drop.applied_scale << '\n'
+        << "sheep_avoidance_combined_applied_x=" << avoidance.bounded_drop.applied_acceleration.x
+        << '\n'
+        << "sheep_avoidance_replaces_hard_collision=no\n"
+        << "sheep_avoidance_verified_drop=paddock_edge_only\n"
+        << "sheep_avoidance_steady_state_allocations=" << avoidance.allocations << '\n'
         << "repeated_local_replay_equal=yes\n"
         << "gameplay_simulation_result=pass\n";
     return EXIT_SUCCESS;

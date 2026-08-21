@@ -35,6 +35,8 @@ enum class GameplayScenarioId : std::uint8_t {
     sheep_combined_influence_on,
     sheep_motion_limit_off,
     sheep_motion_limit_on,
+    sheep_avoidance_off,
+    sheep_avoidance_on,
 };
 
 enum class SheepFixture : std::uint8_t {
@@ -134,6 +136,40 @@ struct SheepTemperamentConfiguration {
     bool operator==(const SheepTemperamentConfiguration&) const = default;
 };
 
+// Obstacle and drop avoidance: the steering term whose job is to make the hard
+// collision authority unnecessary. It is a term like every other one — switched
+// on independently, publishing its own vector, summed with the rest, and scaled
+// by the combined bound below — and it deliberately replaces nothing.
+// `resolve_sheep_against_paddock` remains the last positional authority, because
+// a steering nudge that can be overwhelmed is not a boundary.
+//
+// `look_ahead_distance` is `6.25` world units. It is derived rather than picked:
+// under the linear falloff below, a term of maximum `A` acting over a look-ahead
+// `L` can remove `A * L / 2` of kinetic energy per unit mass, so a sheep
+// travelling straight at a face at speed `v` is brought to rest exactly at that
+// face when `L = v^2 / A`. With the accepted `5.0` maximum sheep speed and the
+// `4.0` maximum below, that is exactly `25 / 4`. The term therefore has just
+// enough room to stop the fastest sheep the game allows, and no more.
+//
+// `maximum_acceleration` is `4.0` world units/s^2, the same value as close-range
+// separation's maximum and the combined bound: no avoidance push is stronger
+// than the strongest single influence the flock already accepts. It bounds the
+// term as a whole, so an obstacle and a drop reacted to in the same tick sum to
+// at most this, exactly as separation's per-neighbour pushes do.
+//
+// Both magnitudes inherit the provisional status of the accepted values they are
+// derived from; neither is measured or tuned. The response is direction-aware
+// rather than proximity-aware: it probes along the sheep's own direction of
+// travel, so a sheep standing beside a wall or running parallel to one feels
+// nothing at all.
+struct SheepAvoidanceConfiguration {
+    bool enabled = false;
+    double look_ahead_distance = 6.25;
+    double maximum_acceleration = 4.0;
+
+    bool operator==(const SheepAvoidanceConfiguration&) const = default;
+};
+
 // The one rule that limits what every social and dog term can do to a sheep
 // together. Each term above already bounds itself, but their sum was unbounded,
 // so a sheep inside several overlapping influences — or a nervous sheep whose
@@ -208,6 +244,7 @@ struct GameplayScenarioDefinition {
     SheepDogFacingConfiguration sheep_dog_facing{};
     SheepDogLineOfSightConfiguration sheep_dog_line_of_sight{};
     SheepTemperamentConfiguration sheep_temperament{};
+    SheepAvoidanceConfiguration sheep_avoidance{};
     SheepCombinedInfluenceConfiguration sheep_combined_influence{};
     SheepMotionLimitConfiguration sheep_motion_limit{};
 

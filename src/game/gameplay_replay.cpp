@@ -153,6 +153,33 @@ bool valid_collision_evidence(const GameplaySnapshot& snapshot) noexcept {
     return true;
 }
 
+bool valid_avoidance_evidence(const GameplaySnapshot& snapshot) noexcept {
+    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+        const SheepAvoidanceEvidence& evidence = snapshot.sheep_avoidance_evidence[index];
+        if (evidence.subject_id != snapshot.sheep[index].id ||
+            !is_known_paddock_obstacle(evidence.obstacle) ||
+            !std::isfinite(evidence.obstacle_distance) || evidence.obstacle_distance < 0.0 ||
+            !finite(evidence.avoidance_acceleration)) {
+            return false;
+        }
+        // The term probes along the sheep's own travel, so a sheep it never ran
+        // for cannot have seen anything and cannot have pushed anywhere.
+        if (!evidence.avoidance_evaluated &&
+            (evidence.drop_ahead || evidence.obstacle != PaddockObstacle::none ||
+             evidence.obstacle_distance != 0.0 || evidence.avoidance_acceleration != Vec3{})) {
+            return false;
+        }
+        // A distance without a shape is an anonymous number, and a push with
+        // neither a shape nor a drop behind it is a direction from nowhere.
+        if (evidence.obstacle == PaddockObstacle::none &&
+            (evidence.obstacle_distance != 0.0 ||
+             (!evidence.drop_ahead && evidence.avoidance_acceleration != Vec3{}))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool valid_combined_influence_evidence(const GameplaySnapshot& snapshot) noexcept {
     for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
         const SheepCombinedInfluenceEvidence& evidence =
@@ -481,6 +508,29 @@ bool append_collision_evidence(std::string& output, const SheepCollisionEvidence
     return true;
 }
 
+bool append_avoidance_evidence(std::string& output, const SheepAvoidanceEvidence& evidence) {
+    output += "{\"subject_id\":";
+    if (!append_integer(output, evidence.subject_id)) {
+        return false;
+    }
+    output += ",\"avoidance_evaluated\":";
+    output += evidence.avoidance_evaluated ? "true" : "false";
+    output += ",\"obstacle_ahead\":\"";
+    output += paddock_obstacle_name(evidence.obstacle);
+    output += "\",\"obstacle_distance\":";
+    if (!append_double(output, evidence.obstacle_distance)) {
+        return false;
+    }
+    output += ",\"drop_ahead\":";
+    output += evidence.drop_ahead ? "true" : "false";
+    output += ",\"avoidance_acceleration\":";
+    if (!append_vec3(output, evidence.avoidance_acceleration)) {
+        return false;
+    }
+    output += '}';
+    return true;
+}
+
 bool append_combined_influence_evidence(std::string& output,
                                         const SheepCombinedInfluenceEvidence& evidence) {
     output += "{\"subject_id\":";
@@ -591,6 +641,18 @@ bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
         }
         first_collision_evidence = false;
         if (!append_collision_evidence(output, evidence)) {
+            return false;
+        }
+    }
+    output += ']';
+    output += ",\"sheep_avoidance_evidence\":[";
+    bool first_avoidance_evidence = true;
+    for (const SheepAvoidanceEvidence& evidence : snapshot.sheep_avoidance_evidence) {
+        if (!first_avoidance_evidence) {
+            output += ',';
+        }
+        first_avoidance_evidence = false;
+        if (!append_avoidance_evidence(output, evidence)) {
             return false;
         }
     }
@@ -788,6 +850,8 @@ GameplayTextResult gameplay_state_dump_json(const GameplaySimulation& simulation
         !valid_dog_pressure_evidence(simulation.current_snapshot()) ||
         !valid_collision_evidence(simulation.previous_snapshot()) ||
         !valid_collision_evidence(simulation.current_snapshot()) ||
+        !valid_avoidance_evidence(simulation.previous_snapshot()) ||
+        !valid_avoidance_evidence(simulation.current_snapshot()) ||
         !valid_combined_influence_evidence(simulation.previous_snapshot()) ||
         !valid_combined_influence_evidence(simulation.current_snapshot()) ||
         !valid_motion_limit_evidence(simulation.previous_snapshot()) ||

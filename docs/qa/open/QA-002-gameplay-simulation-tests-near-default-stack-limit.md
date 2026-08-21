@@ -149,3 +149,41 @@ bytes × 70 ≈ 17 KiB of stack whether or not it adds a single fixture, so hold
 new fixtures on the heap is no longer sufficient to keep the headroom from
 shrinking. That strengthens the case for candidate direction 1 or 3 above over
 continuing to mitigate per outcome.
+
+## Update — 2026-08-21, obstacle and drop avoidance
+
+Observed result (same host, build, and method): **the requirement grew again, by
+the same mechanism and the same amount.** Publishing the per-sheep avoidance
+record moved `sizeof(GameplaySnapshot)` from 2,152 to 2,352 bytes and
+`sizeof(GameplaySimulation)` from 117,480 to 117,904, multiplied by the roughly
+seventy simulations `main` still holds by value.
+
+| grid | before (`cb7ff1e`) | after |
+| --- | --- | --- |
+| 200 KiB reporting grid, `dev` binary | `7400` exits 0, `7300` segfaults | unchanged |
+| 20 KiB sweep, two comparable standalone builds | `7320 KiB` | `7360 KiB` |
+
+The mitigation held on its own terms and did not help: the new oracle lives in
+its own function and holds all thirteen of its fixtures by `std::unique_ptr`, so
+it adds no `main` frame at all, and the requirement still moved 40 KiB. That is
+the second consecutive outcome in which the growth came entirely from snapshot
+size.
+
+The record shape was also measured rather than assumed, because the obvious
+mitigation is to fold new evidence into an existing record instead of adding an
+array. It saves nothing. Measured with Clang 18 (`clang++-18 -std=c++23 -I src`):
+
+```
+separate: collision=8 avoidance=40 total_per_sheep=48
+folded:   48
+```
+
+Padding absorbs the duplicated `subject_id` either way, so the choice between a
+new per-sheep record and extending an existing one is an ownership decision with
+no stack consequence.
+
+Inference: candidate direction 3 — shrinking `SheepSpatialGrid`, whose
+1,000-member ceiling is what multiplies every snapshot byte by seventy — is the
+only listed direction that addresses the actual growth rate. Directions 1 and 2
+move where fixtures live, and the last two outcomes have shown that fixture
+placement is no longer what consumes the headroom. Roughly `830 KiB` remains.

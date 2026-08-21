@@ -49,6 +49,25 @@ struct CylinderMoveResult {
     PaddockObstacle obstacle = PaddockObstacle::none;
 };
 
+// Read-only description of the first analytic obstacle a moving body would
+// reach along one straight planar path. A steering rule needs this *before* the
+// collision authority has to refuse a displacement, and it needs more than an
+// identity to act on: `face_normal` is the outward unit normal of the face the
+// body would enter, so a rule can push away from the shape, and
+// `lateral_escape` is the unit direction along that face toward the nearer free
+// edge, so a rule can steer around the shape instead of only braking against it.
+// `lateral_clearance` is how far that edge is, so a caller can decide whether a
+// way round is within reach. `lateral_escape` is zero when the two edges are
+// exactly equidistant, because neither is nearer and choosing a side would be a
+// hidden tie break. A clear path reports `none` and leaves every field zero.
+struct ObstacleApproach {
+    PaddockObstacle obstacle = PaddockObstacle::none;
+    double contact_distance = 0.0;
+    Vec3 face_normal{};
+    Vec3 lateral_escape{};
+    double lateral_clearance = 0.0;
+};
+
 // Collision and occlusion truth for the handcrafted paddock. These analytic
 // bounds are intentionally independent of voxel faces and renderer mesh
 // topology. The field is owned by `game` rather than by the dog motor because
@@ -78,6 +97,16 @@ class PaddockCollisionField {
     // than inventing one.
     [[nodiscard]] PaddockObstacle blocking_obstacle(double from_x, double from_z, double to_x,
                                                     double to_z) const noexcept;
+    // Reports the first obstacle a body of `radius` would reach while
+    // travelling from `start` along `direction` for `distance`, sweeping the
+    // same radius-expanded rectangles `resolve_cylinder_move` stops it against,
+    // so the shape a rule steers around and the shape that refuses a
+    // displacement can never be two different shapes. The nearest obstacle
+    // wins and the paddock's fixed order breaks an exact tie, as it does for
+    // the sight line. `direction` need not be normalized; a zero, non-finite,
+    // or zero-length path reports no obstacle rather than inventing one.
+    [[nodiscard]] ObstacleApproach approaching_obstacle(Vec3 start, Vec3 direction, double distance,
+                                                        double radius) const noexcept;
     [[nodiscard]] bool gate_open() const noexcept;
     [[nodiscard]] std::size_t obstacle_count() const noexcept;
 

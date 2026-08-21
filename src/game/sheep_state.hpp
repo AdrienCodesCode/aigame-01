@@ -156,6 +156,37 @@ struct SheepCollisionEvidence {
 
 using SheepCollisionEvidenceBuffer = std::array<SheepCollisionEvidence, kGameplaySheepCount>;
 
+// Read-only evidence for the steering term that tries to make the hard collision
+// authority unnecessary. Avoidance is a term like the others: it publishes its
+// own acceleration vector, that vector is summed with the rest, and the combined
+// bound scales it exactly as it scales everything else. It is not a second
+// collision rule and it never moves a sheep by itself.
+//
+// `avoidance_evaluated` is false for a sheep the term did not run for, which is
+// a scenario with the term switched off and also a sheep whose prior planar
+// speed is at or below `kSheepHeadingMotionSpeedFloor`: avoidance reads where
+// the sheep is *going*, and a sheep that is not measurably moving is not about
+// to run into anything, so there is no direction to probe and none is invented.
+// `obstacle` names the analytic paddock shape the look-ahead path reaches first
+// and `obstacle_distance` is how far along that path it lies; a named obstacle
+// exactly at the look-ahead distance publishes a zero vector, because the
+// response falls off linearly to nothing there. `drop_ahead` is true when the
+// ground under the look-ahead point is not finite. Today the paddock is flat and
+// its ground is finite everywhere inside its own bounds, so the only drop that
+// exists is the paddock edge.
+struct SheepAvoidanceEvidence {
+    std::uint32_t subject_id = 0;
+    bool avoidance_evaluated = false;
+    bool drop_ahead = false;
+    PaddockObstacle obstacle = PaddockObstacle::none;
+    double obstacle_distance = 0.0;
+    Vec3 avoidance_acceleration{};
+
+    bool operator==(const SheepAvoidanceEvidence&) const = default;
+};
+
+using SheepAvoidanceEvidenceBuffer = std::array<SheepAvoidanceEvidence, kGameplaySheepCount>;
+
 // Read-only evidence for the single bound that limits what every published
 // steering term can do to one sheep together. Each social and dog term keeps its
 // own maximum, but nothing previously stopped their sum, so a sheep standing

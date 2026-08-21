@@ -35,6 +35,15 @@ empty_collision_evidence(const SheepStateBuffer& sheep) noexcept {
     return evidence;
 }
 
+[[nodiscard]] SheepAvoidanceEvidenceBuffer
+empty_avoidance_evidence(const SheepStateBuffer& sheep) noexcept {
+    SheepAvoidanceEvidenceBuffer evidence{};
+    for (std::size_t index = 0; index < sheep.size(); ++index) {
+        evidence[index].subject_id = sheep[index].id;
+    }
+    return evidence;
+}
+
 [[nodiscard]] SheepCombinedInfluenceEvidenceBuffer
 empty_combined_influence_evidence(const SheepStateBuffer& sheep) noexcept {
     SheepCombinedInfluenceEvidenceBuffer evidence{};
@@ -91,6 +100,7 @@ void validate_social_response_configuration(const GameplayScenarioDefinition& sc
     const SheepDogApproachConfiguration& dog_approach = scenario.sheep_dog_approach;
     const SheepDogFacingConfiguration& dog_facing = scenario.sheep_dog_facing;
     const SheepTemperamentConfiguration& temperament = scenario.sheep_temperament;
+    const SheepAvoidanceConfiguration& avoidance = scenario.sheep_avoidance;
     const SheepCombinedInfluenceConfiguration& combined = scenario.sheep_combined_influence;
     const SheepMotionLimitConfiguration& motion_limit = scenario.sheep_motion_limit;
     if (separation.enabled) {
@@ -155,6 +165,18 @@ void validate_social_response_configuration(const GameplayScenarioDefinition& sc
         WIDE_EYE_ASSERT(std::isfinite(temperament.stubborn_response_scale) &&
                             temperament.stubborn_response_scale > 0.0,
                         "sheep stubborn response scale must be finite and positive");
+    }
+    if (avoidance.enabled) {
+        // A zero or negative look-ahead is not a shorter look-ahead: the linear
+        // falloff divides by it, and a sheep that looks nowhere cannot avoid
+        // anything, which is a way of switching the term off rather than of
+        // tuning it.
+        WIDE_EYE_ASSERT(std::isfinite(avoidance.look_ahead_distance) &&
+                            avoidance.look_ahead_distance > 0.0,
+                        "sheep avoidance look-ahead distance must be finite and positive");
+        WIDE_EYE_ASSERT(std::isfinite(avoidance.maximum_acceleration) &&
+                            avoidance.maximum_acceleration >= 0.0,
+                        "sheep avoidance acceleration must be finite and non-negative");
     }
     if (combined.enabled) {
         // A zero bound would silence every steering term at once, which is a way
@@ -409,6 +431,101 @@ void apply_alignment(const SheepStateBuffer& prior, std::size_t index,
     }
 }
 
+// Obstacle and drop avoidance. This is a steering term and nothing more: it
+// publishes one acceleration vector, that vector joins the sum, and the combined
+// bound scales it exactly as it scales every other term.
+// `resolve_sheep_against_paddock` is still the last positional authority and is
+// not reordered, weakened, or consulted here — the point of the term is that the
+// authority has less work to do, not that it has less power.
+//
+// Both halves probe along the sheep's own direction of travel, taken from the
+// immutable prior velocity. A sheep at or below `kSheepHeadingMotionSpeedFloor`
+// is not measurably going anywhere, so there is no direction to probe: the term
+// publishes an unevaluated record instead of steering away from a direction that
+// rounding invented, exactly as the heading rule refuses to face one.
+//
+// The obstacle half asks the analytic paddock which shape the sheep's swept body
+// reaches first, then pushes away from the face it would enter. When the
+// geometry names a nearer free edge of that same shape *and* the edge is within
+// the look-ahead — that is, when there is a way round the sheep could actually
+// reach — the direction along the face toward it is added, so the sheep steers
+// around the shape rather than only braking against it. An edge further away
+// than the sheep can see is not a way round, and a sheep exactly between the two
+// edges has no nearer one; both keep the pure away-from-the-face push rather
+// than committing to a side that the geometry did not name.
+//
+// The drop half is deliberately cruder, because `ground_height` answers a point
+// question rather than a distance one: the ground under the look-ahead point
+// either exists or does not. When it does not, the term pushes straight back
+// along the sheep's own approach, which is the only direction away from a drop
+// that a point query names. Grading that response, or steering along the edge
+// instead of retreating from it, would need a boundary shape the query does not
+// expose and the flat paddock could not exercise.
+void apply_avoidance(const SheepState& prior, const SheepAvoidanceConfiguration& avoidance,
+                     const PaddockCollisionField& paddock,
+                     SheepAvoidanceEvidence& evidence) noexcept {
+    if (!avoidance.enabled) {
+        return;
+    }
+    const double speed = std::hypot(prior.velocity.x, prior.velocity.z);
+    if (speed <= kSheepHeadingMotionSpeedFloor) {
+        return;
+    }
+
+    const double travel_x = prior.velocity.x / speed;
+    const double travel_z = prior.velocity.z / speed;
+    evidence.avoidance_evaluated = true;
+
+    double acceleration_x = 0.0;
+    double acceleration_z = 0.0;
+    const ObstacleApproach approach =
+        paddock.approaching_obstacle(prior.position, {.x = travel_x, .z = travel_z},
+                                     avoidance.look_ahead_distance, kSheepCollisionRadius);
+    if (approach.obstacle != PaddockObstacle::none) {
+        evidence.obstacle = approach.obstacle;
+        evidence.obstacle_distance = approach.contact_distance;
+        double direction_x = approach.face_normal.x;
+        double direction_z = approach.face_normal.z;
+        if (approach.lateral_escape != Vec3{} &&
+            approach.lateral_clearance <= avoidance.look_ahead_distance) {
+            direction_x += approach.lateral_escape.x;
+            direction_z += approach.lateral_escape.z;
+        }
+        // The same linear falloff shape the accepted dog terms use, over the
+        // look-ahead instead of over a radius: nothing at all at the far end,
+        // the full maximum at contact. A shape exactly at the look-ahead
+        // distance therefore publishes a named obstacle and a zero vector, so
+        // the boundary is continuous rather than a step.
+        const double urgency = 1.0 - approach.contact_distance / avoidance.look_ahead_distance;
+        const double direction_length = std::hypot(direction_x, direction_z);
+        if (urgency > 0.0 && direction_length > 0.0) {
+            const double magnitude = avoidance.maximum_acceleration * urgency / direction_length;
+            acceleration_x += direction_x * magnitude;
+            acceleration_z += direction_z * magnitude;
+        }
+    }
+
+    const double probe_x = prior.position.x + travel_x * avoidance.look_ahead_distance;
+    const double probe_z = prior.position.z + travel_z * avoidance.look_ahead_distance;
+    if (!std::isfinite(paddock.ground_height(probe_x, probe_z))) {
+        evidence.drop_ahead = true;
+        acceleration_x -= travel_x * avoidance.maximum_acceleration;
+        acceleration_z -= travel_z * avoidance.maximum_acceleration;
+    }
+
+    // One term, one maximum. The two halves are summed and the total is held to
+    // the same named maximum, exactly as close-range separation holds the sum of
+    // its per-neighbour pushes, so avoidance cannot become the strongest
+    // influence in the flock by reacting to two things at once.
+    const double acceleration_length = std::hypot(acceleration_x, acceleration_z);
+    if (acceleration_length > avoidance.maximum_acceleration) {
+        const double scale = avoidance.maximum_acceleration / acceleration_length;
+        acceleration_x *= scale;
+        acceleration_z *= scale;
+    }
+    evidence.avoidance_acceleration = {.x = acceleration_x, .z = acceleration_z};
+}
+
 // The two limits that act on the result of integration rather than on any
 // steering term, applied after the combined-influence bound and before the
 // paddock resolves the displacement. Neither one rewrites a published
@@ -493,6 +610,7 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
         next.sheep_social_evidence[index] = {.subject_id = prior[index].id};
         next.sheep_dog_pressure_evidence[index] = {.subject_id = prior[index].id};
         next.sheep_collision_evidence[index] = {.subject_id = prior[index].id};
+        next.sheep_avoidance_evidence[index] = {.subject_id = prior[index].id};
         next.sheep_combined_influence_evidence[index] = {.subject_id = prior[index].id};
         next.sheep_motion_limit_evidence[index] = {.subject_id = prior[index].id};
         if (scenario.sheep_fixture != SheepFixture::scripted_presentation_motion) {
@@ -520,6 +638,7 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
     const SheepSeparationConfiguration& separation = scenario.sheep_separation;
     const SheepAttractionConfiguration& attraction = scenario.sheep_attraction;
     const SheepAlignmentConfiguration& alignment = scenario.sheep_alignment;
+    const SheepAvoidanceConfiguration& avoidance = scenario.sheep_avoidance;
     const SheepCombinedInfluenceConfiguration& combined = scenario.sheep_combined_influence;
     const SheepMotionLimitConfiguration& motion_limit = scenario.sheep_motion_limit;
 
@@ -541,6 +660,7 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
     for (std::size_t index = 0; index < prior.size(); ++index) {
         SheepSocialEvidence& evidence = next.sheep_social_evidence[index];
         SheepDogPressureEvidence& dog_evidence = next.sheep_dog_pressure_evidence[index];
+        SheepAvoidanceEvidence& avoidance_evidence = next.sheep_avoidance_evidence[index];
         SheepCombinedInfluenceEvidence& combined_evidence =
             next.sheep_combined_influence_evidence[index];
 
@@ -554,15 +674,18 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
         if (alignment.enabled) {
             apply_alignment(prior, index, alignment, grid, alignment_scratch, evidence);
         }
+        apply_avoidance(prior[index], avoidance, paddock, avoidance_evidence);
 
         double acceleration_x =
             evidence.separation_acceleration.x + evidence.attraction_acceleration.x +
             evidence.alignment_acceleration.x + dog_evidence.pressure_acceleration.x +
-            dog_evidence.approach_acceleration.x + dog_evidence.facing_acceleration.x;
+            dog_evidence.approach_acceleration.x + dog_evidence.facing_acceleration.x +
+            avoidance_evidence.avoidance_acceleration.x;
         double acceleration_z =
             evidence.separation_acceleration.z + evidence.attraction_acceleration.z +
             evidence.alignment_acceleration.z + dog_evidence.pressure_acceleration.z +
-            dog_evidence.approach_acceleration.z + dog_evidence.facing_acceleration.z;
+            dog_evidence.approach_acceleration.z + dog_evidence.facing_acceleration.z +
+            avoidance_evidence.avoidance_acceleration.z;
 
         // The one place the terms become a single acceleration is the one place
         // the combined bound belongs. It scales the sum, never an individual
@@ -638,6 +761,7 @@ GameplaySimulation::GameplaySimulation(GameplayScenarioDefinition scenario) noex
     current_.sheep_social_evidence = empty_social_evidence(current_.sheep);
     current_.sheep_dog_pressure_evidence = empty_dog_pressure_evidence(current_.sheep);
     current_.sheep_collision_evidence = empty_collision_evidence(current_.sheep);
+    current_.sheep_avoidance_evidence = empty_avoidance_evidence(current_.sheep);
     current_.sheep_combined_influence_evidence = empty_combined_influence_evidence(current_.sheep);
     current_.sheep_motion_limit_evidence = empty_motion_limit_evidence(current_.sheep);
     previous_ = current_;
@@ -664,6 +788,7 @@ void GameplaySimulation::restart() noexcept {
                 .sheep_social_evidence = empty_social_evidence(scenario_.initial_sheep),
                 .sheep_dog_pressure_evidence = empty_dog_pressure_evidence(scenario_.initial_sheep),
                 .sheep_collision_evidence = empty_collision_evidence(scenario_.initial_sheep),
+                .sheep_avoidance_evidence = empty_avoidance_evidence(scenario_.initial_sheep),
                 .sheep_combined_influence_evidence =
                     empty_combined_influence_evidence(scenario_.initial_sheep),
                 .sheep_motion_limit_evidence =
@@ -687,6 +812,7 @@ GameplaySnapshot GameplaySimulation::interpolated_snapshot(double alpha) const n
         .sheep_social_evidence = current_.sheep_social_evidence,
         .sheep_dog_pressure_evidence = current_.sheep_dog_pressure_evidence,
         .sheep_collision_evidence = current_.sheep_collision_evidence,
+        .sheep_avoidance_evidence = current_.sheep_avoidance_evidence,
         .sheep_combined_influence_evidence = current_.sheep_combined_influence_evidence,
         .sheep_motion_limit_evidence = current_.sheep_motion_limit_evidence,
     };

@@ -48,7 +48,13 @@
   - paired, independently switchable bounded sheep speed and bounded turning
     acting on the result of integration, with the sheep heading following the
     direction of its own motion under a named turn rate and the published dog
-    bearing still taken from the prior heading.
+    bearing still taken from the prior heading; and
+  - paired, independently switchable steering-level obstacle and drop avoidance
+    that probes ahead along a sheep's own direction of travel, pushes away from
+    the analytic paddock face it would reach and halfway toward a reachable free
+    edge of that same shape, pushes back from a look-ahead point whose ground is
+    not finite, and is summed and bounded with every other term while the hard
+    paddock authority stays exactly where it was.
 
   Detailed evidence remains with the checked Phase 3 items and their owning
   source, decision, format, test, and artifact records; completed Phase 0–2
@@ -92,7 +98,44 @@
   executables plus CTest remain the accepted Tracer 2 harness under
   [ADR 0003](docs/decisions/0003-project-owned-test-harness.md); framework
   adoption is deferred until a concrete maintenance cost justifies it.
-- **Verification run (2026-08-21, bounded speed and turning):** on WSL Ubuntu
+- **Verification run (2026-08-21, obstacle and drop avoidance):** on WSL Ubuntu
+  24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
+  each built and passed 24/24 CTests; project formatting and bounded clang-tidy
+  passed, the QA tracker check passed, and `git diff --check` reported nothing.
+  The gameplay-simulation oracle observed the paired avoidance fixture — which
+  enables no other steering term and starts every driven sheep exactly `3.125`,
+  half the `6.25` look-ahead, from the face it is heading at — publish exactly
+  `(0, 2)` against `left_wall` for the sheep whose free edges are both further
+  away than it can see, two exactly equal components of `1.4142135623730949`
+  against the same wall for the sheep with a reachable end, exactly `(0, 2)`
+  against `gate` for the sheep at the gate's exact middle where neither edge is
+  nearer, exactly `(4, 0)` with `drop_ahead` for the sheep at the paddock's outer
+  bound, and an exactly zero vector for the sheep running parallel to the wall
+  line `3.5` from it, which stayed bit-identical to the off member. A shape at
+  exactly the look-ahead was named with a zero vector and one just beyond it was
+  not seen. A derived combined bound of `2.0` scaled the drop sheep's exactly `4`
+  summed magnitude by exactly `0.5` to exactly `(2, 0)` while leaving the
+  published avoidance vector untouched. Over 240 ticks the avoiding member needed
+  the hard clip on `0` ticks against the control's `4`, first clipped at ticks
+  `63` and `71`, coming no closer than `0.758357` to the wall face; a maximum
+  weakened to `0.25` was overwhelmed and its sheep was still clipped by
+  `left_wall` at tick `65`, resting at exactly `16.5`. Reversed storage and
+  restart were exact and 600 ticks allocated no heap memory. Required evidence
+  advanced the state dump to version 13. A comparison against a `HEAD` worktree
+  build found all 25 pre-existing scenarios byte-identical over 240 scripted ticks
+  each once the new key and the version number were removed, so no accepted
+  measurement was invalidated. Native Windows/Linux graphics and the presentation
+  performance scenarios were not rerun because no presentation path changed and
+  this host exposes only OpenGL 4.5. Evidence:
+  [ADR 0008](docs/decisions/0008-obstacle-and-drop-avoidance.md),
+  [`paddock_collision.hpp`](src/game/paddock_collision.hpp),
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp), and the
+  ignored
+  [oracle output](artifacts/phase3/2026-08-21/obstacle-and-drop-avoidance-headless/gameplay-simulation-oracle.txt),
+  [accepted-scenario comparison](artifacts/phase3/2026-08-21/obstacle-and-drop-avoidance-headless/accepted-scenario-state-diff.txt),
+  and
+  [stack headroom measurement](artifacts/phase3/2026-08-21/obstacle-and-drop-avoidance-headless/stack-headroom.txt).
+- **Prior verification run (2026-08-21, bounded speed and turning):** on WSL Ubuntu
   24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
   each built and passed 24/24 CTests; project formatting and bounded clang-tidy
   passed, the QA tracker check passed, and `git diff --check` reported nothing.
@@ -319,8 +362,25 @@
   sideways for up to about eight tenths of a second while its facing catches up,
   which is a known simulation smell recorded in
   [ADR 0007](docs/decisions/0007-bounded-sheep-speed-and-turning.md) rather than
-  fixed; damping is still absent, so a sheep meets the maximum abruptly instead
-  of settling into it; and nothing steers a sheep around an obstacle or a drop.
+  fixed; and damping is still absent, so a sheep meets the maximum abruptly
+  instead of settling into it. Steering now does look ahead, so the earlier limit
+  that nothing steered a sheep around an obstacle or a drop is resolved, but only
+  narrowly. Avoidance is a term like any other: it is switched on only in its own
+  paired fixture, it is scaled by the combined bound rather than exempt from it,
+  and it replaces nothing — `resolve_sheep_against_paddock` is still the last
+  positional authority, and a maximum weakened to `0.25` was observed being
+  overwhelmed while the hard clip still stopped the sheep and still named the
+  wall. Its `4.0` maximum and the `6.25` look-ahead derived from it inherit the
+  provisional status of the accepted values they come from. **Drop avoidance is
+  verified against the paddock edge and against nothing else:** the handcrafted
+  paddock has one constant ground height, so `ground_height` is finite everywhere
+  inside its own bounds, there is no interior drop for the term to meet, and the
+  binary "is there ground under the look-ahead point" response has not been
+  exercised against terrain — Phase 5 is when that half gets a real test. The
+  rule also considers one obstacle at a time, so a lateral escape can point at
+  another shape rather than at open ground, and a sheep it has brought to rest
+  stops being avoided for at all because the term reads travel direction rather
+  than proximity.
   Temperament is a persistent per-sheep response scale on the dog
   stimulus only: it does not modulate the social terms, does not change the shared
   pressure radius or falloff, and does not yet interact with arousal, behavior
@@ -339,16 +399,22 @@
   Phase 3 exit-gate replay can claim the closed gate is the only way through.
   Sheep-versus-sheep and sheep-versus-dog body collision do not exist: only the
   paddock boundary is authoritative. The gameplay-simulation oracle itself is
-  near a hard limit: `GameplaySimulation` is about 114 KiB because the spatial
+  near a hard limit: `GameplaySimulation` is about 115 KiB because the spatial
   grid carries its 1,000-member capacity-experiment ceiling, and its `main` holds
   roughly seventy of them by value. On the 200 KiB reporting grid the `dev`
   binary still exits 0 at `ulimit -s 7400` and segfaults with no output at
-  `7200`, unchanged by this outcome; a finer 20 KiB sweep of two comparable
-  standalone builds puts the minimum at about `7280` KiB before this outcome and
-  about `7320` KiB after it, roughly 40 KiB, because `GameplaySnapshot` grew from
-  1,912 to 2,152 bytes with the new evidence record. Holding new fixtures by
-  pointer in their own function is a mitigation, not a fix — about 870 KiB of
-  headroom is left and the growth rate is now dominated by snapshot size rather
+  `7300`, unchanged by this outcome; a finer 20 KiB sweep of two comparable
+  standalone builds puts the minimum at `7320` KiB before this outcome and
+  `7360` KiB after it, roughly 40 KiB worse again, because `GameplaySnapshot`
+  grew from 2,152 to 2,352 bytes with the new avoidance record. The new oracle
+  itself adds no `main` frame — it lives in its own function and holds all
+  thirteen of its fixtures by `std::unique_ptr` — and publishing the avoidance
+  evidence as its own record cost nothing over folding the same fields into the
+  existing paddock-contact record: both shapes measure exactly 48 bytes per
+  sheep, because padding absorbs the duplicated subject ID either way. Holding
+  new fixtures by
+  pointer in their own function is a mitigation, not a fix — about 830 KiB of
+  headroom is left and the growth rate is dominated by snapshot size rather
   than by fixture count — and it is filed as
   [QA-002](docs/qa/open/QA-002-gameplay-simulation-tests-near-default-stack-limit.md). Adding
   that boundary changed four pre-existing headless fixtures
@@ -356,10 +422,9 @@
   `sheep-dog-facing-on`) after the tick at which a sheep first touches a wall;
   their accepted 60-tick and first-tick measurements are unaffected, but any
   later comparison against those fixtures must be re-derived.
-- **Next action:** implement obstacle and drop avoidance as steering-level terms,
-  using the analytic paddock obstacles and the finite/non-finite ground-height
-  boundary as the drop, keeping the hard collision authority as the separate
-  later stage it already is.
+- **Next action:** implement settled, alert, driven, and recovering behavior
+  transitions plus the explicitly non-physiological arousal/recovery proxy, as the
+  next isolated variable with paired fixtures and published per-sheep evidence.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
@@ -369,6 +434,7 @@
   [ADR 0005](docs/decisions/0005-paddock-collision-ownership.md),
   [ADR 0006](docs/decisions/0006-combined-influence-acceleration-bound.md),
   [ADR 0007](docs/decisions/0007-bounded-sheep-speed-and-turning.md),
+  [ADR 0008](docs/decisions/0008-obstacle-and-drop-avoidance.md),
   [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
   [`math.hpp`](src/game/math.hpp),
   [`paddock_collision.hpp`](src/game/paddock_collision.hpp),
@@ -907,7 +973,7 @@ scope. Evidence: the archived
   [accepted-scenario comparison](artifacts/phase3/2026-08-21/sheep-collision-authority-headless/accepted-scenario-state-diff.txt),
   and
   [per-scenario contact report](artifacts/phase3/2026-08-21/sheep-collision-authority-headless/scenario-contact-report.txt).
-- [ ] Implement obstacle/drop avoidance and bounded acceleration/turning,
+- [x] Implement obstacle/drop avoidance and bounded acceleration/turning,
   including the combined-influence acceleration bound across all social and dog
   terms. Decide the combination rule (clamp, prioritized weighting, or another
   explicit scheme) before implementing it, and plan for the paired-fixture
@@ -1110,6 +1176,125 @@ scope. Evidence: the archived
   [accepted-scenario comparison](artifacts/phase3/2026-08-21/bounded-speed-and-turning-headless/accepted-scenario-state-diff.txt),
   and
   [stack headroom measurement](artifacts/phase3/2026-08-21/bounded-speed-and-turning-headless/stack-headroom.txt).
+  Observed result (2026-08-21): obstacle and drop avoidance is now implemented as
+  well, so every half of this item exists and it is checked. One scenario-owned,
+  independently switchable `SheepAvoidanceConfiguration` names a `6.25`
+  `look_ahead_distance` and a `4.0` `maximum_acceleration`, validated once at
+  construction beside the other enabled terms. **Avoidance is a steering term and
+  not a second collision rule.** It publishes one acceleration vector, that vector
+  is added to the same sum as every other term, and the combined-influence bound
+  scales it exactly as it scales the rest; `resolve_sheep_against_paddock` is not
+  reordered, not weakened, and not consulted by it, and it remains the last
+  positional authority. Both halves probe along the sheep's **own prior direction
+  of travel**, so the term is direction-aware rather than proximity-aware: a sheep
+  standing beside a wall, running parallel to one, or heading away from one feels
+  nothing, and a sheep at or below the shared `kSheepHeadingMotionSpeedFloor`
+  publishes an unevaluated record instead of a direction rounding invented.
+  Obstacles come from one new read-only
+  `PaddockCollisionField::approaching_obstacle` query over the *same*
+  radius-expanded rectangles `resolve_cylinder_move` stops a body against, so the
+  shape a sheep steers around and the shape that refuses its displacement can
+  never be two different shapes and no second obstacle representation exists. The
+  response is the outward normal of the face the sheep would enter, plus — only
+  when the geometry names a nearer free edge of that same shape *and* that edge
+  lies within the same look-ahead — the direction along the face toward it, which
+  turns the push exactly halfway toward the way round so the sheep is deflected as
+  well as slowed. An edge beyond the look-ahead is not a way round it can take and
+  an exactly centred sheep has no nearer edge; both keep the pure away-from-the-face
+  push rather than committing to a side the geometry did not name. The magnitude
+  falls off linearly over the look-ahead, the same shape the accepted dog terms use
+  over their radius. Drops are where `ground_height` is not finite, probed at the
+  look-ahead point; the response is the full maximum straight back along the
+  approach. Both halves are summed and held to the term's own maximum, exactly as
+  separation holds the sum of its per-neighbour pushes. Both magnitudes are derived
+  rather than picked and
+  [ADR 0008](docs/decisions/0008-obstacle-and-drop-avoidance.md) records the
+  derivation: the maximum is the largest single accepted per-term maximum — close-range
+  separation's `4.0`, the same value as the combined bound — and the look-ahead is
+  exactly the room that maximum needs under the linear falloff to bring a sheep
+  travelling at the accepted `5.0` maximum speed to rest at the face
+  (`L = v^2 / A = 25 / 4`). They inherit the provisional status of the accepted
+  values they come from; neither is measured or tuned, and the derivation is a
+  continuous-time argument that the 60 Hz Euler integration satisfies with margin
+  rather than exactly. Version 1, seed-zero `sheep-avoidance-off` and
+  `sheep-avoidance-on` enable no other steering term, give five sheep exact initial
+  velocities, and start every driven sheep exactly `3.125` — half the look-ahead —
+  from the face it is heading at, so the falloff is exactly one half and every
+  first-tick number is exact arithmetic. In that fixture the focused oracle
+  observed the sheep at the middle of the left wall publish `left_wall` at exactly
+  `3.125` and exactly `(0, 2)` with **no** lateral component, because its nearer
+  free edge is `6.5` away and further than it can see; the sheep at the same wall
+  `1.5` from its `+x` end publish the same shape and distance with the two
+  components exactly equal at `1.4142135623730949` and a magnitude of `2`; the
+  sheep at the exact middle of the closed gate publish `gate` with exactly
+  `(0, 2)`, because neither free edge is nearer and no side is invented; the sheep
+  at the paddock's outer bound publish no shape, `drop_ahead` true, and exactly
+  `(4, 0)`; and the sheep running parallel to the wall line only `3.5` from it —
+  closer than the look-ahead — publish an evaluated record with an exactly zero
+  vector and stay bit-identical to the off member. A derived sheep heading away
+  from the same wall was likewise bit-identical, and a derived sheep with no
+  velocity published an unevaluated zeroed record. A shape at exactly the `6.25`
+  look-ahead was named with a vector of exactly zero and one `0.05` beyond it was
+  not seen, so the boundary is continuous. For every sheep the published avoidance
+  vector was exactly the applied acceleration and exactly what integration used,
+  and every social, dog-stimulus, and motion-limit record was identical between the
+  two members. A derived scenario with the combined bound at `2.0` left the
+  published avoidance vector at exactly `(4, 0)` while the bound published a summed
+  magnitude of exactly `4`, a scale of exactly `0.5`, and an applied acceleration
+  of exactly `(2, 0)`, so avoidance is scaled by the bound like any other term
+  rather than escaping it. **The invariant that motivated this item was observed
+  from both sides.** Over 240 ticks the avoiding member recorded `0` contact ticks
+  for every sheep while the control recorded `4` — one per driven sheep, because
+  the accepted rule clears the blocked axis so a pinned sheep reports contact
+  once — with the control first clipped at tick `63` by a wall and at tick `71` by the
+  outer bound; the closest any avoiding sheep came to the wall face was `0.758357`,
+  the steered sheep ended at `x = 13.9478` against its control pinned at exactly
+  its start `x = 13`, and the drop sheep rested at `x = 2.9` against its control
+  held at the `0.5` bound. **And the hard clip still works.** Weakening the same
+  fixture's maximum to `0.25` overwhelmed the term: its sheep was still clipped, at
+  tick `65` rather than `63`, still named `left_wall`, and still came to rest at
+  exactly `16.5`, with the avoidance record on that tick evaluated and pushing —
+  the term was live and lost. So avoidance cannot hide a collision failure. The off
+  member reproduced straight-line travel at exactly its fixture velocities until
+  the paddock refused it. Reversed storage preserved exact per-ID state and
+  evidence, restart was exact, a fixture without the term published an unevaluated
+  zeroed record, and 600 enabled ticks allocated no heap memory. Required evidence
+  advanced the state dump to version 13. A comparison against a `HEAD` worktree
+  build ran all 25 pre-existing scenarios for 240 scripted ticks each and found
+  every canonical state dump byte-identical once the new key and the version number
+  were removed, so no accepted measurement is invalidated. On WSL Ubuntu 24.04.4
+  with Clang 18.1.3, development, Release, and ASan/UBSan configurations each built
+  and passed 24/24 CTests; project formatting and bounded clang-tidy passed, the QA
+  tracker check passed, and `git diff --check` reported nothing. Native
+  Windows/Linux graphics, the presentation performance scenarios, and human visual
+  review were not rerun because this outcome changes authoritative headless sheep
+  behavior rather than pixels, and this host exposes only OpenGL 4.5. **What this
+  evidence does not cover:** the paddock has one constant ground height, so
+  `ground_height` is finite everywhere inside its own bounds and the only drop that
+  exists is the paddock edge. Drop avoidance is therefore verified against the
+  paddock edge and against nothing else; no interior ledge was exercised because
+  none exists, and Phase 5 procedural terrain is when that half gets a real test.
+  The rule also considers one obstacle at a time, so a lateral escape can point at
+  another shape — steering around the closed gate's `+x` end aims at ground the
+  right wall occupies — and it does not fix
+  [QA-001](docs/qa/open/QA-001-paddock-collision-radius-band-passthrough.md),
+  whose reproducing fixtures do not enable avoidance and still reproduce it. This
+  is synthetic causal evidence, not player-facing motion acceptance. Evidence:
+  [ADR 0008](docs/decisions/0008-obstacle-and-drop-avoidance.md),
+  [`paddock_collision.hpp`](src/game/paddock_collision.hpp),
+  [`paddock_collision.cpp`](src/game/paddock_collision.cpp),
+  [`sheep_state.hpp`](src/game/sheep_state.hpp),
+  [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
+  [`gameplay_scenario.cpp`](src/game/gameplay_scenario.cpp),
+  [`gameplay_simulation.cpp`](src/game/gameplay_simulation.cpp),
+  [`gameplay_replay.cpp`](src/game/gameplay_replay.cpp),
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp),
+  [`GAMEPLAY_REPLAY_AND_STATE.md`](docs/formats/GAMEPLAY_REPLAY_AND_STATE.md),
+  and the ignored
+  [oracle output](artifacts/phase3/2026-08-21/obstacle-and-drop-avoidance-headless/gameplay-simulation-oracle.txt),
+  [accepted-scenario comparison](artifacts/phase3/2026-08-21/obstacle-and-drop-avoidance-headless/accepted-scenario-state-diff.txt),
+  and
+  [stack headroom measurement](artifacts/phase3/2026-08-21/obstacle-and-drop-avoidance-headless/stack-headroom.txt).
 - [x] Implement ordinary, nervous, and stubborn temperaments.
   Observed result (2026-08-21): temperament is now a `SheepTemperament` field of
   `SheepState`, so it is authoritative game state that travels with the sheep,

@@ -397,7 +397,67 @@ constexpr SheepStateBuffer kMotionLimitSheepStates{{
 constexpr DogState kMotionLimitDogState{
     .position = {.x = 16.0, .y = 1.0, .z = 30.0}, .heading_radians = 0.0, .grounded = true};
 
-constexpr std::array<NamedGameplayScenario, 25> kGameplayScenarios{{
+// One stationary dog parked clear of everything and five sheep given exact
+// initial velocities isolate obstacle and drop avoidance from every steering
+// term: nothing else can change a sheep's straight-line motion, so every
+// first-tick number is exact arithmetic on the fixture's own values and the
+// paired control is today's uncorrected behavior. The `6.25` look-ahead and the
+// `4.0` maximum are the accepted configuration, and every sheep below starts an
+// exact `3.125` — half the look-ahead — from the face it is heading at, so the
+// linear falloff gives an urgency of exactly `0.5` and a magnitude of exactly
+// `2.0`. Half is chosen because it is the fraction that stays exact: a ratio
+// like four fifths is not a binary fraction, and the oracle would have to fall
+// back to a tolerance for no reason.
+//
+// Sheep 1 runs head-on at the middle of the left wall. Its nearer free edge is
+// `6.5` away — further than it can see — so no way round is within reach and it
+// gets the pure away-from-the-face push of exactly `(0, 2)`. Sheep 2 runs at
+// the same wall `1.5` from its `+x` end, which is a way round it can reach, so
+// its push is the same magnitude turned exactly halfway toward that end: the two
+// components are exactly equal and it is deflected sideways as well as slowed.
+// Sheep 3 runs head-on at the exact middle of the closed gate, where the two
+// free edges are exactly equidistant and neither is nearer, so it observes that
+// an exact tie keeps the pure push rather than inventing a side. Sheep 4 runs at
+// the paddock's own outer bound, the only drop that exists while the ground is
+// flat, and gets the full `4.0` straight back along its approach. Sheep 5 runs
+// parallel to the wall line and only `3.5` from it: closer than the look-ahead,
+// but with nothing in front of it, so it observes that the term reads direction
+// rather than proximity and leaves an untouched sheep bit-identical to the
+// control.
+constexpr double kAvoidanceSheepSpeed = 3.0;
+
+constexpr SheepStateBuffer kAvoidanceSheepStates{{
+    {.id = 1,
+     .position = {.x = 7.0, .y = 1.0, .z = 19.625},
+     .velocity = {.z = -kAvoidanceSheepSpeed},
+     .heading_radians = 3.14159265358979323846,
+     .grounded = true},
+    {.id = 2,
+     .position = {.x = 13.0, .y = 1.0, .z = 19.625},
+     .velocity = {.z = -kAvoidanceSheepSpeed},
+     .heading_radians = 3.14159265358979323846,
+     .grounded = true},
+    {.id = 3,
+     .position = {.x = 16.0, .y = 1.0, .z = 19.625},
+     .velocity = {.z = -kAvoidanceSheepSpeed},
+     .heading_radians = 3.14159265358979323846,
+     .grounded = true},
+    {.id = 4,
+     .position = {.x = 4.0, .y = 1.0, .z = 26.0},
+     .velocity = {.x = -kAvoidanceSheepSpeed},
+     .heading_radians = -1.57079632679489661923,
+     .grounded = true},
+    {.id = 5,
+     .position = {.x = 8.0, .y = 1.0, .z = 20.0},
+     .velocity = {.x = kAvoidanceSheepSpeed},
+     .heading_radians = 1.57079632679489661923,
+     .grounded = true},
+}};
+
+constexpr DogState kAvoidanceDogState{
+    .position = {.x = 26.0, .y = 1.0, .z = 26.0}, .heading_radians = 0.0, .grounded = true};
+
+constexpr std::array<NamedGameplayScenario, 27> kGameplayScenarios{{
     {
         .name = "paddock-start",
         .definition = {.id = GameplayScenarioId::paddock_start,
@@ -617,6 +677,21 @@ constexpr std::array<NamedGameplayScenario, 25> kGameplayScenarios{{
                        .sheep_fixture = SheepFixture::local_social_response,
                        .initial_sheep = kMotionLimitSheepStates,
                        .sheep_motion_limit = {.enabled = true}},
+    },
+    {
+        .name = "sheep-avoidance-off",
+        .definition = {.id = GameplayScenarioId::sheep_avoidance_off,
+                       .dog = {.initial_state = kAvoidanceDogState},
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kAvoidanceSheepStates},
+    },
+    {
+        .name = "sheep-avoidance-on",
+        .definition = {.id = GameplayScenarioId::sheep_avoidance_on,
+                       .dog = {.initial_state = kAvoidanceDogState},
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kAvoidanceSheepStates,
+                       .sheep_avoidance = {.enabled = true}},
     },
 }};
 

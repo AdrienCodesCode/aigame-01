@@ -90,6 +90,56 @@ constexpr AnalyticObstacle kClosedGate{
     return entry <= exit;
 }
 
+// The parameter range over which one planar axis of a swept point lies inside
+// one slab. A zero direction is handled explicitly, exactly as
+// `clip_segment_axis` does, so an axis-aligned path never divides by zero: that
+// axis either always overlaps the slab or never does.
+struct AxisSpan {
+    double near_fraction = 0.0;
+    double far_fraction = 0.0;
+    bool intersects = false;
+};
+
+[[nodiscard]] AxisSpan slab_span(double origin, double direction, double minimum,
+                                 double maximum) noexcept {
+    if (direction == 0.0) {
+        if (origin < minimum || origin > maximum) {
+            return {};
+        }
+        return {.near_fraction = -std::numeric_limits<double>::infinity(),
+                .far_fraction = std::numeric_limits<double>::infinity(),
+                .intersects = true};
+    }
+    double near_fraction = (minimum - origin) / direction;
+    double far_fraction = (maximum - origin) / direction;
+    if (near_fraction > far_fraction) {
+        std::swap(near_fraction, far_fraction);
+    }
+    return {.near_fraction = near_fraction, .far_fraction = far_fraction, .intersects = true};
+}
+
+// Which way along one obstacle face the nearer free edge lies, and how far away
+// it is. A body exactly between the two edges has no nearer one, so the sign is
+// zero rather than an invented side. A body already past an edge has no distance
+// left to cover, so its clearance is zero rather than negative.
+struct LateralEscape {
+    double sign = 0.0;
+    double clearance = 0.0;
+};
+
+[[nodiscard]] LateralEscape nearer_free_edge(double position, double minimum,
+                                             double maximum) noexcept {
+    const double to_minimum = position - minimum;
+    const double to_maximum = maximum - position;
+    if (to_minimum < to_maximum) {
+        return {.sign = -1.0, .clearance = std::max(to_minimum, 0.0)};
+    }
+    if (to_maximum < to_minimum) {
+        return {.sign = 1.0, .clearance = std::max(to_maximum, 0.0)};
+    }
+    return {.sign = 0.0, .clearance = std::max(to_minimum, 0.0)};
+}
+
 [[nodiscard]] bool segment_touches(const AnalyticObstacle& obstacle, double from_x, double from_z,
                                    double to_x, double to_z) noexcept {
     double entry = 0.0;
@@ -172,6 +222,69 @@ PaddockObstacle PaddockCollisionField::blocking_obstacle(double from_x, double f
         }
     }
     return PaddockObstacle::none;
+}
+
+ObstacleApproach PaddockCollisionField::approaching_obstacle(Vec3 start, Vec3 direction,
+                                                             double distance,
+                                                             double radius) const noexcept {
+    ObstacleApproach result;
+    const double direction_length = std::hypot(direction.x, direction.z);
+    if (!std::isfinite(start.x) || !std::isfinite(start.z) || !std::isfinite(direction_length) ||
+        direction_length <= 0.0 || !std::isfinite(distance) || distance <= 0.0 ||
+        !std::isfinite(radius) || radius < 0.0) {
+        // A path with no length, no direction, or no finite geometry is not a
+        // clear path: it is a question the field cannot answer, so it reports no
+        // obstacle instead of an unfounded all-clear.
+        return result;
+    }
+
+    const double unit_x = direction.x / direction_length;
+    const double unit_z = direction.z / direction_length;
+    for (std::size_t index = 0; index < obstacle_count_; ++index) {
+        const AnalyticObstacle& obstacle = obstacles_[index];
+        const double minimum_x = obstacle.minimum_x - radius;
+        const double maximum_x = obstacle.maximum_x + radius;
+        const double minimum_z = obstacle.minimum_z - radius;
+        const double maximum_z = obstacle.maximum_z + radius;
+        const AxisSpan span_x = slab_span(start.x, unit_x, minimum_x, maximum_x);
+        const AxisSpan span_z = slab_span(start.z, unit_z, minimum_z, maximum_z);
+        if (!span_x.intersects || !span_z.intersects) {
+            continue;
+        }
+
+        const double entry = std::max(span_x.near_fraction, span_z.near_fraction);
+        const double exit = std::min(span_x.far_fraction, span_z.far_fraction);
+        if (entry > exit || exit < 0.0 || entry > distance) {
+            continue;
+        }
+        // A body whose swept rectangle already overlaps this obstacle reaches it
+        // at zero distance rather than at a negative one. Pushing that body out
+        // is a steering caller's decision; this query only reports the geometry.
+        const double contact = std::max(entry, 0.0);
+        if (result.obstacle != PaddockObstacle::none && contact >= result.contact_distance) {
+            continue;
+        }
+
+        result.obstacle = obstacle.id;
+        result.contact_distance = contact;
+        // The axis whose slab is entered last is the face the body meets, and
+        // the X pass wins an exact corner tie — the same ordering
+        // `resolve_cylinder_move` already uses when two axes disagree. A zero
+        // direction component leaves that axis at negative infinity, so it can
+        // never be the entered face.
+        if (span_x.near_fraction >= span_z.near_fraction) {
+            const LateralEscape escape = nearer_free_edge(start.z, minimum_z, maximum_z);
+            result.face_normal = {.x = unit_x > 0.0 ? -1.0 : 1.0};
+            result.lateral_escape = {.z = escape.sign};
+            result.lateral_clearance = escape.clearance;
+        } else {
+            const LateralEscape escape = nearer_free_edge(start.x, minimum_x, maximum_x);
+            result.face_normal = {.z = unit_z > 0.0 ? -1.0 : 1.0};
+            result.lateral_escape = {.x = escape.sign};
+            result.lateral_clearance = escape.clearance;
+        }
+    }
+    return result;
 }
 
 bool PaddockCollisionField::gate_open() const noexcept {
