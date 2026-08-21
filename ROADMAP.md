@@ -154,8 +154,8 @@
   and
   [verification gates](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/verification-gates.txt).
 - **Prior verification run (2026-08-21, behavior transitions and arousal):** on WSL
-  Ubuntu 24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan
-  configurations each built and passed 24/24 CTests; project formatting and
+  Ubuntu 24.04.4, the development and ASan/UBSan configurations (Clang 18.1.3)
+  and the Release configuration (GNU 13.3.0) each built and passed 24/24 CTests; project formatting and
   bounded clang-tidy passed, the QA tracker check passed, and `git diff --check`
   reported nothing. The gameplay-simulation oracle observed the paired
   transitions fixture — which enables no steering term and moves its subject
@@ -210,7 +210,8 @@
   and
   [verification gates](artifacts/phase3/2026-08-21/behavior-transitions-and-arousal-headless/verification-gates.txt).
 - **Prior verification run (2026-08-21, obstacle and drop avoidance):** on WSL Ubuntu
-  24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
+  24.04.4, the development and ASan/UBSan configurations (Clang 18.1.3) and the
+  Release configuration (GNU 13.3.0)
   each built and passed 24/24 CTests; project formatting and bounded clang-tidy
   passed, the QA tracker check passed, and `git diff --check` reported nothing.
   The gameplay-simulation oracle observed the paired avoidance fixture — which
@@ -247,7 +248,8 @@
   and
   [stack headroom measurement](artifacts/phase3/2026-08-21/obstacle-and-drop-avoidance-headless/stack-headroom.txt).
 - **Prior verification run (2026-08-21, bounded speed and turning):** on WSL Ubuntu
-  24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
+  24.04.4, the development and ASan/UBSan configurations (Clang 18.1.3) and the
+  Release configuration (GNU 13.3.0)
   each built and passed 24/24 CTests; project formatting and bounded clang-tidy
   passed, the QA tracker check passed, and `git diff --check` reported nothing.
   The gameplay-simulation oracle observed the paired motion-limit fixture — which
@@ -285,7 +287,8 @@
   and
   [stack headroom measurement](artifacts/phase3/2026-08-21/bounded-speed-and-turning-headless/stack-headroom.txt).
 - **Prior verification run (2026-08-21, combined-influence bound):** on WSL Ubuntu
-  24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
+  24.04.4, the development and ASan/UBSan configurations (Clang 18.1.3) and the
+  Release configuration (GNU 13.3.0)
   each built and passed 24/24 CTests; project formatting and bounded clang-tidy
   passed, the QA tracker check passed, and `git diff --check` reported nothing.
   The gameplay-simulation oracle observed the paired combined-influence fixture
@@ -319,7 +322,8 @@
   and
   [accepted-scenario comparison](artifacts/phase3/2026-08-21/combined-influence-bound-headless/accepted-scenario-state-diff.txt).
 - **Prior verification run (2026-08-21, sheep temperaments):** on WSL Ubuntu 24.04.4
-  with Clang 18.1.3, development, Release, and ASan/UBSan configurations each
+  the development and ASan/UBSan configurations (Clang 18.1.3) and the Release
+  configuration (GNU 13.3.0) each
   built and passed 24/24 CTests; project formatting and bounded clang-tidy passed,
   the QA tracker check passed, and `git diff --check` reported nothing. The
   gameplay-simulation oracle observed the paired temperament fixture publish one
@@ -348,7 +352,8 @@
   and
   [accepted-scenario comparison](artifacts/phase3/2026-08-21/sheep-temperaments-headless/accepted-scenario-state-diff.txt).
 - **Prior verification run (2026-08-21, sheep collision authority):** on WSL Ubuntu
-  24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
+  24.04.4, the development and ASan/UBSan configurations (Clang 18.1.3) and the
+  Release configuration (GNU 13.3.0)
   each built and passed 24/24 CTests; project formatting and bounded clang-tidy
   passed and `git diff --check` reported nothing. The gameplay-simulation oracle
   observed the paired collision fixture stop a sheep at the exact left wall,
@@ -369,7 +374,8 @@
   and
   [accepted-scenario comparison](artifacts/phase3/2026-08-21/sheep-collision-authority-headless/accepted-scenario-state-diff.txt).
 - **Prior verification run (2026-08-21, dog line of sight):** on WSL Ubuntu
-  24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
+  24.04.4, the development and ASan/UBSan configurations (Clang 18.1.3) and the
+  Release configuration (GNU 13.3.0)
   each built and passed 24/24 CTests; project formatting and bounded clang-tidy
   passed and `git diff --check` reported nothing. The gameplay-simulation oracle
   observed the paired line-of-sight fixture reproduce the accepted `(0, -1)`
@@ -580,6 +586,20 @@
   and the flap allowance for avoidance and for the applied sum is deliberately
   four times the one every continuous term is held to, naming that issue as its
   reason until it closes.
+- **Toolchain correction (observed result, 2026-08-22):** the checked-in presets
+  do not pin a compiler. On this host `dev` and `dev-sanitized` are configured
+  with Clang 18.1.3 while `release` is configured with the default `c++`, GNU
+  13.3.0, and CI pins Clang only through workflow environment variables and only
+  for `dev`. Verification paragraphs recorded from 2026-08-21 onward now name the
+  compiler each configuration actually used; earlier paragraphs say "Clang
+  18.1.3" for all three and have not been rewritten, because which compiler built
+  those Release trees was not observed and cannot now be established. Building
+  Release under a second compiler has caught at least one real portability
+  problem, so the defect is that the divergence is accidental and unstated rather
+  than that it exists. Filed as
+  [QA-004](docs/qa/open/QA-004-presets-do-not-pin-the-compiler.md); whether to
+  pin every preset to Clang or to make the GCC build a stated second preset is an
+  owner decision.
 - **Next action:** add dog bearing/distance, response latency, split/rejoin
   time, and settle time to the flock observables, now that behavior transitions
   exist to measure latency against. The debug arrows and labels for every
@@ -1307,8 +1327,8 @@ scope. Evidence: the archived
   dog-term observations are unchanged. `flock_observables` computes polarization
   from published sheep *velocity* rather than from heading, so heading-follows-
   motion could not have moved that number even where the term is switched on. On
-  WSL Ubuntu 24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan
-  configurations each built and passed 24/24 CTests; project formatting and
+  WSL Ubuntu 24.04.4, the development and ASan/UBSan configurations (Clang 18.1.3)
+  and the Release configuration (GNU 13.3.0) each built and passed 24/24 CTests; project formatting and
   bounded clang-tidy passed, the QA tracker check passed, and `git diff --check`
   reported nothing. Native Windows/Linux graphics, the presentation performance
   scenarios, and human visual review were not rerun because this outcome changes
@@ -1426,7 +1446,8 @@ scope. Evidence: the archived
   build ran all 25 pre-existing scenarios for 240 scripted ticks each and found
   every canonical state dump byte-identical once the new key and the version number
   were removed, so no accepted measurement is invalidated. On WSL Ubuntu 24.04.4
-  with Clang 18.1.3, development, Release, and ASan/UBSan configurations each built
+  the development and ASan/UBSan configurations (Clang 18.1.3) and the Release
+  configuration (GNU 13.3.0) each built
   and passed 24/24 CTests; project formatting and bounded clang-tidy passed, the QA
   tracker check passed, and `git diff --check` reported nothing. Native
   Windows/Linux graphics, the presentation performance scenarios, and human visual
@@ -1512,8 +1533,8 @@ scope. Evidence: the archived
   `HEAD` worktree build ran all 19 pre-existing scenarios for 240 ticks each
   under one scripted moving-dog input and found every canonical state dump
   byte-identical once the two new keys and the version number were removed. On
-  WSL Ubuntu 24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan
-  configurations each built and passed 24/24 CTests; project formatting and
+  WSL Ubuntu 24.04.4, the development and ASan/UBSan configurations (Clang 18.1.3)
+  and the Release configuration (GNU 13.3.0) each built and passed 24/24 CTests; project formatting and
   bounded clang-tidy passed and `git diff --check` reported nothing. Native
   Windows/Linux graphics, the presentation performance scenarios, and human
   visual review were not rerun because this outcome changes authoritative
