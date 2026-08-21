@@ -138,6 +138,92 @@ evidence_with_id(const wide_eye::game::SheepDogPressureEvidenceBuffer& evidence,
     return *member;
 }
 
+const wide_eye::game::SheepCollisionEvidence&
+evidence_with_id(const wide_eye::game::SheepCollisionEvidenceBuffer& evidence, std::uint32_t id) {
+    const auto member = std::find_if(evidence.begin(), evidence.end(), [id](const auto& candidate) {
+        return candidate.subject_id == id;
+    });
+    if (member == evidence.end()) {
+        std::abort();
+    }
+    return *member;
+}
+
+// One sheep's first refused displacement, kept with the immutable prior state
+// that caused it so the oracle can say the sheep arrived from open ground and
+// stopped rather than starting inside a wall.
+struct SheepContactRecord {
+    bool observed = false;
+    std::uint64_t tick = 0;
+    std::uint32_t contact_ticks = 0;
+    double minimum_x = 0.0;
+    double minimum_z = 0.0;
+    wide_eye::game::SheepState prior{};
+    wide_eye::game::SheepState state{};
+    wide_eye::game::SheepCollisionEvidence evidence{};
+};
+
+using SheepContactRecordBuffer =
+    std::array<SheepContactRecord, wide_eye::game::kGameplaySheepCount>;
+
+struct PaddockCollisionRun {
+    SheepContactRecordBuffer contacts{};
+    wide_eye::game::GameplaySnapshot midpoint{};
+    wide_eye::game::GameplaySnapshot final_snapshot{};
+};
+
+const SheepContactRecord& contact_with_id(const SheepContactRecordBuffer& contacts,
+                                          std::uint32_t id) {
+    const auto member = std::find_if(contacts.begin(), contacts.end(), [id](const auto& candidate) {
+        return candidate.evidence.subject_id == id;
+    });
+    if (member == contacts.end()) {
+        std::abort();
+    }
+    return *member;
+}
+
+PaddockCollisionRun
+run_paddock_collision(const wide_eye::game::GameplayScenarioDefinition& scenario,
+                      std::uint64_t ticks, std::uint64_t midpoint_tick) {
+    PaddockCollisionRun result;
+    wide_eye::game::GameplaySimulation simulation{scenario};
+    for (std::size_t index = 0; index < scenario.initial_sheep.size(); ++index) {
+        result.contacts[index].evidence.subject_id = scenario.initial_sheep[index].id;
+        result.contacts[index].minimum_x = scenario.initial_sheep[index].position.x;
+        result.contacts[index].minimum_z = scenario.initial_sheep[index].position.z;
+    }
+
+    for (std::uint64_t tick = 1; tick <= ticks; ++tick) {
+        simulation.fixed_update({});
+        const auto& snapshot = simulation.current_snapshot();
+        for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+            SheepContactRecord& record = result.contacts[index];
+            record.minimum_x = std::min(record.minimum_x, snapshot.sheep[index].position.x);
+            record.minimum_z = std::min(record.minimum_z, snapshot.sheep[index].position.z);
+            const auto& evidence = snapshot.sheep_collision_evidence[index];
+            if (!evidence.clipped_x && !evidence.clipped_z) {
+                continue;
+            }
+            ++record.contact_ticks;
+            if (record.observed) {
+                continue;
+            }
+            record.observed = true;
+            record.tick = tick;
+            record.prior = sheep_with_id(simulation.previous_snapshot().sheep, evidence.subject_id);
+            record.state = snapshot.sheep[index];
+            record.evidence = evidence;
+        }
+        if (tick == midpoint_tick) {
+            result.midpoint = snapshot;
+        }
+    }
+
+    result.final_snapshot = simulation.current_snapshot();
+    return result;
+}
+
 double planar_distance(const wide_eye::game::SheepState& left,
                        const wide_eye::game::SheepState& right) {
     return std::hypot(left.position.x - right.position.x, left.position.z - right.position.z);
@@ -180,6 +266,8 @@ int main() {
     static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepSocialEvidenceBuffer>);
     static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepDogPressureEvidence>);
     static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepDogPressureEvidenceBuffer>);
+    static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepCollisionEvidence>);
+    static_assert(std::is_trivially_copyable_v<wide_eye::game::SheepCollisionEvidenceBuffer>);
 
     const auto scenario = wide_eye::game::find_gameplay_scenario("paddock-start");
     if (!check(scenario.has_value(), "scenario_available") ||
@@ -1429,6 +1517,258 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // Paddock collision authority. The paired fixture disables every steering
+    // term, so each sheep travels in a straight line at a constant speed and the
+    // analytic paddock is the only thing that can stop it. That keeps the
+    // expected resting coordinates exact arithmetic instead of the end point of
+    // an accumulated response.
+    constexpr std::uint64_t kPaddockCollisionTicks = 420;
+    constexpr std::uint64_t kPaddockCollisionMidpointTick = 150;
+    constexpr double kWallRestZ = 16.0 + wide_eye::game::kSheepCollisionRadius;
+    constexpr double kWesternBoundX =
+        wide_eye::game::PaddockCollisionField::kMinimumX + wide_eye::game::kSheepCollisionRadius;
+    constexpr double kSouthernBoundZ =
+        wide_eye::game::PaddockCollisionField::kMinimumZ + wide_eye::game::kSheepCollisionRadius;
+    const auto collision_closed_scenario =
+        wide_eye::game::find_gameplay_scenario("sheep-paddock-collision-closed-gate");
+    const auto collision_open_scenario =
+        wide_eye::game::find_gameplay_scenario("sheep-paddock-collision-open-gate");
+    auto collision_open_as_control =
+        collision_open_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
+    if (collision_closed_scenario.has_value()) {
+        collision_open_as_control.id = collision_closed_scenario->id;
+    }
+    collision_open_as_control.gate_open = false;
+    if (!check(collision_closed_scenario.has_value() && collision_open_scenario.has_value() &&
+                   collision_closed_scenario->id ==
+                       wide_eye::game::GameplayScenarioId::sheep_paddock_collision_closed_gate &&
+                   collision_open_scenario->id ==
+                       wide_eye::game::GameplayScenarioId::sheep_paddock_collision_open_gate &&
+                   collision_open_as_control == *collision_closed_scenario &&
+                   collision_open_scenario->gate_open && !collision_closed_scenario->gate_open &&
+                   collision_closed_scenario->version == 1 &&
+                   collision_closed_scenario->seed == 0 &&
+                   collision_closed_scenario->sheep_fixture ==
+                       wide_eye::game::SheepFixture::local_social_response &&
+                   !collision_closed_scenario->sheep_separation.enabled &&
+                   !collision_closed_scenario->sheep_attraction.enabled &&
+                   !collision_closed_scenario->sheep_alignment.enabled &&
+                   !collision_closed_scenario->sheep_dog_pressure.enabled &&
+                   !collision_closed_scenario->sheep_dog_approach.enabled &&
+                   !collision_closed_scenario->sheep_dog_facing.enabled &&
+                   !collision_closed_scenario->sheep_dog_line_of_sight.enabled,
+               "paired_paddock_collision_fixture_differs_only_by_gate_state")) {
+        return EXIT_FAILURE;
+    }
+
+    const PaddockCollisionRun closed_gate_run = run_paddock_collision(
+        *collision_closed_scenario, kPaddockCollisionTicks, kPaddockCollisionMidpointTick);
+    const PaddockCollisionRun open_gate_run = run_paddock_collision(
+        *collision_open_scenario, kPaddockCollisionTicks, kPaddockCollisionMidpointTick);
+    const SheepContactRecord& left_wall_contact = contact_with_id(closed_gate_run.contacts, 1);
+    const SheepContactRecord& gate_contact = contact_with_id(closed_gate_run.contacts, 2);
+    const SheepContactRecord& right_wall_contact = contact_with_id(closed_gate_run.contacts, 3);
+    const SheepContactRecord& untouched_contact = contact_with_id(closed_gate_run.contacts, 4);
+    const SheepContactRecord& bound_contact = contact_with_id(closed_gate_run.contacts, 5);
+    const auto& closed_gate_sheep_two = sheep_with_id(closed_gate_run.final_snapshot.sheep, 2);
+    if (!check(left_wall_contact.observed && left_wall_contact.evidence.clipped_z &&
+                   !left_wall_contact.evidence.clipped_x &&
+                   left_wall_contact.evidence.obstacle ==
+                       wide_eye::game::PaddockObstacle::left_wall &&
+                   left_wall_contact.prior.position.z > kWallRestZ &&
+                   left_wall_contact.state.position.z == kWallRestZ &&
+                   left_wall_contact.state.velocity.z == 0.0 &&
+                   left_wall_contact.minimum_z == kWallRestZ &&
+                   sheep_with_id(closed_gate_run.final_snapshot.sheep, 1).position.z == kWallRestZ,
+               "wall_stops_a_moving_sheep_at_the_clipped_coordinate") ||
+        !check(gate_contact.observed && gate_contact.evidence.clipped_z &&
+                   gate_contact.evidence.obstacle == wide_eye::game::PaddockObstacle::gate &&
+                   gate_contact.state.position.z == kWallRestZ &&
+                   gate_contact.state.velocity.z == 0.0 && gate_contact.minimum_z == kWallRestZ &&
+                   closed_gate_sheep_two.position.x == 16.0 &&
+                   closed_gate_sheep_two.position.z == kWallRestZ &&
+                   closed_gate_sheep_two.velocity == wide_eye::game::Vec3{},
+               "closed_gate_stops_a_moving_sheep_and_names_the_gate") ||
+        !check(right_wall_contact.observed && right_wall_contact.evidence.clipped_z &&
+                   !right_wall_contact.evidence.clipped_x &&
+                   right_wall_contact.evidence.obstacle ==
+                       wide_eye::game::PaddockObstacle::right_wall &&
+                   right_wall_contact.state.position.z == kWallRestZ &&
+                   right_wall_contact.state.velocity.z == 0.0 &&
+                   right_wall_contact.state.velocity.x == -3.0 &&
+                   right_wall_contact.state.position.x < right_wall_contact.prior.position.x &&
+                   sheep_with_id(closed_gate_run.final_snapshot.sheep, 3).position.z ==
+                       kWallRestZ &&
+                   sheep_with_id(closed_gate_run.final_snapshot.sheep, 3).position.x < 4.0,
+               "contact_clears_only_the_blocked_axis_velocity") ||
+        !check(bound_contact.observed && bound_contact.evidence.clipped_x &&
+                   !bound_contact.evidence.clipped_z &&
+                   bound_contact.evidence.obstacle == wide_eye::game::PaddockObstacle::none &&
+                   bound_contact.state.position.x == kWesternBoundX &&
+                   bound_contact.state.velocity.x == 0.0 &&
+                   bound_contact.minimum_x == kWesternBoundX,
+               "paddock_outer_bound_stops_a_sheep_without_naming_an_obstacle")) {
+        return EXIT_FAILURE;
+    }
+
+    // The same fixture with the gate open must let that sheep through and then
+    // stop it on the paddock's own southern bound instead.
+    const SheepContactRecord& open_gate_contact = contact_with_id(open_gate_run.contacts, 2);
+    const auto& open_gate_sheep_two = sheep_with_id(open_gate_run.final_snapshot.sheep, 2);
+    if (!check(sheep_with_id(open_gate_run.midpoint.sheep, 2).position.z < 15.0 &&
+                   open_gate_contact.observed &&
+                   open_gate_contact.tick > kPaddockCollisionMidpointTick &&
+                   open_gate_contact.evidence.obstacle == wide_eye::game::PaddockObstacle::none &&
+                   open_gate_sheep_two.position.x == 16.0 &&
+                   open_gate_sheep_two.position.z == kSouthernBoundZ &&
+                   open_gate_sheep_two.velocity == wide_eye::game::Vec3{},
+               "an_open_gate_is_the_only_way_through_the_wall_line")) {
+        return EXIT_FAILURE;
+    }
+
+    // A sheep that never reaches a boundary must be bit-identical to plain
+    // unclipped integration, and every non-contacting sheep must be identical
+    // between the two gate states, including all published evidence.
+    wide_eye::game::SheepState unclipped =
+        sheep_with_id(collision_closed_scenario->initial_sheep, 4);
+    for (std::uint64_t tick = 0; tick < kPaddockCollisionTicks; ++tick) {
+        unclipped.position.x +=
+            unclipped.velocity.x * wide_eye::game::GameplaySimulation::kFixedDeltaSeconds;
+        unclipped.position.z +=
+            unclipped.velocity.z * wide_eye::game::GameplaySimulation::kFixedDeltaSeconds;
+    }
+    bool untouched_matches_control =
+        !untouched_contact.observed && untouched_contact.contact_ticks == 0 &&
+        sheep_with_id(closed_gate_run.final_snapshot.sheep, 4) ==
+            sheep_with_id(open_gate_run.final_snapshot.sheep, 4) &&
+        sheep_with_id(closed_gate_run.final_snapshot.sheep, 4) == unclipped;
+    for (const std::uint32_t id : {1U, 3U, 4U, 5U}) {
+        untouched_matches_control =
+            untouched_matches_control &&
+            sheep_with_id(closed_gate_run.final_snapshot.sheep, id) ==
+                sheep_with_id(open_gate_run.final_snapshot.sheep, id) &&
+            evidence_with_id(closed_gate_run.final_snapshot.sheep_social_evidence, id) ==
+                evidence_with_id(open_gate_run.final_snapshot.sheep_social_evidence, id) &&
+            evidence_with_id(closed_gate_run.final_snapshot.sheep_dog_pressure_evidence, id) ==
+                evidence_with_id(open_gate_run.final_snapshot.sheep_dog_pressure_evidence, id) &&
+            evidence_with_id(closed_gate_run.final_snapshot.sheep_collision_evidence, id) ==
+                evidence_with_id(open_gate_run.final_snapshot.sheep_collision_evidence, id) &&
+            contact_with_id(closed_gate_run.contacts, id).tick ==
+                contact_with_id(open_gate_run.contacts, id).tick;
+    }
+    if (!check(untouched_matches_control,
+               "collision_authority_leaves_a_non_contacting_sheep_untouched")) {
+        return EXIT_FAILURE;
+    }
+
+    // A dog placed north of the gate line must physically drive one sheep into
+    // the closed gate and be unable to push it through, while the same fixture
+    // with the gate open lets that sheep out.
+    auto driven_closed_scenario = *collision_closed_scenario;
+    driven_closed_scenario.dog.initial_state.position = {.x = 16.0, .y = 1.0, .z = 20.0};
+    driven_closed_scenario.initial_sheep[1] = {.id = 2,
+                                               .position = {.x = 16.0, .y = 1.0, .z = 18.0},
+                                               .heading_radians = 0.0,
+                                               .grounded = true};
+    driven_closed_scenario.sheep_dog_pressure.enabled = true;
+    auto driven_open_scenario = driven_closed_scenario;
+    driven_open_scenario.id = collision_open_scenario->id;
+    driven_open_scenario.gate_open = true;
+    constexpr std::uint64_t kDrivenCollisionTicks = 300;
+    const PaddockCollisionRun driven_closed_run = run_paddock_collision(
+        driven_closed_scenario, kDrivenCollisionTicks, kPaddockCollisionMidpointTick);
+    const PaddockCollisionRun driven_open_run = run_paddock_collision(
+        driven_open_scenario, kDrivenCollisionTicks, kPaddockCollisionMidpointTick);
+    const SheepContactRecord& driven_contact = contact_with_id(driven_closed_run.contacts, 2);
+    const auto& driven_closed_two = sheep_with_id(driven_closed_run.final_snapshot.sheep, 2);
+    const auto& driven_open_two = sheep_with_id(driven_open_run.final_snapshot.sheep, 2);
+    const auto& driven_pressure =
+        evidence_with_id(driven_closed_run.final_snapshot.sheep_dog_pressure_evidence, 2);
+    const auto& driven_collision =
+        evidence_with_id(driven_closed_run.final_snapshot.sheep_collision_evidence, 2);
+    if (!check(driven_contact.observed &&
+                   driven_contact.evidence.obstacle == wide_eye::game::PaddockObstacle::gate &&
+                   driven_closed_two.position.z == kWallRestZ &&
+                   driven_closed_two.velocity.z == 0.0 &&
+                   driven_contact.contact_ticks == kDrivenCollisionTicks - driven_contact.tick + 1,
+               "a_closed_gate_holds_a_dog_driven_sheep_on_every_pushed_tick") ||
+        !check(!contact_with_id(driven_open_run.contacts, 2).observed &&
+                   sheep_with_id(driven_open_run.midpoint.sheep, 2).position.z < 15.0 &&
+                   driven_open_two.position.z < driven_closed_two.position.z &&
+                   driven_open_two.velocity.z < 0.0,
+               "the_same_dog_drives_that_sheep_through_an_open_gate") ||
+        // Collision is a later positional authority, not a steering correction:
+        // the published dog term still describes the pressure that was applied
+        // even on a tick where the paddock refused the resulting displacement.
+        !check(driven_pressure.dog_distance == 3.5 &&
+                   driven_pressure.pressure_acceleration.z == -1.25 && driven_collision.clipped_z &&
+                   driven_collision.obstacle == wide_eye::game::PaddockObstacle::gate,
+               "a_clipped_tick_still_publishes_the_steering_it_applied")) {
+        return EXIT_FAILURE;
+    }
+
+    auto reversed_collision_scenario = *collision_closed_scenario;
+    std::reverse(reversed_collision_scenario.initial_sheep.begin(),
+                 reversed_collision_scenario.initial_sheep.end());
+    const PaddockCollisionRun reversed_collision_run = run_paddock_collision(
+        reversed_collision_scenario, kPaddockCollisionTicks, kPaddockCollisionMidpointTick);
+    for (const auto& member : closed_gate_run.final_snapshot.sheep) {
+        const SheepContactRecord& expected = contact_with_id(closed_gate_run.contacts, member.id);
+        const SheepContactRecord& observed =
+            contact_with_id(reversed_collision_run.contacts, member.id);
+        if (!check(member == sheep_with_id(reversed_collision_run.final_snapshot.sheep, member.id),
+                   "collision_result_is_stable_by_id_under_reversed_storage") ||
+            !check(
+                evidence_with_id(closed_gate_run.final_snapshot.sheep_collision_evidence,
+                                 member.id) ==
+                    evidence_with_id(reversed_collision_run.final_snapshot.sheep_collision_evidence,
+                                     member.id),
+                "collision_evidence_is_stable_under_reversed_storage") ||
+            !check(expected.observed == observed.observed && expected.tick == observed.tick &&
+                       expected.contact_ticks == observed.contact_ticks &&
+                       expected.state == observed.state && expected.evidence == observed.evidence,
+                   "first_contact_is_stable_by_id_under_reversed_storage")) {
+            return EXIT_FAILURE;
+        }
+    }
+
+    wide_eye::game::GameplaySimulation collision_dump{driven_closed_scenario};
+    for (std::uint64_t tick = 0; tick < 100; ++tick) {
+        collision_dump.fixed_update({});
+    }
+    const auto collision_state = wide_eye::game::gameplay_state_dump_json(collision_dump);
+    if (!check(
+            collision_state &&
+                collision_state.text.find("\"sheep_collision_evidence\":[") != std::string::npos &&
+                collision_state.text.find("\"clipped_z\":true") != std::string::npos &&
+                collision_state.text.find("\"contact_obstacle\":\"gate\"") != std::string::npos &&
+                collision_state.text.find("\"contact_obstacle\":\"none\"") != std::string::npos,
+            "state_dump_contains_sheep_collision_contact_and_obstacle")) {
+        return EXIT_FAILURE;
+    }
+
+    wide_eye::game::GameplaySimulation allocation_collision{*collision_closed_scenario};
+    const std::size_t collision_allocations_before = g_allocation_count;
+    for (std::uint32_t tick = 0; tick < 600; ++tick) {
+        allocation_collision.fixed_update({});
+    }
+    const std::size_t collision_allocations = g_allocation_count - collision_allocations_before;
+    if (!check(collision_allocations == 0, "collision_fixed_updates_do_not_allocate")) {
+        return EXIT_FAILURE;
+    }
+
+    wide_eye::game::GameplaySimulation collision_restart{*collision_closed_scenario};
+    const auto collision_initial = collision_restart.current_snapshot();
+    for (std::uint64_t tick = 0; tick < 120; ++tick) {
+        collision_restart.fixed_update({});
+    }
+    collision_restart.restart();
+    if (!check(collision_restart.current_snapshot() == collision_initial &&
+                   collision_restart.previous_snapshot() == collision_initial,
+               "collision_restart_restores_paired_fixture")) {
+        return EXIT_FAILURE;
+    }
+
     wide_eye::game::GameplaySimulation replay_a{*scenario};
     wide_eye::game::GameplaySimulation replay_b{*scenario};
     const wide_eye::game::GameplayReplay replay = sample_replay(replay_a);
@@ -1436,7 +1776,7 @@ int main() {
     if (!check(wide_eye::game::kGameplaySeedFormatVersion == 1 &&
                    wide_eye::game::kGameplayActionInputFormatVersion == 1 &&
                    wide_eye::game::kGameplayReplayFormatVersion == 1 &&
-                   wide_eye::game::kGameplayStateDumpFormatVersion == 8,
+                   wide_eye::game::kGameplayStateDumpFormatVersion == 9,
                "contract_versions_are_explicit") ||
         !check(replay_text &&
                    replay_text.text ==
@@ -1461,7 +1801,7 @@ int main() {
     const auto state_b = wide_eye::game::gameplay_state_dump_json(replay_b);
     if (!check(state_a && state_b && state_a.text == state_b.text,
                "canonical_state_dump_repeats") ||
-        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":8,"
+        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":9,"
                                         "\"tick_rate\":60,\"scenario\":{"),
                "state_dump_schema_header") ||
         !check(state_a.text.find("\"current\":{\"tick\":3") != std::string::npos,
@@ -1620,6 +1960,22 @@ int main() {
               << '\n'
               << "dog_line_of_sight_closed_gate_blocks_gate_gap=yes\n"
               << "dog_line_of_sight_steady_state_allocations=" << sight_allocations << '\n'
+              << "sheep_paddock_collision_fixture=paired_gate_state_control\n"
+              << "sheep_paddock_collision_radius=" << wide_eye::game::kSheepCollisionRadius << '\n'
+              << "sheep_left_wall_contact_tick=" << left_wall_contact.tick << '\n'
+              << "sheep_left_wall_rest_z=" << left_wall_contact.state.position.z << '\n'
+              << "sheep_closed_gate_rest_z=" << gate_contact.state.position.z << '\n'
+              << "sheep_right_wall_free_axis_velocity_x=" << right_wall_contact.state.velocity.x
+              << '\n'
+              << "sheep_outer_bound_rest_x=" << bound_contact.state.position.x << '\n'
+              << "sheep_open_gate_final_z=" << open_gate_sheep_two.position.z << '\n'
+              << "sheep_untouched_control_final_x="
+              << sheep_with_id(closed_gate_run.final_snapshot.sheep, 4).position.x << '\n'
+              << "sheep_dog_driven_gate_contact_tick=" << driven_contact.tick << '\n'
+              << "sheep_dog_driven_gate_contact_ticks=" << driven_contact.contact_ticks << '\n'
+              << "sheep_dog_driven_pinned_pressure_z=" << driven_pressure.pressure_acceleration.z
+              << '\n'
+              << "sheep_collision_steady_state_allocations=" << collision_allocations << '\n'
               << "repeated_local_replay_equal=yes\n"
               << "gameplay_simulation_result=pass\n";
     return EXIT_SUCCESS;

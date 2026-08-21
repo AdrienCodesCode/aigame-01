@@ -127,6 +127,24 @@ bool valid_dog_pressure_evidence(const GameplaySnapshot& snapshot) noexcept {
     return true;
 }
 
+bool valid_collision_evidence(const GameplaySnapshot& snapshot) noexcept {
+    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+        const SheepCollisionEvidence& evidence = snapshot.sheep_collision_evidence[index];
+        if (evidence.subject_id != snapshot.sheep[index].id ||
+            !is_known_paddock_obstacle(evidence.obstacle)) {
+            return false;
+        }
+        // A named obstacle must have actually stopped an axis. The reverse is
+        // not required: the paddock's outer bounds clip without being one of
+        // the analytic obstacle shapes.
+        if (evidence.obstacle != PaddockObstacle::none && !evidence.clipped_x &&
+            !evidence.clipped_z) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string_view paddock_obstacle_name(PaddockObstacle obstacle) noexcept {
     switch (obstacle) {
     case PaddockObstacle::none:
@@ -359,6 +377,21 @@ bool append_dog_pressure_evidence(std::string& output, const SheepDogPressureEvi
     return true;
 }
 
+bool append_collision_evidence(std::string& output, const SheepCollisionEvidence& evidence) {
+    output += "{\"subject_id\":";
+    if (!append_integer(output, evidence.subject_id)) {
+        return false;
+    }
+    output += ",\"clipped_x\":";
+    output += evidence.clipped_x ? "true" : "false";
+    output += ",\"clipped_z\":";
+    output += evidence.clipped_z ? "true" : "false";
+    output += ",\"contact_obstacle\":\"";
+    output += paddock_obstacle_name(evidence.obstacle);
+    output += "\"}";
+    return true;
+}
+
 bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
     output += "{\"tick\":";
     if (!append_integer(output, snapshot.tick)) {
@@ -400,6 +433,18 @@ bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
         }
         first_dog_evidence = false;
         if (!append_dog_pressure_evidence(output, evidence)) {
+            return false;
+        }
+    }
+    output += ']';
+    output += ",\"sheep_collision_evidence\":[";
+    bool first_collision_evidence = true;
+    for (const SheepCollisionEvidence& evidence : snapshot.sheep_collision_evidence) {
+        if (!first_collision_evidence) {
+            output += ',';
+        }
+        first_collision_evidence = false;
+        if (!append_collision_evidence(output, evidence)) {
             return false;
         }
     }
@@ -569,7 +614,9 @@ GameplayTextResult gameplay_state_dump_json(const GameplaySimulation& simulation
     if (!valid_social_evidence(simulation.previous_snapshot()) ||
         !valid_social_evidence(simulation.current_snapshot()) ||
         !valid_dog_pressure_evidence(simulation.previous_snapshot()) ||
-        !valid_dog_pressure_evidence(simulation.current_snapshot())) {
+        !valid_dog_pressure_evidence(simulation.current_snapshot()) ||
+        !valid_collision_evidence(simulation.previous_snapshot()) ||
+        !valid_collision_evidence(simulation.current_snapshot())) {
         return {.error = GameplayContractError::non_finite_state, .text = {}};
     }
 

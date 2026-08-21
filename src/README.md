@@ -100,8 +100,8 @@ configuration, and future objective fixture; the dog motor receives only its
 initial state plus the scenario's gate flag. The analytic paddock shapes, their
 `PaddockObstacle` identities, and the collision/sight-line queries over them live
 in a neutral `paddock_collision` boundary, so sheep rules never depend on a
-dog-named header and occlusion cannot describe a different wall than collision
-does. These boundaries are recorded in
+dog-named header and dog collision, sheep collision, and occlusion cannot
+describe three different walls. These boundaries are recorded in
 [`ADR 0004`](../docs/decisions/0004-gameplay-scenario-ownership.md) and
 [`ADR 0005`](../docs/decisions/0005-paddock-collision-ownership.md).
 The core `FixedStepAccumulator` is the only
@@ -173,9 +173,21 @@ prior-state blocked flag and named occluder, tested as a zero-width planar
 segment against the analytic obstacles the dog collides with; only the on case
 releases the dog terms when a wall or a closed gate stands between the sheep and
 the dog. Visibility is binary, so that release is discontinuous at an obstacle
-edge. Damping, bounded speed/turning, combined-influence acceleration bounds,
-terrain and temperament pressure factors, and behavior-state transitions
-remain deferred. Flock-level
+edge. Every sheep displacement chosen by a fixture is then resolved through the
+same game-owned analytic paddock the dog collides with, as an upright cylinder
+of the sheep body radius owned by `sheep_state.hpp`: a wall, a closed gate, or
+the paddock's own bounds physically stops the sheep, a clipped axis loses its
+velocity on the contact tick exactly as the dog's does, and each sheep publishes
+which axes were refused and which named obstacle refused them. Collision is a
+later positional authority than steering and never rewrites a published
+acceleration vector. Paired `sheep-paddock-collision-closed-gate` and
+`sheep-paddock-collision-open-gate` fixtures disable every steering term and
+differ only by the world gate state, so the analytic paddock is the only thing
+that can change a sheep's straight-line motion. A sheep whose cylinder already
+overlaps an obstacle is not pushed out, and sheep-versus-sheep and
+sheep-versus-dog body collision are absent. Damping, bounded speed/turning,
+combined-influence acceleration bounds, terrain and temperament pressure
+factors, and behavior-state transitions remain deferred. Flock-level
 dog-relative and response-timing observables also remain deferred until their
 required behavior
 scenarios exist. The dog is a kinematic upright
@@ -189,7 +201,8 @@ meshes; the same game-owned field answers the sheep sight-line query. Version 1,
 `sheep-alignment-on`, `sheep-dog-pressure-off`, `sheep-dog-pressure-on`,
 `sheep-dog-approach-off`, `sheep-dog-approach-on`, `sheep-dog-facing-off`,
 `sheep-dog-facing-on`, `sheep-dog-line-of-sight-off`,
-`sheep-dog-line-of-sight-on`,
+`sheep-dog-line-of-sight-on`, `sheep-paddock-collision-closed-gate`,
+`sheep-paddock-collision-open-gate`,
 `wall-contact`, `closed-gate`, and `open-gate` gameplay definitions provide
 deterministic initialization and exact restart. The
 gameplay camera owns orbit yaw/pitch independently of dog facing; orchestration

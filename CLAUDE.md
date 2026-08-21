@@ -67,8 +67,9 @@ Interactive play (needs a real OpenGL 4.6 Core context):
 
 Version 1 scenarios: `paddock-start`, `presentation-motion` (a scripted render
 fixture, **not** accepted flock behavior), `wall-contact`, `closed-gate`,
-`open-gate`. Controls: mouse orbit, camera-relative WASD, Shift sprint, R
-restart, Tab free-debug camera, Escape toggle pointer capture.
+`open-gate`, plus the headless `sheep-*` behavior fixtures. Controls: mouse
+orbit, camera-relative WASD, Shift sprint, R restart, Tab free-debug camera,
+Escape toggle pointer capture.
 
 The single `wide_eye` executable is also the harness: `src/platform/main.cpp`
 dispatches exact argv shapes to named smokes (`--runtime-smoke`,
@@ -113,8 +114,8 @@ Ownership boundaries are enforced deliberately; read
   (version/seed/dog config/sheep fixture), `GameplaySimulation` (one domain
   input per tick, publishes read-only previous/current snapshots of the dog and
   five sheep), `dog_controller`, `camera_controller`, `paddock_collision` (the
-  analytic paddock walls/gate used for both dog collision and sheep sight
-  lines), `flock_observables`, `sheep_spatial_grid`, `gameplay_replay`.
+  analytic paddock walls/gate used for dog collision, sheep collision, and sheep
+  sight lines), `flock_observables`, `sheep_spatial_grid`, `gameplay_replay`.
 
 Invariants that repeatedly matter:
 

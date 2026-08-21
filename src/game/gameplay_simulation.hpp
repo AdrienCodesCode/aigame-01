@@ -28,6 +28,7 @@ struct GameplaySnapshot {
     SheepStateBuffer sheep{};
     SheepSocialEvidenceBuffer sheep_social_evidence{};
     SheepDogPressureEvidenceBuffer sheep_dog_pressure_evidence{};
+    SheepCollisionEvidenceBuffer sheep_collision_evidence{};
 
     bool operator==(const GameplaySnapshot&) const = default;
 };
@@ -55,7 +56,8 @@ class GameplaySimulation {
     GameplayScenarioDefinition scenario_;
     DogController dog_;
     // Sheep rules read the same analytic paddock the dog motor collides with, so
-    // occlusion and collision can never disagree about where a wall is.
+    // occlusion, sheep collision, and dog collision can never disagree about
+    // where a wall is.
     PaddockCollisionField paddock_;
     SheepSpatialGrid sheep_grid_;
     GameplaySnapshot previous_{};

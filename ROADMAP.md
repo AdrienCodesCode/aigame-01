@@ -8,8 +8,9 @@
 - **Verified completed state:**
   - the accepted native C++23/SDL3/OpenGL foundation, bounded voxel paddock,
     and fixed 60 Hz gameplay;
-  - versioned seed/action/replay contracts and the version 8
-    dog-plus-five-sheep/social-and-dog-stimulus-evidence state output;
+  - versioned seed/action/replay contracts and the version 9
+    dog-plus-five-sheep/social, dog-stimulus, and sheep-collision-evidence state
+    output;
   - five contiguous authoritative sheep, snapshot-driven procedural proxies,
     and an owner-accepted presentation/measurement packet;
   - fixed five-sheep observables and a deterministic allocation-free uniform
@@ -28,7 +29,12 @@
     heading cosine responds only to a dog looking toward the sheep; and
   - a paired, independently switchable dog-line-of-sight term whose prior-state
     blocked flag and named analytic occluder release the other dog terms when a
-    wall or a closed gate stands between sheep and dog.
+    wall or a closed gate stands between sheep and dog; and
+  - game-owned sheep collision authority over the same analytic paddock the dog
+    collides with, so a wall or a closed gate physically stops a moving sheep,
+    the open gate is the only way through the wall line, a clipped axis loses its
+    velocity on the contact tick, and every sheep publishes which axes were
+    refused and which named obstacle refused them.
 
   Detailed evidence remains with the checked Phase 3 items and their owning
   source, decision, format, test, and artifact records; completed Phase 0–2
@@ -72,9 +78,30 @@
   executables plus CTest remain the accepted Tracer 2 harness under
   [ADR 0003](docs/decisions/0003-project-owned-test-harness.md); framework
   adoption is deferred until a concrete maintenance cost justifies it.
-- **Verification run (2026-08-21, dog line of sight):** on WSL Ubuntu 24.04.4
-  with Clang 18.1.3, development, Release, and ASan/UBSan configurations each
-  built and passed 24/24 CTests; project formatting and bounded clang-tidy
+- **Verification run (2026-08-21, sheep collision authority):** on WSL Ubuntu
+  24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
+  each built and passed 24/24 CTests; project formatting and bounded clang-tidy
+  passed and `git diff --check` reported nothing. The gameplay-simulation oracle
+  observed the paired collision fixture stop a sheep at the exact left wall,
+  closed gate, right wall, and paddock-bound coordinates, clear only the blocked
+  axis, let the same sheep through an open gate, hold a dog-driven sheep against
+  the closed gate for 225 consecutive ticks while still publishing its applied
+  `-1.25` pressure vector, and keep a non-contacting sheep bit-identical to
+  unclipped integration; reversed storage, restart, and 600 zero-allocation ticks
+  held. A comparison against a `HEAD` worktree build found 13 of the 17
+  pre-existing scenarios byte-identical over 240 scripted ticks each and showed
+  that the 4 that changed are exactly the 4 in which a sheep now contacts a wall
+  or the gate. Native Windows/Linux graphics and the presentation performance
+  scenarios were not rerun because no presentation path changed and this host
+  exposes only OpenGL 4.5. Evidence:
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp) and the
+  ignored
+  [oracle output](artifacts/phase3/2026-08-21/sheep-collision-authority-headless/gameplay-simulation-oracle.txt)
+  and
+  [accepted-scenario comparison](artifacts/phase3/2026-08-21/sheep-collision-authority-headless/accepted-scenario-state-diff.txt).
+- **Prior verification run (2026-08-21, dog line of sight):** on WSL Ubuntu
+  24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan configurations
+  each built and passed 24/24 CTests; project formatting and bounded clang-tidy
   passed and `git diff --check` reported nothing. The gameplay-simulation oracle
   observed the paired line-of-sight fixture reproduce the accepted `(0, -1)`
   pressure on a clear line at distance `4`, publish `left_wall` and
@@ -165,16 +192,25 @@
   pressure changes discontinuously as a sight line crosses an obstacle edge, and
   a sight line that exactly grazes an obstacle edge counts as blocked. A terrain
   factor is deferred to Phase 5 because the handcrafted paddock has one constant
-  ground height and there is nothing for it to read yet. Sheep still have no
-  collision authority, so an occluded sheep is not yet physically stopped by the
-  wall that hides the dog.
-- **Next action:** give sheep the same analytic paddock/wall/gate collision
-  authority the dog already has, so a wall or a closed gate physically stops a
-  driven sheep and the open gate is the only way through. Reuse the game-owned
-  `paddock_collision` field rather than duplicating the shapes, keep the
-  accepted social and dog-stimulus controls and their published evidence
-  unchanged, and do not add terrain, temperament, combined-influence bounds,
-  behavior transitions, or presentation in the same coherent outcome.
+  ground height and there is nothing for it to read yet. Sheep collision uses the
+  dog's accepted clipping rule, so a body that starts within its own radius of an
+  obstacle face is not stopped by that face and passes through it — filed as
+  [QA-001](docs/qa/open/QA-001-paddock-collision-radius-band-passthrough.md),
+  reproduced in the `sheep-dog-facing-off/on` fixtures, and required before the
+  Phase 3 exit-gate replay can claim the closed gate is the only way through.
+  Sheep-versus-sheep and sheep-versus-dog body collision do not exist: only the
+  paddock boundary is authoritative. Adding
+  that boundary changed four pre-existing headless fixtures
+  (`sheep-alignment-off`, `sheep-alignment-on`, `sheep-dog-facing-off`,
+  `sheep-dog-facing-on`) after the tick at which a sheep first touches a wall;
+  their accepted 60-tick and first-tick measurements are unaffected, but any
+  later comparison against those fixtures must be re-derived.
+- **Next action:** implement ordinary, nervous, and stubborn temperaments as the
+  next isolated variable, including the temperament factor of the dog-pressure
+  item, with paired fixtures and explicit per-sheep evidence. Keep the accepted
+  social, dog-stimulus, and collision behavior unchanged where temperament is
+  neutral, and do not add terrain, combined-influence bounds, behavior
+  transitions, or presentation in the same coherent outcome.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
@@ -619,12 +655,92 @@ scope. Evidence: the archived
   [oracle output](artifacts/phase3/2026-08-21/dog-line-of-sight-headless/gameplay-simulation-oracle.txt)
   and
   [accepted-scenario comparison](artifacts/phase3/2026-08-21/dog-line-of-sight-headless/accepted-scenario-state-diff.txt).
-- [ ] Give sheep the same analytic paddock/wall/gate collision authority the
+- [x] Give sheep the same analytic paddock/wall/gate collision authority the
   dog already has, so a wall or closed gate physically stops a driven sheep and
   the open gate is the only way through. Steering-level avoidance below is not
   a substitute for this hard boundary, and voxel faces and render meshes stay
   out of gameplay rules. Without this, the Phase 3 exit-gate replay cannot be
   trusted.
+  Observed result (2026-08-21): every sheep displacement a fixture chooses is now
+  resolved through the same game-owned `PaddockCollisionField` the dog motor
+  collides with, as an upright cylinder of the game-owned `kSheepCollisionRadius`
+  of `0.5` — half the accepted 1-unit close-range separation spacing, so the
+  flock's own resting spacing and the paddock boundary agree on how much room one
+  sheep occupies. `move_cylinder` gained a `resolve_cylinder_move` form that also
+  reports which axes were refused and which `PaddockObstacle` refused them; the
+  dog's own call now delegates to it and its arithmetic is unchanged. A clipped
+  axis loses its velocity on the contact tick, matching the accepted dog rule.
+  Version 1, seed-zero `sheep-paddock-collision-closed-gate` and
+  `sheep-paddock-collision-open-gate` share one stationary dog and five sheep
+  given exact initial velocities with every steering term disabled, and differ
+  only by the world gate state plus the required scenario ID. In that fixture the
+  focused oracle observed the sheep aimed at the left wall refused on tick `70`,
+  resting at exactly `16.5` — the wall face at `16` plus the `0.5` body radius —
+  with its `z` velocity exactly `0` and no smaller `z` reached in 420 ticks; the
+  gate-line sheep stopped at the same exact `16.5` and published `gate` while the
+  gate was closed, and with the gate open and nothing else changed it passed the
+  wall line, was south of `15` by tick `150`, and came to rest on the paddock's
+  own southern bound at exactly `0.5` with no named obstacle; the diagonal sheep
+  published `right_wall`, stopped at exactly `16.5`, kept its exact `-3.0`
+  free-axis velocity, and kept sliding west; and the sheep aimed at the western
+  bound stopped at exactly `0.5` with no named obstacle, because the bounds are
+  limits rather than obstacle shapes. The non-contacting control sheep was
+  bit-identical to plain unclipped integration over 420 ticks, and every state,
+  social, dog-stimulus, and collision field of all four non-contacting sheep was
+  identical between the two gate states. A derived fixture that placed the dog
+  north of the gate drove one sheep into the closed gate from tick `76` and held
+  it at exactly `16.5` on all `225` remaining ticks while still publishing its
+  live `-1.25` pressure vector at an exact distance of `3.5`, so collision is a
+  later positional authority rather than a rewritten steering term; the same dog
+  drove that sheep out through the open gate with no refused displacement at all.
+  Reversed fixture storage preserved exact per-ID state, evidence, and
+  first-contact records, restart was exact, and 600 collision ticks allocated no
+  heap memory. Required evidence advanced the state dump to version 9. A direct
+  comparison against a `HEAD` worktree build ran all 17 pre-existing scenarios for
+  240 ticks each under one scripted moving-dog input: 13 produced byte-identical
+  canonical state dumps once the new array and the version number were removed,
+  and the 4 that changed are exactly the 4 in which a sheep now contacts
+  something. `sheep-alignment-off` sheep 2–5 walked through the wall line to
+  `z = 16.000000000000227` and now stop at exactly `16.5` on tick `211`;
+  `sheep-alignment-on` sheep 4 and 5 stop at `16.5` from tick `228` and `216`,
+  and its sheep 3 changes without contacting anything because alignment reads a
+  neighbor's velocity and that neighbor was stopped by the wall;
+  `sheep-dog-facing-off` sheep 1 walked from the wall line down to `z = 9.87` and
+  now stops at `16.5` from tick `78`, while its sheep 4 stops at `x = 17.5`
+  against the right wall on tick `185`; `sheep-dog-facing-on` shows the same two
+  contacts from ticks `61` and `160`. No accepted measurement was invalidated:
+  the accepted alignment pair is measured at 60 ticks, before any contact, and
+  still reports `0.824621` off versus `0.924042` on, and the accepted facing
+  evidence is a first-tick stationary-dog observation. WSL development, Release,
+  and ASan/UBSan configurations each passed 24/24 CTests; project formatting and
+  bounded clang-tidy passed and `git diff --check` reported nothing. Native
+  Windows/Linux graphics, the presentation performance scenarios, and human
+  visual review were not rerun because this outcome changes authoritative
+  headless sheep behavior rather than pixels, and this host exposes only OpenGL
+  4.5. The parity this item asked for is delivered, but the shared rule it
+  inherits is defective: a body that starts within its own radius of an obstacle
+  face is not stopped by that face and passes clean through it, and nothing
+  pushes an overlapping body back out. That is reproduced in the
+  `sheep-dog-facing-off/on` fixtures, whose sheep 4 starts exactly on the closed
+  gate's face and traverses it, and is filed as
+  [QA-001](docs/qa/open/QA-001-paddock-collision-radius-band-passthrough.md). So
+  a closed gate stops a sheep that approaches it from clear space, which is what
+  the new fixtures observe, but "the open gate is the only way through" does not
+  hold for every start position until QA-001 is resolved. The dog motor has the
+  same defect at its own `0.42` radius; no current dog fixture starts inside the
+  band. Sheep-versus-sheep and sheep-versus-dog body collision are out of scope
+  here. Evidence:
+  [`paddock_collision.hpp`](src/game/paddock_collision.hpp),
+  [`sheep_state.hpp`](src/game/sheep_state.hpp),
+  [`gameplay_scenario.cpp`](src/game/gameplay_scenario.cpp),
+  [`gameplay_simulation.cpp`](src/game/gameplay_simulation.cpp),
+  [`gameplay_replay.cpp`](src/game/gameplay_replay.cpp),
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp),
+  [ADR 0005](docs/decisions/0005-paddock-collision-ownership.md), and the ignored
+  [oracle output](artifacts/phase3/2026-08-21/sheep-collision-authority-headless/gameplay-simulation-oracle.txt),
+  [accepted-scenario comparison](artifacts/phase3/2026-08-21/sheep-collision-authority-headless/accepted-scenario-state-diff.txt),
+  and
+  [per-scenario contact report](artifacts/phase3/2026-08-21/sheep-collision-authority-headless/scenario-contact-report.txt).
 - [ ] Implement obstacle/drop avoidance and bounded acceleration/turning,
   including the combined-influence acceleration bound across all social and dog
   terms. Decide the combination rule (clamp, prioritized weighting, or another

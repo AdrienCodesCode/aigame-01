@@ -4,18 +4,21 @@
      in open/ and closed/ are the source of truth. Regenerate with the
      qa-index target, or `cmake -DMODE=index -P tools/qa/qa-tracker.cmake`. -->
 
-**0 open** · 0 closed · convention in [README.md](README.md)
+**1 open** · 0 closed · convention in [README.md](README.md)
 
 > No tracer-gate blockers open.
 
 ## Open
 
-_Nothing open. File with the `qa-intake` skill (`/qa`)._
+### S2 — major
+
+- [ ] [QA-001](open/QA-001-paddock-collision-radius-band-passthrough.md) Analytic paddock collision passes a body that starts within its own radius of an obstacle face — _game · confirmed_
 
 ## By area
 
 | Area | Open | Closed |
 | --- | --- | --- |
+| game | 1 | 0 |
 
 ## Closed
 

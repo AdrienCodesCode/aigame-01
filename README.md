@@ -104,14 +104,17 @@ The version 1 scenarios are `paddock-start`, `presentation-motion`,
 `sheep-alignment-on`, `sheep-dog-pressure-off`, `sheep-dog-pressure-on`,
 `sheep-dog-approach-off`, `sheep-dog-approach-on`, `sheep-dog-facing-off`,
 `sheep-dog-facing-on`, `sheep-dog-line-of-sight-off`,
-`sheep-dog-line-of-sight-on`,
+`sheep-dog-line-of-sight-on`, `sheep-paddock-collision-closed-gate`,
+`sheep-paddock-collision-open-gate`,
 `wall-contact`, `closed-gate`, and `open-gate`. The
 `presentation-motion` path is a scripted render fixture. The headless social
 fixtures independently isolate close-range separation, bounded two-neighbor
 attraction, a paired one-neighbor alignment control, a paired distance-only
 dog-pressure control, and paired closing-speed dog-approach, dog-facing, and
 analytic-occluder line-of-sight controls layered on that accepted pressure
-geometry.
+geometry. The paired paddock-collision fixtures disable every steering term so
+the analytic walls, gate, and paddock bounds are the only thing that can stop a
+moving sheep.
 Terrain and temperament pressure factors, combined-influence acceleration
 bounds, behavior transitions, and the objective loop remain unimplemented.
 Gameplay uses mouse orbit and

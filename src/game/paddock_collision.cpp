@@ -35,9 +35,13 @@ constexpr AnalyticObstacle kClosedGate{
     return maximum_a > minimum_b && minimum_a < maximum_b;
 }
 
+// `blocking` names the obstacle whose limit actually decided the returned
+// value, so a caller can publish which shape stopped the body. It is only ever
+// written when a limit tightens the resolved coordinate, which keeps the
+// arithmetic identical to the anonymous clamp it replaced.
 [[nodiscard]] double move_axis(double start, double desired, double other, double radius,
                                const AnalyticObstacle* obstacles, std::size_t obstacle_count,
-                               bool x_axis) noexcept {
+                               bool x_axis, PaddockObstacle& blocking) noexcept {
     double resolved = desired;
     for (std::size_t index = 0; index < obstacle_count; ++index) {
         const AnalyticObstacle& obstacle = obstacles[index];
@@ -51,10 +55,18 @@ constexpr AnalyticObstacle kClosedGate{
         const double obstacle_maximum = x_axis ? obstacle.maximum_x : obstacle.maximum_z;
         if (desired > start && start + radius <= obstacle_minimum &&
             desired + radius > obstacle_minimum) {
-            resolved = std::min(resolved, obstacle_minimum - radius);
+            const double limit = obstacle_minimum - radius;
+            if (limit < resolved) {
+                resolved = limit;
+                blocking = obstacle.id;
+            }
         } else if (desired < start && start - radius >= obstacle_maximum &&
                    desired - radius < obstacle_maximum) {
-            resolved = std::max(resolved, obstacle_maximum + radius);
+            const double limit = obstacle_maximum + radius;
+            if (limit > resolved) {
+                resolved = limit;
+                blocking = obstacle.id;
+            }
         }
     }
     return resolved;
@@ -108,25 +120,43 @@ double PaddockCollisionField::ground_height(double x, double z) const noexcept {
     return kGroundHeight;
 }
 
-Vec3 PaddockCollisionField::move_cylinder(Vec3 start, Vec3 displacement,
-                                          double radius) const noexcept {
+CylinderMoveResult PaddockCollisionField::resolve_cylinder_move(Vec3 start, Vec3 displacement,
+                                                                double radius) const noexcept {
+    CylinderMoveResult result{.position = start};
     if (!std::isfinite(start.x) || !std::isfinite(start.z) || !std::isfinite(displacement.x) ||
         !std::isfinite(displacement.z) || !std::isfinite(radius) || radius <= 0.0) {
-        return start;
+        // A rejected move is not a contact: the body keeps its position and the
+        // result reports no obstacle rather than inventing one.
+        return result;
     }
 
-    Vec3 resolved = start;
-    const double desired_x =
-        std::clamp(start.x + displacement.x, kMinimumX + radius, kMaximumX - radius);
-    resolved.x =
-        move_axis(start.x, desired_x, start.z, radius, obstacles_.data(), obstacle_count_, true);
+    PaddockObstacle blocking_x = PaddockObstacle::none;
+    const double requested_x = start.x + displacement.x;
+    const double desired_x = std::clamp(requested_x, kMinimumX + radius, kMaximumX - radius);
+    result.position.x = move_axis(start.x, desired_x, start.z, radius, obstacles_.data(),
+                                  obstacle_count_, true, blocking_x);
 
-    const double desired_z =
-        std::clamp(start.z + displacement.z, kMinimumZ + radius, kMaximumZ - radius);
-    resolved.z = move_axis(start.z, desired_z, resolved.x, radius, obstacles_.data(),
-                           obstacle_count_, false);
-    resolved.y = ground_height(resolved.x, resolved.z);
-    return resolved;
+    PaddockObstacle blocking_z = PaddockObstacle::none;
+    const double requested_z = start.z + displacement.z;
+    const double desired_z = std::clamp(requested_z, kMinimumZ + radius, kMaximumZ - radius);
+    result.position.z = move_axis(start.z, desired_z, result.position.x, radius, obstacles_.data(),
+                                  obstacle_count_, false, blocking_z);
+    result.position.y = ground_height(result.position.x, result.position.z);
+
+    // An unobstructed axis reproduces the requested coordinate exactly, so the
+    // comparison needs no tolerance: any difference is a clip.
+    result.clipped_x = result.position.x != requested_x;
+    result.clipped_z = result.position.z != requested_z;
+    // The X pass resolves first, so it names the obstacle when the two axes are
+    // stopped by different shapes. An axis stopped only by the paddock's outer
+    // bounds leaves `none` standing, because the bounds are not obstacles.
+    result.obstacle = blocking_x != PaddockObstacle::none ? blocking_x : blocking_z;
+    return result;
+}
+
+Vec3 PaddockCollisionField::move_cylinder(Vec3 start, Vec3 displacement,
+                                          double radius) const noexcept {
+    return resolve_cylinder_move(start, displacement, radius).position;
 }
 
 PaddockObstacle PaddockCollisionField::blocking_obstacle(double from_x, double from_z, double to_x,

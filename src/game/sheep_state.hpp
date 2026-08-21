@@ -45,6 +45,15 @@ using SheepStateBuffer = std::array<SheepState, kGameplaySheepCount>;
 inline constexpr std::size_t kMaximumSelectedAttractionNeighbors = 2;
 inline constexpr std::size_t kMaximumSelectedAlignmentNeighbors = 1;
 
+// Planar body radius the analytic paddock uses when it resolves one sheep's
+// displacement. This is a sheep rule owned here rather than a borrowed dog
+// constant or a render-proxy dimension: the accepted close-range separation
+// radius is the 1-unit spacing at which sheep stop pushing each other apart, so
+// half of it is the largest body radius under which two resting sheep are not
+// already interpenetrating. Sheep-versus-sheep body collision is not
+// implemented; only the paddock boundary reads this value.
+inline constexpr double kSheepCollisionRadius = 0.5;
+
 // Read-only causal evidence published with each authoritative sheep snapshot.
 // IDs, rather than buffer indexes, keep the evidence meaningful when storage
 // order changes. Candidate count records the density seen inside the attraction
@@ -97,6 +106,25 @@ struct SheepDogPressureEvidence {
 };
 
 using SheepDogPressureEvidenceBuffer = std::array<SheepDogPressureEvidence, kGameplaySheepCount>;
+
+// Positional evidence published with each authoritative sheep snapshot. The
+// steering terms above describe what a sheep tried to do; this records what the
+// paddock allowed, so a stopped sheep is explainable instead of mysterious.
+// `clipped_x` and `clipped_z` name the axes the analytic field refused this
+// tick — the same axes whose velocity is cleared — and `obstacle` names the
+// shape that refused them. A clipped axis with `none` was stopped by the
+// paddock's outer bounds. Collision is a separate, later authority than
+// steering: it never rewrites a published acceleration vector.
+struct SheepCollisionEvidence {
+    std::uint32_t subject_id = 0;
+    bool clipped_x = false;
+    bool clipped_z = false;
+    PaddockObstacle obstacle = PaddockObstacle::none;
+
+    bool operator==(const SheepCollisionEvidence&) const = default;
+};
+
+using SheepCollisionEvidenceBuffer = std::array<SheepCollisionEvidence, kGameplaySheepCount>;
 
 inline constexpr SheepStateBuffer kDefaultGameplaySheepStates{{
     {.id = 1,

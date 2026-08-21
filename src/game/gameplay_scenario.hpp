@@ -27,6 +27,8 @@ enum class GameplayScenarioId : std::uint8_t {
     sheep_dog_facing_on,
     sheep_dog_line_of_sight_off,
     sheep_dog_line_of_sight_on,
+    sheep_paddock_collision_closed_gate,
+    sheep_paddock_collision_open_gate,
 };
 
 enum class SheepFixture : std::uint8_t {

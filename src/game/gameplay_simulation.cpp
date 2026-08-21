@@ -26,6 +26,42 @@ empty_dog_pressure_evidence(const SheepStateBuffer& sheep) noexcept {
     return evidence;
 }
 
+[[nodiscard]] SheepCollisionEvidenceBuffer
+empty_collision_evidence(const SheepStateBuffer& sheep) noexcept {
+    SheepCollisionEvidenceBuffer evidence{};
+    for (std::size_t index = 0; index < sheep.size(); ++index) {
+        evidence[index].subject_id = sheep[index].id;
+    }
+    return evidence;
+}
+
+// The one positional authority for a sheep. Every fixture chooses a desired
+// planar displacement; the analytic paddock decides where the sheep actually
+// ends up, using the same field and the same clipping the dog motor collides
+// with. Voxel faces and render meshes never participate, and the steering terms
+// that produced `displacement` keep their published vectors: collision is a
+// separate, later stage rather than a hidden steering correction.
+void resolve_sheep_against_paddock(const SheepState& prior, Vec3 displacement,
+                                   const PaddockCollisionField& paddock, SheepState& next,
+                                   SheepCollisionEvidence& evidence) noexcept {
+    const CylinderMoveResult resolved =
+        paddock.resolve_cylinder_move(prior.position, displacement, kSheepCollisionRadius);
+    next.position = resolved.position;
+    // The dog's accepted contact rule: a clipped axis loses its velocity on the
+    // first contact tick, so a sheep held against a wall cannot accumulate speed
+    // into it and then shoot away when the wall ends.
+    if (resolved.clipped_x) {
+        next.velocity.x = 0.0;
+    }
+    if (resolved.clipped_z) {
+        next.velocity.z = 0.0;
+    }
+    next.grounded = std::isfinite(next.position.y);
+    evidence.clipped_x = resolved.clipped_x;
+    evidence.clipped_z = resolved.clipped_z;
+    evidence.obstacle = resolved.obstacle;
+}
+
 // Scenario configuration is immutable after construction, so enabled-term
 // bounds are validated once when the simulation is created rather than on
 // every fixed tick.
@@ -311,16 +347,23 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
         next.sheep[index] = prior[index];
         next.sheep_social_evidence[index] = {.subject_id = prior[index].id};
         next.sheep_dog_pressure_evidence[index] = {.subject_id = prior[index].id};
+        next.sheep_collision_evidence[index] = {.subject_id = prior[index].id};
         if (scenario.sheep_fixture != SheepFixture::scripted_presentation_motion) {
+            // The stationary fixture chooses no displacement, so the paddock has
+            // nothing to resolve and no contact to publish. The social fixture
+            // chooses one in the authoritative pass below and resolves it there.
             continue;
         }
 
         const std::size_t leg =
             static_cast<std::size_t>((previous.tick / kTicksPerLeg) % kLegCount);
         next.sheep[index].velocity = kVelocities[leg];
-        next.sheep[index].position.x += kVelocities[leg].x * GameplaySimulation::kFixedDeltaSeconds;
-        next.sheep[index].position.z += kVelocities[leg].z * GameplaySimulation::kFixedDeltaSeconds;
         next.sheep[index].heading_radians = kHeadings[leg];
+        resolve_sheep_against_paddock(
+            prior[index],
+            {.x = kVelocities[leg].x * GameplaySimulation::kFixedDeltaSeconds,
+             .z = kVelocities[leg].z * GameplaySimulation::kFixedDeltaSeconds},
+            paddock, next.sheep[index], next.sheep_collision_evidence[index]);
     }
 
     if (scenario.sheep_fixture != SheepFixture::local_social_response) {
@@ -371,10 +414,11 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
             dog_evidence.approach_acceleration.z + dog_evidence.facing_acceleration.z;
         next.sheep[index].velocity.x += acceleration_x * GameplaySimulation::kFixedDeltaSeconds;
         next.sheep[index].velocity.z += acceleration_z * GameplaySimulation::kFixedDeltaSeconds;
-        next.sheep[index].position.x +=
-            next.sheep[index].velocity.x * GameplaySimulation::kFixedDeltaSeconds;
-        next.sheep[index].position.z +=
-            next.sheep[index].velocity.z * GameplaySimulation::kFixedDeltaSeconds;
+        resolve_sheep_against_paddock(
+            prior[index],
+            {.x = next.sheep[index].velocity.x * GameplaySimulation::kFixedDeltaSeconds,
+             .z = next.sheep[index].velocity.z * GameplaySimulation::kFixedDeltaSeconds},
+            paddock, next.sheep[index], next.sheep_collision_evidence[index]);
     }
 }
 
@@ -415,6 +459,7 @@ GameplaySimulation::GameplaySimulation(GameplayScenarioDefinition scenario) noex
     current_.sheep = scenario_.initial_sheep;
     current_.sheep_social_evidence = empty_social_evidence(current_.sheep);
     current_.sheep_dog_pressure_evidence = empty_dog_pressure_evidence(current_.sheep);
+    current_.sheep_collision_evidence = empty_collision_evidence(current_.sheep);
     previous_ = current_;
 }
 
@@ -437,8 +482,8 @@ void GameplaySimulation::restart() noexcept {
                 .dog = dog_.state(),
                 .sheep = scenario_.initial_sheep,
                 .sheep_social_evidence = empty_social_evidence(scenario_.initial_sheep),
-                .sheep_dog_pressure_evidence =
-                    empty_dog_pressure_evidence(scenario_.initial_sheep)};
+                .sheep_dog_pressure_evidence = empty_dog_pressure_evidence(scenario_.initial_sheep),
+                .sheep_collision_evidence = empty_collision_evidence(scenario_.initial_sheep)};
     previous_ = current_;
 }
 
@@ -457,6 +502,7 @@ GameplaySnapshot GameplaySimulation::interpolated_snapshot(double alpha) const n
         .sheep = current_.sheep,
         .sheep_social_evidence = current_.sheep_social_evidence,
         .sheep_dog_pressure_evidence = current_.sheep_dog_pressure_evidence,
+        .sheep_collision_evidence = current_.sheep_collision_evidence,
     };
     for (std::size_t index = 0; index < result.sheep.size(); ++index) {
         result.sheep[index] =

@@ -36,6 +36,19 @@ struct AnalyticObstacle {
     double maximum_z = 0.0;
 };
 
+// Records what one analytic move actually did, so a body that stops can be
+// explained instead of halting mysteriously. `clipped_x` and `clipped_z` name
+// the axes whose requested displacement the field refused this tick, and
+// `obstacle` names the shape that refused it. A clipped axis with `none` was
+// refused by the paddock's outer bounds, which are limits rather than obstacle
+// shapes.
+struct CylinderMoveResult {
+    Vec3 position{};
+    bool clipped_x = false;
+    bool clipped_z = false;
+    PaddockObstacle obstacle = PaddockObstacle::none;
+};
+
 // Collision and occlusion truth for the handcrafted paddock. These analytic
 // bounds are intentionally independent of voxel faces and renderer mesh
 // topology. The field is owned by `game` rather than by the dog motor because
@@ -52,6 +65,11 @@ class PaddockCollisionField {
     explicit PaddockCollisionField(bool gate_open = false) noexcept;
 
     [[nodiscard]] double ground_height(double x, double z) const noexcept;
+    // Resolves one planar displacement of an upright cylinder and reports the
+    // contact that produced the result. Callers that only need the position use
+    // `move_cylinder`; callers that must publish why a body stopped use this.
+    [[nodiscard]] CylinderMoveResult resolve_cylinder_move(Vec3 start, Vec3 displacement,
+                                                           double radius) const noexcept;
     [[nodiscard]] Vec3 move_cylinder(Vec3 start, Vec3 displacement, double radius) const noexcept;
     // Reports the first obstacle in the paddock's fixed order that the planar
     // segment touches, or `none` when the segment is clear. The test is a

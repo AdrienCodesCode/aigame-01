@@ -205,7 +205,52 @@ constexpr DogState kLineOfSightDogState{.position = {.x = 16.0, .y = 1.0, .z = 1
                                         .heading_radians = 3.14159265358979323846,
                                         .grounded = true};
 
-constexpr std::array<NamedGameplayScenario, 17> kGameplayScenarios{{
+// One stationary dog parked well clear of the wall line and five sheep given an
+// exact initial velocity isolate paddock collision from every steering term: no
+// social or dog term is enabled, so each sheep travels in a straight line at a
+// constant speed until the analytic paddock stops it, which makes every resting
+// coordinate exact arithmetic. Every sheep that contacts something starts an exact
+// 3.5 units of travel along its blocked axis from the limit that stops it.
+// Sheep 1 runs head-on into the left wall, sheep 2 runs
+// at the gate line and is the paired variable, sheep 3 arrives diagonally at the
+// right wall so one axis is blocked while the other keeps running, sheep 4 never
+// touches anything and is the untouched control, and sheep 5 runs at the
+// paddock's own outer bound, which stops a sheep without being one of the named
+// obstacle shapes.
+constexpr double kPaddockCollisionSheepSpeed = 3.0;
+
+constexpr SheepStateBuffer kPaddockCollisionSheepStates{{
+    {.id = 1,
+     .position = {.x = 8.0, .y = 1.0, .z = 20.0},
+     .velocity = {.z = -kPaddockCollisionSheepSpeed},
+     .heading_radians = 0.0,
+     .grounded = true},
+    {.id = 2,
+     .position = {.x = 16.0, .y = 1.0, .z = 20.0},
+     .velocity = {.z = -kPaddockCollisionSheepSpeed},
+     .heading_radians = 0.0,
+     .grounded = true},
+    {.id = 3,
+     .position = {.x = 24.0, .y = 1.0, .z = 20.0},
+     .velocity = {.x = -kPaddockCollisionSheepSpeed, .z = -kPaddockCollisionSheepSpeed},
+     .heading_radians = 0.0,
+     .grounded = true},
+    {.id = 4,
+     .position = {.x = 28.0, .y = 1.0, .z = 26.0},
+     .velocity = {.x = -kPaddockCollisionSheepSpeed},
+     .heading_radians = 0.0,
+     .grounded = true},
+    {.id = 5,
+     .position = {.x = 4.0, .y = 1.0, .z = 20.0},
+     .velocity = {.x = -kPaddockCollisionSheepSpeed},
+     .heading_radians = 0.0,
+     .grounded = true},
+}};
+
+constexpr DogState kPaddockCollisionDogState{
+    .position = {.x = 16.0, .y = 1.0, .z = 28.0}, .heading_radians = 0.0, .grounded = true};
+
+constexpr std::array<NamedGameplayScenario, 19> kGameplayScenarios{{
     {
         .name = "paddock-start",
         .definition = {.id = GameplayScenarioId::paddock_start,
@@ -353,6 +398,21 @@ constexpr std::array<NamedGameplayScenario, 17> kGameplayScenarios{{
                        .initial_sheep = kDogLineOfSightSheepStates,
                        .sheep_dog_pressure = {.enabled = true},
                        .sheep_dog_line_of_sight = {.enabled = true}},
+    },
+    {
+        .name = "sheep-paddock-collision-closed-gate",
+        .definition = {.id = GameplayScenarioId::sheep_paddock_collision_closed_gate,
+                       .dog = {.initial_state = kPaddockCollisionDogState},
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kPaddockCollisionSheepStates},
+    },
+    {
+        .name = "sheep-paddock-collision-open-gate",
+        .definition = {.id = GameplayScenarioId::sheep_paddock_collision_open_gate,
+                       .dog = {.initial_state = kPaddockCollisionDogState},
+                       .gate_open = true,
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .initial_sheep = kPaddockCollisionSheepStates},
     },
 }};
 

@@ -1,9 +1,9 @@
 # Gameplay replay and state-dump contracts
 
-**Status:** Version 1 seed/action/replay and version 8 dog, five-sheep, social-
-evidence, and dog-stimulus-evidence state dump implemented; the presentation
-capture CLI can write a state dump, while JSON decoding and general replay/seed
-CLI integration remain pending
+**Status:** Version 1 seed/action/replay and version 9 dog, five-sheep, social-
+evidence, dog-stimulus-evidence, and sheep-collision-evidence state dump
+implemented; the presentation capture CLI can write a state dump, while JSON
+decoding and general replay/seed CLI integration remain pending
 
 **Last revised:** 2026-08-21
 
@@ -38,15 +38,16 @@ The contracts use four independently named versions:
   authoritative tick;
 - replay format `1` binds the tick rate, seed contract, action-input version,
   and complete action sequence;
-- state-dump format `8` records the seed contract, tick rate, restart count, and
-  published previous/current dog, five-sheep, social-evidence, and dog-stimulus-
-  evidence snapshots. Version 1 was dog-only, version 2 added sheep state,
-  version 3 added attraction evidence, version 4 added alignment evidence,
-  version 5 added dog distance, relative bearing, and pressure acceleration,
-  version 6 added dog approach speed and a separate approach acceleration,
-  version 7 added dog facing alignment and a separate facing acceleration, and
-  version 8 added the dog line-of-sight blocked flag and the named analytic
-  paddock obstacle that blocks it. No older version is silently reinterpreted.
+- state-dump format `9` records the seed contract, tick rate, restart count, and
+  published previous/current dog, five-sheep, social-evidence, dog-stimulus-
+  evidence, and sheep-collision-evidence snapshots. Version 1 was dog-only,
+  version 2 added sheep state, version 3 added attraction evidence, version 4
+  added alignment evidence, version 5 added dog distance, relative bearing, and
+  pressure acceleration, version 6 added dog approach speed and a separate
+  approach acceleration, version 7 added dog facing alignment and a separate
+  facing acceleration, version 8 added the dog line-of-sight blocked flag and the
+  named analytic paddock obstacle that blocks it, and version 9 added the
+  per-sheep paddock-contact record. No older version is silently reinterpreted.
 
 A replay consumer must reject an unsupported version, a tick rate other than
 60 Hz, an unknown scenario, a zero scenario version, a scenario/version/seed
@@ -78,7 +79,7 @@ decoder, replay file path, checked-in replay fixture, and executable
 `--replay`/`--seed` flags are intentionally deferred. No untrusted or external
 JSON is accepted by the engine yet.
 
-## State dump version 8
+## State dump version 9
 
 The schema name is `wide-eye.gameplay-state`. The dump contains the scenario
 seed contract, fixed rate, restart count, and complete published previous and
@@ -108,6 +109,23 @@ unevaluated stimulus fields to remain zero, requires a blocked flag to name an
 obstacle and a clear flag to name `none`, and validates finite distance/approach
 data, a bearing within `[-π, π]`, and an alignment within `[-1, 1]` before
 encoding.
+
+A third fixed-size record per sheep publishes what the paddock did to that
+sheep's displacement this tick: `clipped_x` and `clipped_z` name the axes whose
+requested movement the analytic field refused, and `contact_obstacle` names the
+shape that refused them using the same `none`, `left_wall`, `right_wall`, `gate`
+identity as the occluder. A clipped axis with `contact_obstacle` `none` was
+stopped by the paddock's outer bounds, which are limits rather than obstacle
+shapes; the writer therefore requires a named obstacle to have clipped an axis
+but permits a clipped axis with no named obstacle. Collision is a separate,
+later authority than steering: a clipped tick still publishes the acceleration
+vectors that were applied, so a sheep held against a wall shows a live pressure
+vector beside a refused displacement. A clipped axis also loses its velocity on
+the contact tick, the same rule the dog motor uses, so contact is reported only
+on ticks where the field actually refused movement. Sheep resolve their
+displacement as an upright cylinder of the game-owned sheep body radius against
+the same field the dog collides with; sheep-versus-sheep and sheep-versus-dog
+body collision are not implemented.
 
 IDs 1–5 initialize in a fixed contiguous buffer with `settled` behavior and zero
 arousal. The default scenarios keep them stationary. The version 1, seed-zero
@@ -146,8 +164,17 @@ the paddock wall line with the gate open, keep the accepted distance-only
 pressure enabled and identical in both cases, and differ only by the
 line-of-sight switch and required scenario ID. Both publish the same prior-state
 blocked flag and named occluder; only the on case releases the dog terms for an
-occluded sheep. Terrain, temperament, and behavior-state transitions remain
-absent, and the dog terms are still summed without a combined-influence bound. A non-finite state is rejected because JSON has no
+occluded sheep. The paired `sheep-paddock-collision-closed-gate` and
+`sheep-paddock-collision-open-gate` fixtures share one stationary dog and five
+sheep given exact initial velocities with every steering term disabled, so the
+analytic paddock is the only thing that can change a sheep's straight-line
+motion, and they differ only by the world gate state and the required scenario
+ID. One sheep runs at the left wall, one runs at the gate line and is the paired
+variable, one arrives diagonally at the right wall so one axis is blocked while
+the other keeps running, one never touches anything, and one runs at the
+paddock's own outer bound. Terrain, temperament, and behavior-state transitions
+remain absent, and the dog terms are still summed without a combined-influence
+bound. A non-finite state is rejected because JSON has no
 portable representation for NaN or infinity.
 
 The state dump is an observation, not a save format. It does not restore a
@@ -284,6 +311,41 @@ clang-tidy passed. Visibility is binary, so pressure changes discontinuously as
 a sight line crosses an obstacle edge. This is synthetic causal evidence, not
 calibrated sheep behavior or player-facing motion acceptance.
 
+**Observed result (2026-08-21):** required per-sheep paddock-contact evidence
+advanced the state dump to version 9 when sheep received the same analytic
+collision authority the dog already had. In the paired collision fixture, whose
+sheep start an exact `3.5` units north of the limit that will stop them and move
+at `3.0` world units/s with every steering term disabled, the sheep aimed at the
+left wall was refused on tick `70`, rested at exactly `16.5` — the wall face at
+`16` plus the `0.5` sheep body radius — with its `z` velocity exactly `0`, and
+never reached a smaller `z`. The sheep aimed at the gate line stopped at the
+same exact `16.5` and published `gate` while the gate was closed; with the gate
+open and nothing else changed it passed the wall line, was south of `15` by tick
+`150`, and came to rest on the paddock's own southern bound at exactly `0.5`
+with no named obstacle. The diagonal sheep published `right_wall`, stopped at
+exactly `16.5`, kept its exact `-3.0` free-axis velocity, and continued sliding
+west. The sheep aimed at the western bound stopped at exactly `0.5` with no
+named obstacle. The non-contacting control sheep was bit-identical to plain
+unclipped integration over 420 ticks, and every state and evidence field of all
+four non-contacting sheep was identical between the two gate states. A derived
+fixture that placed the dog north of the gate drove one sheep into the closed
+gate from tick `76` and held it at exactly `16.5` on all `225` remaining ticks
+while still publishing its live `-1.25` pressure vector at an exact distance of
+`3.5`, and the same dog drove that sheep out through the open gate without a
+single refused displacement. Reversed fixture storage preserved exact per-ID
+state, evidence, and first-contact records; restart was exact; 600 collision
+ticks allocated no heap memory. A direct comparison against a pre-change build
+ran all seventeen earlier scenarios for 240 scripted ticks each: thirteen were
+byte-identical once the new array and the version number were removed, and the
+four that changed — `sheep-alignment-off`, `sheep-alignment-on`,
+`sheep-dog-facing-off`, and `sheep-dog-facing-on` — are exactly the four in
+which a sheep now contacts a wall or the gate instead of passing through it. On
+WSL Ubuntu 24.04.4 with Clang 18.1.3, development, Release, and ASan/UBSan
+configurations each passed 24/24 CTests; formatting and bounded clang-tidy
+passed. A sheep whose cylinder already overlaps an obstacle is not pushed out,
+the same limitation the dog motor has. This is synthetic causal evidence, not
+calibrated sheep behavior or player-facing motion acceptance.
+
 **Observed result (2026-08-16):** the earlier native Windows Release capture
 commands wrote canonical version 2 state at presentation ticks 1, 61, and 121.
 The independent normal, repeat-normal, and face-normal debug commands at tick 61
@@ -292,7 +354,7 @@ byte-identical state files with SHA-256
 `8b2921e4a87bc2e8b8b86e08f4f17d8b3a7bf7c9413293b90b03b728ec27a905`.
 This is local same-platform evidence, not a cross-platform identity claim.
 
-Native Linux graphics, a native Windows version 8 capture, JSON decoding, CLI
+Native Linux graphics, a native Windows version 9 capture, JSON decoding, CLI
 replay/seed ingestion, persistent replay files, terrain and temperament pressure
 factors, combined-influence acceleration bounds, behavior transitions, objective
 outcomes, and cross-platform state or text identity remain untested or
