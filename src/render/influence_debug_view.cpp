@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <span>
 
 namespace wide_eye::render {
 namespace {
@@ -195,9 +196,10 @@ void append_ray(InfluenceDebugFrame& frame, DebugSegmentRole role, std::uint32_t
            offset(base, direction.x * to_distance, 0.0, direction.z * to_distance), color);
 }
 
-[[nodiscard]] const game::SheepState* find_sheep(const game::SheepStateBuffer& sheep,
+[[nodiscard]] const game::SheepState* find_sheep(const game::GameplaySnapshot& snapshot,
                                                  std::uint32_t id) noexcept {
-    for (const game::SheepState& candidate : sheep) {
+    for (const game::SheepState& candidate :
+         std::span{snapshot.sheep.data(), snapshot.sheep_count}) {
         if (candidate.id == id) {
             return &candidate;
         }
@@ -279,7 +281,7 @@ void append_sheep_segments(InfluenceDebugFrame& frame, const game::GameplaySnaps
          slot < social.attraction_neighbor_count && slot < social.attraction_neighbor_ids.size();
          ++slot) {
         const std::uint32_t neighbor_id = social.attraction_neighbor_ids[slot];
-        const game::SheepState* neighbor = find_sheep(snapshot.sheep, neighbor_id);
+        const game::SheepState* neighbor = find_sheep(snapshot, neighbor_id);
         if (neighbor == nullptr) {
             ++frame.unresolved_neighbor_count;
             continue;
@@ -295,7 +297,7 @@ void append_sheep_segments(InfluenceDebugFrame& frame, const game::GameplaySnaps
          slot < social.alignment_neighbor_count && slot < social.alignment_neighbor_ids.size();
          ++slot) {
         const std::uint32_t neighbor_id = social.alignment_neighbor_ids[slot];
-        const game::SheepState* neighbor = find_sheep(snapshot.sheep, neighbor_id);
+        const game::SheepState* neighbor = find_sheep(snapshot, neighbor_id);
         if (neighbor == nullptr) {
             ++frame.unresolved_neighbor_count;
             continue;
@@ -357,15 +359,16 @@ void append_sheep_segments(InfluenceDebugFrame& frame, const game::GameplaySnaps
 
 void append_flock_segments(InfluenceDebugFrame& frame,
                            const game::GameplaySnapshot& snapshot) noexcept {
-    std::array<std::uint32_t, game::kGameplaySheepCount> chosen_neighbor_counts{};
-    for (std::size_t index = 0; index < chosen_neighbor_counts.size(); ++index) {
+    std::array<std::uint32_t, game::kMaximumGameplaySheepCount> chosen_neighbor_counts{};
+    for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
         chosen_neighbor_counts[index] =
             snapshot.sheep_social_evidence[index].attraction_neighbor_count;
     }
-    const std::optional<game::FiveSheepObservables> observables =
-        game::compute_five_sheep_observables(snapshot.sheep, chosen_neighbor_counts,
-                                             kInfluenceDebugConnectivityDistance,
-                                             std::optional<game::Vec3>{snapshot.dog.position});
+    const std::optional<game::FlockObservables> observables = game::compute_flock_observables(
+        std::span{snapshot.sheep.data(), snapshot.sheep_count},
+        std::span{chosen_neighbor_counts.data(), snapshot.sheep_count},
+        kInfluenceDebugConnectivityDistance,
+        std::optional<game::Vec3>{snapshot.dog.position});
     if (!observables.has_value()) {
         return;
     }
@@ -432,7 +435,7 @@ void append_flock_segments(InfluenceDebugFrame& frame,
                kBalanceColor);
     }
 
-    if (const game::SheepState* rear = find_sheep(snapshot.sheep, observables->dog.rear_sheep_id);
+    if (const game::SheepState* rear = find_sheep(snapshot, observables->dog.rear_sheep_id);
         rear != nullptr) {
         append(frame, DebugSegmentRole::rear_member, InfluenceChannel::separation,
                observables->dog.rear_sheep_id, 0, offset(rear->position, 0.0, 0.05, 0.0),
@@ -511,16 +514,15 @@ std::string_view debug_segment_role_name(DebugSegmentRole role) noexcept {
     return "unknown";
 }
 
-InfluenceDebugFrame
-build_influence_debug_frame(const game::GameplaySnapshot& snapshot,
-                            const game::GameplayScenarioDefinition& scenario) noexcept {
-    InfluenceDebugFrame frame{};
+void build_influence_debug_frame(const game::GameplaySnapshot& snapshot,
+                                 const game::GameplayScenarioDefinition& scenario,
+                                 InfluenceDebugFrame& frame) noexcept {
+    frame = {};
     frame.tick = snapshot.tick;
-    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+    for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
         append_sheep_segments(frame, snapshot, scenario, index);
     }
     append_flock_segments(frame, snapshot);
-    return frame;
 }
 
 } // namespace wide_eye::render

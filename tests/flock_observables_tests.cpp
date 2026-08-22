@@ -11,7 +11,11 @@ namespace {
 
 using wide_eye::game::SheepBehaviorState;
 using wide_eye::game::SheepState;
-using wide_eye::game::SheepStateBuffer;
+// Every fixture here is a five-member flock. The observable passes take a
+// span, so the fixture type is a five-member array rather than the
+// capacity-sized authoritative buffer: the span then carries the flock size
+// the fixture actually means.
+using FiveSheepBuffer = std::array<wide_eye::game::SheepState, 5>;
 using wide_eye::game::Vec3;
 
 constexpr double kPi = 3.14159265358979323846;
@@ -34,8 +38,8 @@ bool near(double actual, double expected, double tolerance = 1.0e-12) {
 // Five sheep at distinct positions, all settled and unstimulated. The timing
 // pass reads only IDs and behavior labels, so the geometry here exists solely to
 // satisfy the shared validity rules.
-SheepStateBuffer settled_buffer() {
-    SheepStateBuffer sheep{};
+FiveSheepBuffer settled_buffer() {
+    FiveSheepBuffer sheep{};
     for (std::size_t index = 0; index < sheep.size(); ++index) {
         sheep[index].id = static_cast<std::uint32_t>(index + 1);
         sheep[index].position = {.x = static_cast<double>(index)};
@@ -57,9 +61,9 @@ struct TimingRun {
 void step(TimingRun& run, SheepBehaviorState behavior, double stimulus,
           std::uint32_t component_count) {
     ++run.tick;
-    SheepStateBuffer sheep = settled_buffer();
+    FiveSheepBuffer sheep = settled_buffer();
     sheep[0].behavior = behavior;
-    std::array<double, wide_eye::game::kGameplaySheepCount> stimuli{};
+    std::array<double, 5> stimuli{};
     stimuli[0] = stimulus;
     const auto next = wide_eye::game::advance_flock_response_timing(
         run.timing, run.tick, sheep, stimuli, component_count, kRestArousal);
@@ -77,7 +81,7 @@ bool measured(const std::optional<std::uint64_t>& value, std::uint64_t expected)
 } // namespace
 
 int main() {
-    const SheepStateBuffer cross{{
+    const FiveSheepBuffer cross{{
         {.id = 1, .position = {.x = 0.0, .y = 2.0, .z = 0.0}, .velocity = {.x = 2.0}},
         {.id = 2, .position = {.x = 1.0, .y = 2.0, .z = 0.0}, .velocity = {.x = 4.0}},
         {.id = 3, .position = {.x = -1.0, .y = 2.0, .z = 0.0}, .velocity = {.x = 1.0}},
@@ -86,7 +90,7 @@ int main() {
     }};
     constexpr std::array<std::uint32_t, 5> chosen{{0, 1, 2, 3, 4}};
     const auto cross_metrics =
-        wide_eye::game::compute_five_sheep_observables(cross, chosen, 1.0, std::nullopt);
+        wide_eye::game::compute_flock_observables(cross, chosen, 1.0, std::nullopt);
     if (!check(cross_metrics.has_value(), "cross_fixture_is_valid") ||
         !check(cross_metrics->centroid == Vec3{.y = 2.0}, "centroid_is_arithmetic_mean") ||
         !check(near(cross_metrics->mean_radius, 0.8), "mean_planar_radius") ||
@@ -105,20 +109,21 @@ int main() {
                "an_absent_dog_leaves_every_dog_observable_unevaluated_and_zero")) {
         return EXIT_FAILURE;
     }
-    for (const double spacing : cross_metrics->nearest_neighbor_spacing) {
-        if (!check(near(spacing, 1.0), "per_sheep_nearest_spacing")) {
+    for (std::size_t index = 0; index < cross_metrics->member_count; ++index) {
+        if (!check(near(cross_metrics->nearest_neighbor_spacing[index], 1.0),
+                   "per_sheep_nearest_spacing")) {
             return EXIT_FAILURE;
         }
     }
 
-    const SheepStateBuffer line{{
+    const FiveSheepBuffer line{{
         {.id = 10, .position = {.x = 0.0}, .velocity = {.x = 1.0}},
         {.id = 11, .position = {.x = 1.0}, .velocity = {.x = -1.0}},
         {.id = 12, .position = {.x = 2.0}},
         {.id = 13, .position = {.x = 10.0}, .velocity = {.z = 1.0}},
         {.id = 14, .position = {.x = 11.0}, .velocity = {.z = -1.0}},
     }};
-    const auto line_metrics = wide_eye::game::compute_five_sheep_observables(
+    const auto line_metrics = wide_eye::game::compute_flock_observables(
         line, std::array<std::uint32_t, 5>{}, 1.0, std::nullopt);
     if (!check(line_metrics.has_value(), "line_fixture_is_valid") ||
         !check(near(line_metrics->centroid.x, 4.8), "offset_centroid") ||
@@ -135,13 +140,13 @@ int main() {
     // exactly the origin, so a dog placed on an axis publishes an exact bearing
     // in the `atan2(x, -z)` convention: north is `0`, east is `+pi/2`, west is
     // `-pi/2`, and south is `+pi` rather than `-pi`.
-    const auto due_east = wide_eye::game::compute_five_sheep_observables(
+    const auto due_east = wide_eye::game::compute_flock_observables(
         cross, chosen, 1.0, Vec3{.x = 5.0, .y = 2.0, .z = 0.0});
-    const auto due_west = wide_eye::game::compute_five_sheep_observables(
+    const auto due_west = wide_eye::game::compute_flock_observables(
         cross, chosen, 1.0, Vec3{.x = -5.0, .y = 2.0, .z = 0.0});
-    const auto due_south = wide_eye::game::compute_five_sheep_observables(
+    const auto due_south = wide_eye::game::compute_flock_observables(
         cross, chosen, 1.0, Vec3{.x = 0.0, .y = 2.0, .z = 5.0});
-    const auto due_north = wide_eye::game::compute_five_sheep_observables(
+    const auto due_north = wide_eye::game::compute_flock_observables(
         cross, chosen, 1.0, Vec3{.x = 0.0, .y = 2.0, .z = -5.0});
     if (!check(due_east.has_value() && due_west.has_value() && due_south.has_value() &&
                    due_north.has_value(),
@@ -168,14 +173,14 @@ int main() {
     // the flock is not strung out along the push axis. Sheep 3 sits furthest
     // back along the axis but well off to the side; sheep 2 is closer to the dog
     // in a straight line and is not the one the dog is behind.
-    const SheepStateBuffer wedge{{
+    const FiveSheepBuffer wedge{{
         {.id = 1, .position = {.x = 0.0, .z = 0.0}},
         {.id = 2, .position = {.x = 0.0, .z = 9.0}},
         {.id = 3, .position = {.x = 8.0, .z = 10.0}},
         {.id = 4, .position = {.x = -4.0, .z = 3.0}},
         {.id = 5, .position = {.x = 1.0, .z = 3.0}},
     }};
-    const auto wedge_metrics = wide_eye::game::compute_five_sheep_observables(
+    const auto wedge_metrics = wide_eye::game::compute_flock_observables(
         wedge, std::array<std::uint32_t, 5>{}, 1.0, Vec3{.x = 1.0, .z = 13.0});
     if (!check(wedge_metrics.has_value() && wedge_metrics->centroid.x == 1.0 &&
                    wedge_metrics->centroid.z == 5.0,
@@ -195,16 +200,16 @@ int main() {
     // Both selections break an exact tie on the lower ID. Sheep 1 and sheep 2
     // are mirror images across the push axis, so they tie on distance and on
     // projection at once.
-    const SheepStateBuffer mirrored{{
+    const FiveSheepBuffer mirrored{{
         {.id = 1, .position = {.x = -2.0, .z = -6.0}},
         {.id = 2, .position = {.x = 2.0, .z = -6.0}},
         {.id = 3, .position = {.x = 0.0, .z = 5.0}},
         {.id = 4, .position = {.x = -5.0, .z = 6.0}},
         {.id = 5, .position = {.x = 5.0, .z = 6.0}},
     }};
-    const auto mirrored_metrics = wide_eye::game::compute_five_sheep_observables(
+    const auto mirrored_metrics = wide_eye::game::compute_flock_observables(
         mirrored, std::array<std::uint32_t, 5>{}, 1.0, Vec3{.x = 0.0, .z = -10.0});
-    const auto degenerate = wide_eye::game::compute_five_sheep_observables(
+    const auto degenerate = wide_eye::game::compute_flock_observables(
         cross, chosen, 1.0, Vec3{.x = 0.0, .y = 2.0, .z = 0.0});
     if (!check(mirrored_metrics.has_value() && mirrored_metrics->centroid.x == 0.0 &&
                    mirrored_metrics->centroid.z == 1.0 &&
@@ -229,49 +234,49 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    SheepStateBuffer invalid = cross;
+    FiveSheepBuffer invalid = cross;
     invalid[1].id = invalid[0].id;
-    if (!check(!wide_eye::game::compute_five_sheep_observables(invalid, chosen, 1.0, std::nullopt),
+    if (!check(!wide_eye::game::compute_flock_observables(invalid, chosen, 1.0, std::nullopt),
                "duplicate_id_rejected") ||
-        !check(!wide_eye::game::compute_five_sheep_observables(
+        !check(!wide_eye::game::compute_flock_observables(
                    cross, chosen, std::numeric_limits<double>::quiet_NaN(), std::nullopt),
                "non_finite_threshold_rejected") ||
-        !check(!wide_eye::game::compute_five_sheep_observables(
+        !check(!wide_eye::game::compute_flock_observables(
                    cross, std::array<std::uint32_t, 5>{0, 0, 0, 0, 5}, 1.0, std::nullopt),
                "out_of_range_neighbor_count_rejected") ||
         !check(
-            !wide_eye::game::compute_five_sheep_observables(
+            !wide_eye::game::compute_flock_observables(
                 cross, chosen, 1.0, Vec3{.x = std::numeric_limits<double>::infinity(), .z = 1.0}),
             "non_finite_dog_position_rejected")) {
         return EXIT_FAILURE;
     }
     invalid = cross;
     invalid[0].velocity.x = std::numeric_limits<double>::infinity();
-    if (!check(!wide_eye::game::compute_five_sheep_observables(invalid, chosen, 1.0, std::nullopt),
+    if (!check(!wide_eye::game::compute_flock_observables(invalid, chosen, 1.0, std::nullopt),
                "non_finite_state_rejected")) {
         return EXIT_FAILURE;
     }
     invalid = cross;
     invalid[0].heading_radians = std::numeric_limits<double>::quiet_NaN();
-    if (!check(!wide_eye::game::compute_five_sheep_observables(invalid, chosen, 1.0, std::nullopt),
+    if (!check(!wide_eye::game::compute_flock_observables(invalid, chosen, 1.0, std::nullopt),
                "non_finite_heading_rejected")) {
         return EXIT_FAILURE;
     }
     invalid = cross;
     invalid[0].arousal = std::numeric_limits<double>::infinity();
-    if (!check(!wide_eye::game::compute_five_sheep_observables(invalid, chosen, 1.0, std::nullopt),
+    if (!check(!wide_eye::game::compute_flock_observables(invalid, chosen, 1.0, std::nullopt),
                "non_finite_arousal_rejected")) {
         return EXIT_FAILURE;
     }
     invalid = cross;
     invalid[0].behavior = static_cast<SheepBehaviorState>(255);
-    if (!check(!wide_eye::game::compute_five_sheep_observables(invalid, chosen, 1.0, std::nullopt),
+    if (!check(!wide_eye::game::compute_flock_observables(invalid, chosen, 1.0, std::nullopt),
                "unknown_behavior_rejected")) {
         return EXIT_FAILURE;
     }
     invalid = cross;
     invalid[0].temperament = static_cast<wide_eye::game::SheepTemperament>(255);
-    if (!check(!wide_eye::game::compute_five_sheep_observables(invalid, chosen, 1.0, std::nullopt),
+    if (!check(!wide_eye::game::compute_flock_observables(invalid, chosen, 1.0, std::nullopt),
                "unknown_temperament_rejected")) {
         return EXIT_FAILURE;
     }
@@ -426,12 +431,12 @@ int main() {
 
     // The timing pass refuses what it cannot describe, exactly the way the
     // snapshot pass does.
-    const SheepStateBuffer valid = settled_buffer();
+    const FiveSheepBuffer valid = settled_buffer();
     const wide_eye::game::FlockResponseTiming fresh{};
     constexpr std::array<double, 5> quiet{};
-    SheepStateBuffer duplicate_ids = valid;
+    FiveSheepBuffer duplicate_ids = valid;
     duplicate_ids[1].id = duplicate_ids[0].id;
-    SheepStateBuffer unknown_behavior = valid;
+    FiveSheepBuffer unknown_behavior = valid;
     unknown_behavior[0].behavior = static_cast<SheepBehaviorState>(255);
     constexpr std::array<double, 5> above_range{{1.5, 0.0, 0.0, 0.0, 0.0}};
     constexpr std::array<double, 5> below_range{{-0.5, 0.0, 0.0, 0.0, 0.0}};

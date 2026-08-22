@@ -82,6 +82,28 @@ wide_eye::game::GameplayTickInput input_for_tick(std::uint64_t tick) {
 // oracles.
 using SimulationHandle = std::unique_ptr<wide_eye::game::GameplaySimulation>;
 
+// Published sheep state is a capacity-sized buffer plus an active count. Every
+// pass that takes a flock takes the active range, never the whole buffer.
+// A chosen-neighbour count of zero for each member of a five-member fixture:
+// the observable pass takes the counts as an explicit input, and these
+// fixtures are measuring something other than neighbour selection.
+using NoChosenNeighbors = std::array<std::uint32_t, wide_eye::game::kDefaultGameplaySheepCount>;
+
+[[nodiscard]] std::span<const wide_eye::game::SheepState>
+active_sheep(const wide_eye::game::GameplaySnapshot& snapshot) noexcept {
+    return {snapshot.sheep.data(), snapshot.sheep_count};
+}
+
+// The active range of any published per-member buffer. The buffers are sized at
+// `kMaximumGameplaySheepCount` and the entries past the active count are filler
+// no rule ever wrote, so iterating the whole buffer reads records that do not
+// exist.
+template <typename Record, std::size_t Capacity>
+[[nodiscard]] std::span<const Record> active(const std::array<Record, Capacity>& buffer,
+                                             std::size_t count) noexcept {
+    return {buffer.data(), count};
+}
+
 // Fixtures a check only reads. The pointee is const so the read-only intent the
 // by-value fixtures used to express with `const` survives the move to the heap.
 using ConstSimulationHandle = std::unique_ptr<const wide_eye::game::GameplaySimulation>;
@@ -90,13 +112,49 @@ SimulationHandle make_simulation(const wide_eye::game::GameplayScenarioDefinitio
     return std::make_unique<wide_eye::game::GameplaySimulation>(scenario);
 }
 
+// A named scenario, on the heap. `GameplayScenarioDefinition` carries the
+// initial sheep buffer at the authoritative capacity, so it is 20 KiB, and this
+// harness names about thirty scenarios inside one `main`. Holding them by value
+// is the frame growth QA-002 recorded, one level up from the simulations.
+using ScenarioHandle = std::unique_ptr<const wide_eye::game::GameplayScenarioDefinition>;
+
+// A mutable heap copy of a named scenario, for the paired oracles that assert
+// "the on scenario with its one switch turned off is exactly the off scenario".
+[[nodiscard]] std::unique_ptr<wide_eye::game::GameplayScenarioDefinition>
+mutable_scenario_copy(
+    const std::unique_ptr<const wide_eye::game::GameplayScenarioDefinition>& scenario) {
+    return std::make_unique<wide_eye::game::GameplayScenarioDefinition>(
+        scenario != nullptr ? *scenario : wide_eye::game::GameplayScenarioDefinition{});
+}
+
+[[nodiscard]] ScenarioHandle named_scenario(std::string_view name) {
+    const auto found = wide_eye::game::find_gameplay_scenario(name);
+    if (!found.has_value()) {
+        return nullptr;
+    }
+    return std::make_unique<const wide_eye::game::GameplayScenarioDefinition>(*found);
+}
+
 struct CadenceResult {
     wide_eye::game::GameplaySnapshot snapshot{};
     std::uint64_t scheduled_ticks = 0;
 };
 
-CadenceResult run_cadence(const wide_eye::game::GameplayScenarioDefinition& scenario,
+// Heap, not stack: a `GameplaySnapshot` is 116 KiB at the published capacity,
+// and a fixture that holds one by value in `main` is the shape QA-002 recorded.
+using CadenceHandle = std::unique_ptr<CadenceResult>;
+
+// The discarded interpolated snapshot is 116 KiB and is materialized in its
+// caller's frame, so it is discarded inside a frame that is reclaimed.
+void observe_interpolated(const wide_eye::game::GameplaySimulation& simulation,
+                          double alpha) {
+    static_cast<void>(simulation.interpolated_snapshot(alpha));
+}
+
+CadenceHandle run_cadence(const wide_eye::game::GameplayScenarioDefinition& scenario,
                           std::span<const std::chrono::nanoseconds> frame_deltas) {
+    auto result = std::make_unique<CadenceResult>();
+    const auto before_observation = std::make_unique<wide_eye::game::GameplaySnapshot>();
     wide_eye::core::FixedStepAccumulator scheduler;
     const SimulationHandle simulation = make_simulation(scenario);
 
@@ -106,14 +164,31 @@ CadenceResult run_cadence(const wide_eye::game::GameplayScenarioDefinition& scen
             simulation->fixed_update(input_for_tick(simulation->current_snapshot().tick));
         }
 
-        const auto before_observation = simulation->current_snapshot();
-        static_cast<void>(simulation->interpolated_snapshot(update.interpolation_alpha));
-        if (simulation->current_snapshot() != before_observation) {
-            return {};
+        *before_observation = simulation->current_snapshot();
+        observe_interpolated(*simulation, update.interpolation_alpha);
+        if (simulation->current_snapshot() != *before_observation) {
+            return result;
         }
     }
 
-    return {.snapshot = simulation->current_snapshot(), .scheduled_ticks = scheduler.total_ticks()};
+    result->snapshot = simulation->current_snapshot();
+    result->scheduled_ticks = scheduler.total_ticks();
+    return result;
+}
+
+// `interpolated_snapshot` returns a whole 116 KiB snapshot by value, which is
+// materialized in the caller's frame. These helpers keep that temporary inside
+// a frame that is reclaimed on return rather than inside `main`.
+[[nodiscard]] std::unique_ptr<wide_eye::game::GameplaySnapshot>
+interpolated_on_heap(const wide_eye::game::GameplaySimulation& simulation, double alpha) {
+    return std::make_unique<wide_eye::game::GameplaySnapshot>(
+        simulation.interpolated_snapshot(alpha));
+}
+
+[[nodiscard]] bool interpolated_dog_equals(const wide_eye::game::GameplaySimulation& simulation,
+                                           double alpha,
+                                           const wide_eye::game::DogState& expected) {
+    return simulation.interpolated_snapshot(alpha).dog == expected;
 }
 
 wide_eye::game::GameplayReplay sample_replay(const wide_eye::game::GameplaySimulation& simulation) {
@@ -249,7 +324,7 @@ struct SheepContactRecord {
 };
 
 using SheepContactRecordBuffer =
-    std::array<SheepContactRecord, wide_eye::game::kGameplaySheepCount>;
+    std::array<SheepContactRecord, wide_eye::game::kDefaultGameplaySheepCount>;
 
 struct PaddockCollisionRun {
     SheepContactRecordBuffer contacts{};
@@ -268,22 +343,26 @@ const SheepContactRecord& contact_with_id(const SheepContactRecordBuffer& contac
     return *member;
 }
 
-PaddockCollisionRun
+// Two whole snapshots by value, so this one lives on the heap for the same
+// reason `CadenceResult` does.
+using PaddockCollisionHandle = std::unique_ptr<PaddockCollisionRun>;
+
+PaddockCollisionHandle
 run_paddock_collision(const wide_eye::game::GameplayScenarioDefinition& scenario,
                       std::uint64_t ticks, std::uint64_t midpoint_tick) {
-    PaddockCollisionRun result;
+    auto result = std::make_unique<PaddockCollisionRun>();
     const SimulationHandle simulation = make_simulation(scenario);
-    for (std::size_t index = 0; index < scenario.initial_sheep.size(); ++index) {
-        result.contacts[index].evidence.subject_id = scenario.initial_sheep[index].id;
-        result.contacts[index].minimum_x = scenario.initial_sheep[index].position.x;
-        result.contacts[index].minimum_z = scenario.initial_sheep[index].position.z;
+    for (std::size_t index = 0; index < scenario.sheep_count; ++index) {
+        result->contacts[index].evidence.subject_id = scenario.initial_sheep[index].id;
+        result->contacts[index].minimum_x = scenario.initial_sheep[index].position.x;
+        result->contacts[index].minimum_z = scenario.initial_sheep[index].position.z;
     }
 
     for (std::uint64_t tick = 1; tick <= ticks; ++tick) {
         simulation->fixed_update({});
         const auto& snapshot = simulation->current_snapshot();
-        for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
-            SheepContactRecord& record = result.contacts[index];
+        for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
+            SheepContactRecord& record = result->contacts[index];
             record.minimum_x = std::min(record.minimum_x, snapshot.sheep[index].position.x);
             record.minimum_z = std::min(record.minimum_z, snapshot.sheep[index].position.z);
             const auto& evidence = snapshot.sheep_collision_evidence[index];
@@ -302,11 +381,11 @@ run_paddock_collision(const wide_eye::game::GameplayScenarioDefinition& scenario
             record.evidence = evidence;
         }
         if (tick == midpoint_tick) {
-            result.midpoint = snapshot;
+            result->midpoint = snapshot;
         }
     }
 
-    result.final_snapshot = simulation->current_snapshot();
+    result->final_snapshot = simulation->current_snapshot();
     return result;
 }
 
@@ -366,22 +445,21 @@ CombinedInfluenceOracle run_combined_influence_oracle(
     constexpr std::uint64_t kCombinedInfluenceDriftTicks = 120;
     result.bound = kCombinedInfluenceBound;
     result.drift_ticks = kCombinedInfluenceDriftTicks;
-    const auto combined_off_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-combined-influence-off");
-    const auto combined_on_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-combined-influence-on");
-    auto combined_on_as_control =
-        combined_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
-    if (combined_off_scenario.has_value()) {
-        combined_on_as_control.id = combined_off_scenario->id;
+    const ScenarioHandle combined_off_scenario =
+        named_scenario("sheep-combined-influence-off");
+    const ScenarioHandle combined_on_scenario =
+        named_scenario("sheep-combined-influence-on");
+    auto combined_on_as_control = mutable_scenario_copy(combined_on_scenario);
+    if (combined_off_scenario != nullptr) {
+        combined_on_as_control->id = combined_off_scenario->id;
     }
-    combined_on_as_control.sheep_combined_influence.enabled = false;
-    if (!check(combined_off_scenario.has_value() && combined_on_scenario.has_value() &&
+    combined_on_as_control->sheep_combined_influence.enabled = false;
+    if (!check(combined_off_scenario != nullptr && combined_on_scenario != nullptr &&
                    combined_off_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_combined_influence_off &&
                    combined_on_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_combined_influence_on &&
-                   combined_on_as_control == *combined_off_scenario &&
+                   *combined_on_as_control == *combined_off_scenario &&
                    combined_on_scenario->sheep_combined_influence.enabled &&
                    !combined_off_scenario->sheep_combined_influence.enabled &&
                    combined_on_scenario->sheep_combined_influence.maximum_acceleration ==
@@ -413,17 +491,25 @@ CombinedInfluenceOracle run_combined_influence_oracle(
 
     const SimulationHandle combined_off = make_simulation(*combined_off_scenario);
     const SimulationHandle combined_on = make_simulation(*combined_on_scenario);
-    const auto combined_initial = combined_on->current_snapshot();
+    const auto combined_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(combined_on->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& combined_initial = *combined_initial_holder;
     combined_off->fixed_update({});
     combined_on->fixed_update({});
-    const auto combined_off_after_one = combined_off->current_snapshot();
-    const auto combined_on_after_one = combined_on->current_snapshot();
+    const auto combined_off_after_one_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(combined_off->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& combined_off_after_one = *combined_off_after_one_holder;
+    const auto combined_on_after_one_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(combined_on->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& combined_on_after_one = *combined_on_after_one_holder;
     if (!check(combined_on->previous_snapshot() == combined_initial,
                "combined_influence_reads_immutable_prior_snapshot")) {
         return result;
     }
 
-    for (const auto& on_combined : combined_on_after_one.sheep_combined_influence_evidence) {
+    for (const auto& on_combined :
+         active(combined_on_after_one.sheep_combined_influence_evidence,
+                combined_on_after_one.sheep_count)) {
         const std::uint32_t subject_id = on_combined.subject_id;
         const auto& off_combined =
             evidence_with_id(combined_off_after_one.sheep_combined_influence_evidence, subject_id);
@@ -566,7 +652,9 @@ CombinedInfluenceOracle run_combined_influence_oracle(
     // A sum exactly equal to the bound is not over it. Raising the same
     // fixture's bound to the over-bound sheep's exact summed magnitude must
     // reproduce the unbounded control bit for bit.
-    auto combined_at_bound_scenario = *combined_on_scenario;
+    const auto combined_at_bound_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*combined_on_scenario);
+    auto& combined_at_bound_scenario = *combined_at_bound_scenario_holder;
     combined_at_bound_scenario.sheep_combined_influence.maximum_acceleration =
         kOverBoundSummedMagnitude;
     const SimulationHandle combined_at_bound = make_simulation(combined_at_bound_scenario);
@@ -630,12 +718,16 @@ CombinedInfluenceOracle run_combined_influence_oracle(
         return result;
     }
 
-    auto reversed_combined_scenario = *combined_on_scenario;
+    const auto reversed_combined_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*combined_on_scenario);
+    auto& reversed_combined_scenario = *reversed_combined_scenario_holder;
     std::reverse(reversed_combined_scenario.initial_sheep.begin(),
-                 reversed_combined_scenario.initial_sheep.end());
+                 reversed_combined_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_combined_scenario.sheep_count));
     const SimulationHandle reversed_combined = make_simulation(reversed_combined_scenario);
     reversed_combined->fixed_update({});
-    for (const auto& member : combined_on_after_one.sheep) {
+    for (const auto& member :
+         active(combined_on_after_one.sheep, combined_on_after_one.sheep_count)) {
         if (!check(member == sheep_with_id(reversed_combined->current_snapshot().sheep, member.id),
                    "combined_influence_result_is_stable_by_id_under_reversed_storage") ||
             !check(evidence_with_id(combined_on_after_one.sheep_combined_influence_evidence,
@@ -749,21 +841,20 @@ MotionLimitOracle run_motion_limit_oracle() {
     result.drift_ticks = kMotionLimitDriftTicks;
     result.accumulation_maximum = kAccumulationMaximumSpeed;
 
-    const auto limit_off_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-motion-limit-off");
-    const auto limit_on_scenario = wide_eye::game::find_gameplay_scenario("sheep-motion-limit-on");
-    auto limit_on_as_control =
-        limit_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
-    if (limit_off_scenario.has_value()) {
-        limit_on_as_control.id = limit_off_scenario->id;
+    const ScenarioHandle limit_off_scenario =
+        named_scenario("sheep-motion-limit-off");
+    const ScenarioHandle limit_on_scenario = named_scenario("sheep-motion-limit-on");
+    auto limit_on_as_control = mutable_scenario_copy(limit_on_scenario);
+    if (limit_off_scenario != nullptr) {
+        limit_on_as_control->id = limit_off_scenario->id;
     }
-    limit_on_as_control.sheep_motion_limit.enabled = false;
-    if (!check(limit_off_scenario.has_value() && limit_on_scenario.has_value() &&
+    limit_on_as_control->sheep_motion_limit.enabled = false;
+    if (!check(limit_off_scenario != nullptr && limit_on_scenario != nullptr &&
                    limit_off_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_motion_limit_off &&
                    limit_on_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_motion_limit_on &&
-                   limit_on_as_control == *limit_off_scenario &&
+                   *limit_on_as_control == *limit_off_scenario &&
                    limit_on_scenario->sheep_motion_limit.enabled &&
                    !limit_off_scenario->sheep_motion_limit.enabled &&
                    limit_on_scenario->sheep_motion_limit.maximum_speed == kMaximumSpeed &&
@@ -799,17 +890,24 @@ MotionLimitOracle run_motion_limit_oracle() {
 
     const SimulationHandle limit_off = make_simulation(*limit_off_scenario);
     const SimulationHandle limit_on = make_simulation(*limit_on_scenario);
-    const auto limit_initial = limit_on->current_snapshot();
+    const auto limit_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(limit_on->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& limit_initial = *limit_initial_holder;
     limit_off->fixed_update({});
     limit_on->fixed_update({});
-    const auto limit_off_after_one = limit_off->current_snapshot();
-    const auto limit_on_after_one = limit_on->current_snapshot();
+    const auto limit_off_after_one_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(limit_off->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& limit_off_after_one = *limit_off_after_one_holder;
+    const auto limit_on_after_one_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(limit_on->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& limit_on_after_one = *limit_on_after_one_holder;
     if (!check(limit_on->previous_snapshot() == limit_initial,
                "motion_limits_read_the_immutable_prior_snapshot")) {
         return result;
     }
 
-    for (const auto& on_limit : limit_on_after_one.sheep_motion_limit_evidence) {
+    for (const auto& on_limit :
+         active(limit_on_after_one.sheep_motion_limit_evidence, limit_on_after_one.sheep_count)) {
         const std::uint32_t subject_id = on_limit.subject_id;
         const auto& off_limit =
             evidence_with_id(limit_off_after_one.sheep_motion_limit_evidence, subject_id);
@@ -1014,23 +1112,25 @@ MotionLimitOracle run_motion_limit_oracle() {
         limit_drift_on->fixed_update({});
         const auto& off_snapshot = limit_drift_off->current_snapshot();
         const auto& on_snapshot = limit_drift_on->current_snapshot();
-        for (const auto& member : off_snapshot.sheep) {
+        for (const auto& member : active(off_snapshot.sheep, off_snapshot.sheep_count)) {
             const auto& fixture_member =
                 sheep_with_id(limit_off_scenario->initial_sheep, member.id);
             off_member_is_unchanged = off_member_is_unchanged &&
                                       member.velocity == fixture_member.velocity &&
                                       member.heading_radians == fixture_member.heading_radians;
         }
-        for (const auto& member : on_snapshot.sheep) {
+        for (const auto& member : active(on_snapshot.sheep, on_snapshot.sheep_count)) {
             limited_speed_holds_every_tick =
                 limited_speed_holds_every_tick &&
                 std::hypot(member.velocity.x, member.velocity.z) <= kMaximumSpeed + 1.0e-12;
         }
-        for (const auto& contact : off_snapshot.sheep_collision_evidence) {
+        for (const auto& contact :
+             active(off_snapshot.sheep_collision_evidence, off_snapshot.sheep_count)) {
             limit_drift_is_contact_free =
                 limit_drift_is_contact_free && !contact.clipped_x && !contact.clipped_z;
         }
-        for (const auto& contact : on_snapshot.sheep_collision_evidence) {
+        for (const auto& contact :
+             active(on_snapshot.sheep_collision_evidence, on_snapshot.sheep_count)) {
             limit_drift_is_contact_free =
                 limit_drift_is_contact_free && !contact.clipped_x && !contact.clipped_z;
         }
@@ -1049,10 +1149,14 @@ MotionLimitOracle run_motion_limit_oracle() {
 
     // The heading floor is a real boundary rather than a comment: a sheep moving
     // below it keeps its heading, and the same sheep moving just above it turns.
-    auto below_floor_scenario = *limit_on_scenario;
+    const auto below_floor_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*limit_on_scenario);
+    auto& below_floor_scenario = *below_floor_scenario_holder;
     below_floor_scenario.initial_sheep[3].velocity.x =
         wide_eye::game::kSheepHeadingMotionSpeedFloor / 1000.0;
-    auto above_floor_scenario = *limit_on_scenario;
+    const auto above_floor_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*limit_on_scenario);
+    auto& above_floor_scenario = *above_floor_scenario_holder;
     above_floor_scenario.initial_sheep[3].velocity.x =
         wide_eye::game::kSheepHeadingMotionSpeedFloor * 1000.0;
     const SimulationHandle below_floor = make_simulation(below_floor_scenario);
@@ -1079,13 +1183,14 @@ MotionLimitOracle run_motion_limit_oracle() {
     // the limit exists for, where integration accumulates the speed. The
     // accepted combined-influence arrangement is driven for four seconds with a
     // lowered maximum, so the clamp binds on a speed the steering terms produced.
-    auto accumulation_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-combined-influence-on")
-            .value_or(wide_eye::game::GameplayScenarioDefinition{});
-    const SimulationHandle accumulation_control = make_simulation(accumulation_scenario);
-    accumulation_scenario.sheep_motion_limit = {.enabled = true,
-                                                .maximum_speed = kAccumulationMaximumSpeed};
-    const SimulationHandle accumulation_limited = make_simulation(accumulation_scenario);
+    const ScenarioHandle accumulation_named = named_scenario("sheep-combined-influence-on");
+    auto accumulation_scenario = std::make_unique<wide_eye::game::GameplayScenarioDefinition>(
+        accumulation_named != nullptr ? *accumulation_named
+                                      : wide_eye::game::GameplayScenarioDefinition{});
+    const SimulationHandle accumulation_control = make_simulation(*accumulation_scenario);
+    accumulation_scenario->sheep_motion_limit = {.enabled = true,
+                                                 .maximum_speed = kAccumulationMaximumSpeed};
+    const SimulationHandle accumulation_limited = make_simulation(*accumulation_scenario);
     bool accumulation_is_contact_free = true;
     for (std::uint64_t tick = 0; tick < kAccumulationTicks; ++tick) {
         accumulation_control->fixed_update({});
@@ -1111,12 +1216,15 @@ MotionLimitOracle run_motion_limit_oracle() {
         return result;
     }
 
-    auto reversed_limit_scenario = *limit_on_scenario;
+    const auto reversed_limit_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*limit_on_scenario);
+    auto& reversed_limit_scenario = *reversed_limit_scenario_holder;
     std::reverse(reversed_limit_scenario.initial_sheep.begin(),
-                 reversed_limit_scenario.initial_sheep.end());
+                 reversed_limit_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_limit_scenario.sheep_count));
     const SimulationHandle reversed_limit = make_simulation(reversed_limit_scenario);
     reversed_limit->fixed_update({});
-    for (const auto& member : limit_on_after_one.sheep) {
+    for (const auto& member : active(limit_on_after_one.sheep, limit_on_after_one.sheep_count)) {
         if (!check(member == sheep_with_id(reversed_limit->current_snapshot().sheep, member.id),
                    "motion_limit_result_is_stable_by_id_under_reversed_storage") ||
             !check(
@@ -1235,19 +1343,18 @@ AvoidanceOracle run_avoidance_oracle() {
     result.overwhelmed_maximum = kOverwhelmedMaximum;
     result.bounded_maximum = kBoundedMaximum;
 
-    const auto avoid_off_scenario = wide_eye::game::find_gameplay_scenario("sheep-avoidance-off");
-    const auto avoid_on_scenario = wide_eye::game::find_gameplay_scenario("sheep-avoidance-on");
-    auto avoid_on_as_control =
-        avoid_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
-    if (avoid_off_scenario.has_value()) {
-        avoid_on_as_control.id = avoid_off_scenario->id;
+    const ScenarioHandle avoid_off_scenario = named_scenario("sheep-avoidance-off");
+    const ScenarioHandle avoid_on_scenario = named_scenario("sheep-avoidance-on");
+    auto avoid_on_as_control = mutable_scenario_copy(avoid_on_scenario);
+    if (avoid_off_scenario != nullptr) {
+        avoid_on_as_control->id = avoid_off_scenario->id;
     }
-    avoid_on_as_control.sheep_avoidance.enabled = false;
+    avoid_on_as_control->sheep_avoidance.enabled = false;
     if (!check(
-            avoid_off_scenario.has_value() && avoid_on_scenario.has_value() &&
+            avoid_off_scenario != nullptr && avoid_on_scenario != nullptr &&
                 avoid_off_scenario->id == wide_eye::game::GameplayScenarioId::sheep_avoidance_off &&
                 avoid_on_scenario->id == wide_eye::game::GameplayScenarioId::sheep_avoidance_on &&
-                avoid_on_as_control == *avoid_off_scenario &&
+                *avoid_on_as_control == *avoid_off_scenario &&
                 avoid_on_scenario->sheep_avoidance.enabled &&
                 !avoid_off_scenario->sheep_avoidance.enabled &&
                 avoid_on_scenario->sheep_avoidance.look_ahead_distance == kLookAhead &&
@@ -1285,17 +1392,24 @@ AvoidanceOracle run_avoidance_oracle() {
 
     const SimulationHandle avoid_off = make_simulation(*avoid_off_scenario);
     const SimulationHandle avoid_on = make_simulation(*avoid_on_scenario);
-    const auto avoid_initial = avoid_on->current_snapshot();
+    const auto avoid_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(avoid_on->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& avoid_initial = *avoid_initial_holder;
     avoid_off->fixed_update({});
     avoid_on->fixed_update({});
-    const auto avoid_off_after_one = avoid_off->current_snapshot();
-    const auto avoid_on_after_one = avoid_on->current_snapshot();
+    const auto avoid_off_after_one_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(avoid_off->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& avoid_off_after_one = *avoid_off_after_one_holder;
+    const auto avoid_on_after_one_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(avoid_on->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& avoid_on_after_one = *avoid_on_after_one_holder;
     if (!check(avoid_on->previous_snapshot() == avoid_initial,
                "avoidance_reads_the_immutable_prior_snapshot")) {
         return result;
     }
 
-    for (const auto& on_avoidance : avoid_on_after_one.sheep_avoidance_evidence) {
+    for (const auto& on_avoidance :
+         active(avoid_on_after_one.sheep_avoidance_evidence, avoid_on_after_one.sheep_count)) {
         const std::uint32_t subject_id = on_avoidance.subject_id;
         const auto& off_avoidance =
             evidence_with_id(avoid_off_after_one.sheep_avoidance_evidence, subject_id);
@@ -1418,9 +1532,13 @@ AvoidanceOracle run_avoidance_oracle() {
 
     // A sheep heading away from the same wall it was heading at is untouched
     // too, so the term reads travel direction rather than position.
-    auto away_on_scenario = *avoid_on_scenario;
+    const auto away_on_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*avoid_on_scenario);
+    auto& away_on_scenario = *away_on_scenario_holder;
     away_on_scenario.initial_sheep[0].velocity.z = kSheepSpeed;
-    auto away_off_scenario = *avoid_off_scenario;
+    const auto away_off_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*avoid_off_scenario);
+    auto& away_off_scenario = *away_off_scenario_holder;
     away_off_scenario.initial_sheep[0].velocity.z = kSheepSpeed;
     const SimulationHandle away_on = make_simulation(away_on_scenario);
     const SimulationHandle away_off = make_simulation(away_off_scenario);
@@ -1430,7 +1548,9 @@ AvoidanceOracle run_avoidance_oracle() {
         evidence_with_id(away_on->current_snapshot().sheep_avoidance_evidence, 1);
     // A sheep with no measurable motion has no direction to probe, so the term
     // does not run for it at all rather than steering away from rounding noise.
-    auto still_scenario = *avoid_on_scenario;
+    const auto still_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*avoid_on_scenario);
+    auto& still_scenario = *still_scenario_holder;
     still_scenario.initial_sheep[0].velocity = {};
     const SimulationHandle still = make_simulation(still_scenario);
     still->fixed_update({});
@@ -1451,9 +1571,13 @@ AvoidanceOracle run_avoidance_oracle() {
     // The look-ahead boundary is continuous rather than a step: a shape exactly
     // at the look-ahead distance is named with a vector of exactly zero, and one
     // just beyond it is not seen at all.
-    auto at_boundary_scenario = *avoid_on_scenario;
+    const auto at_boundary_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*avoid_on_scenario);
+    auto& at_boundary_scenario = *at_boundary_scenario_holder;
     at_boundary_scenario.initial_sheep[0].position.z = kWallFaceZ + kLookAhead;
-    auto past_boundary_scenario = *avoid_on_scenario;
+    const auto past_boundary_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*avoid_on_scenario);
+    auto& past_boundary_scenario = *past_boundary_scenario_holder;
     past_boundary_scenario.initial_sheep[0].position.z = kWallFaceZ + kLookAhead + 0.05;
     const SimulationHandle at_boundary = make_simulation(at_boundary_scenario);
     const SimulationHandle past_boundary = make_simulation(past_boundary_scenario);
@@ -1477,7 +1601,9 @@ AvoidanceOracle run_avoidance_oracle() {
     // The drop sheep's graded push is exactly known, so a combined bound at half
     // that must publish a scale of exactly one half and halve the applied vector
     // while leaving this term's published vector alone.
-    auto bounded_scenario = *avoid_on_scenario;
+    const auto bounded_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*avoid_on_scenario);
+    auto& bounded_scenario = *bounded_scenario_holder;
     bounded_scenario.sheep_combined_influence = {.enabled = true,
                                                  .maximum_acceleration = kBoundedMaximum};
     const SimulationHandle bounded = make_simulation(bounded_scenario);
@@ -1503,13 +1629,13 @@ AvoidanceOracle run_avoidance_oracle() {
     const SimulationHandle contact_off = make_simulation(*avoid_off_scenario);
     result.on_closest_wall_gap = std::numeric_limits<double>::infinity();
     bool off_member_holds_its_fixture_velocity = true;
-    std::array<bool, wide_eye::game::kGameplaySheepCount> off_contacted{};
+    std::array<bool, wide_eye::game::kDefaultGameplaySheepCount> off_contacted{};
     for (std::uint64_t tick = 1; tick <= kAvoidanceContactTicks; ++tick) {
         contact_on->fixed_update({});
         contact_off->fixed_update({});
         const auto& on_snapshot = contact_on->current_snapshot();
         const auto& off_snapshot = contact_off->current_snapshot();
-        for (std::size_t index = 0; index < on_snapshot.sheep.size(); ++index) {
+        for (std::size_t index = 0; index < on_snapshot.sheep_count; ++index) {
             const auto& on_contact = on_snapshot.sheep_collision_evidence[index];
             const auto& off_contact = off_snapshot.sheep_collision_evidence[index];
             if (on_contact.clipped_x || on_contact.clipped_z) {
@@ -1570,7 +1696,9 @@ AvoidanceOracle run_avoidance_oracle() {
     // Avoidance must never be able to hide a collision failure. Weakened until
     // it cannot stop the same sheep, the term still publishes its push and the
     // hard clip still refuses the displacement and still names the wall.
-    auto overwhelmed_scenario = *avoid_on_scenario;
+    const auto overwhelmed_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*avoid_on_scenario);
+    auto& overwhelmed_scenario = *overwhelmed_scenario_holder;
     overwhelmed_scenario.sheep_avoidance.maximum_acceleration = kOverwhelmedMaximum;
     const SimulationHandle overwhelmed = make_simulation(overwhelmed_scenario);
     bool overwhelmed_named_the_wall = false;
@@ -1604,12 +1732,15 @@ AvoidanceOracle run_avoidance_oracle() {
         return result;
     }
 
-    auto reversed_avoidance_scenario = *avoid_on_scenario;
+    const auto reversed_avoidance_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*avoid_on_scenario);
+    auto& reversed_avoidance_scenario = *reversed_avoidance_scenario_holder;
     std::reverse(reversed_avoidance_scenario.initial_sheep.begin(),
-                 reversed_avoidance_scenario.initial_sheep.end());
+                 reversed_avoidance_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_avoidance_scenario.sheep_count));
     const SimulationHandle reversed_avoidance = make_simulation(reversed_avoidance_scenario);
     reversed_avoidance->fixed_update({});
-    for (const auto& member : avoid_on_after_one.sheep) {
+    for (const auto& member : active(avoid_on_after_one.sheep, avoid_on_after_one.sheep_count)) {
         if (!check(member == sheep_with_id(reversed_avoidance->current_snapshot().sheep, member.id),
                    "avoidance_result_is_stable_by_id_under_reversed_storage") ||
             !check(
@@ -1822,11 +1953,13 @@ AvoidanceContactOracle run_avoidance_contact_oracle() {
     // the drop boundary. Every one of them is at least one body radius clear of
     // every obstacle face, so none of them starts inside the radius band QA-001
     // is about.
-    const auto avoid_on_scenario = wide_eye::game::find_gameplay_scenario("sheep-avoidance-on");
-    if (!check(avoid_on_scenario.has_value(), "the_contact_fixture_has_a_paired_parent")) {
+    const ScenarioHandle avoid_on_scenario = named_scenario("sheep-avoidance-on");
+    if (!check(avoid_on_scenario != nullptr, "the_contact_fixture_has_a_paired_parent")) {
         return result;
     }
-    auto contact_scenario = *avoid_on_scenario;
+    const auto contact_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*avoid_on_scenario);
+    auto& contact_scenario = *contact_scenario_holder;
     contact_scenario.dog.initial_state = {
         .position = {.x = 8.0, .y = 1.0, .z = 19.5}, .heading_radians = 0.0, .grounded = true};
     // Dog pressure is the influence that holds a sheep against a face in play,
@@ -2175,8 +2308,8 @@ BandPassthroughOracle run_band_passthrough_oracle() {
     result.witness_ticks = kWitnessTicks;
     result.witness_minimum_z = std::numeric_limits<double>::infinity();
     for (const std::string_view name : {"sheep-dog-facing-off", "sheep-dog-facing-on"}) {
-        const auto scenario = wide_eye::game::find_gameplay_scenario(name);
-        if (!check(scenario.has_value(), "the_band_witness_fixtures_exist")) {
+        const ScenarioHandle scenario = named_scenario(name);
+        if (!check(scenario != nullptr, "the_band_witness_fixtures_exist")) {
             return result;
         }
         const SimulationHandle simulation = make_simulation(*scenario);
@@ -2314,22 +2447,21 @@ BehaviorTransitionOracle run_behavior_transition_oracle() {
     result.cycle_ticks = kCycleTicks;
     result.adversarial_ticks = kAdversarialTicks;
 
-    const auto behavior_off_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-behavior-transitions-off");
-    const auto behavior_on_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-behavior-transitions-on");
-    auto behavior_on_as_control =
-        behavior_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
-    if (behavior_off_scenario.has_value()) {
-        behavior_on_as_control.id = behavior_off_scenario->id;
+    const ScenarioHandle behavior_off_scenario =
+        named_scenario("sheep-behavior-transitions-off");
+    const ScenarioHandle behavior_on_scenario =
+        named_scenario("sheep-behavior-transitions-on");
+    auto behavior_on_as_control = mutable_scenario_copy(behavior_on_scenario);
+    if (behavior_off_scenario != nullptr) {
+        behavior_on_as_control->id = behavior_off_scenario->id;
     }
-    behavior_on_as_control.sheep_behavior.enabled = false;
-    if (!check(behavior_off_scenario.has_value() && behavior_on_scenario.has_value() &&
+    behavior_on_as_control->sheep_behavior.enabled = false;
+    if (!check(behavior_off_scenario != nullptr && behavior_on_scenario != nullptr &&
                    behavior_off_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_behavior_transitions_off &&
                    behavior_on_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_behavior_transitions_on &&
-                   behavior_on_as_control == *behavior_off_scenario &&
+                   *behavior_on_as_control == *behavior_off_scenario &&
                    behavior_on_scenario->sheep_behavior.enabled &&
                    !behavior_off_scenario->sheep_behavior.enabled &&
                    behavior_off_scenario->version == 1 && behavior_off_scenario->seed == 0,
@@ -2389,7 +2521,9 @@ BehaviorTransitionOracle run_behavior_transition_oracle() {
 
     const SimulationHandle behavior_off = make_simulation(*behavior_off_scenario);
     const SimulationHandle behavior_on = make_simulation(*behavior_on_scenario);
-    const auto behavior_initial = behavior_on->current_snapshot();
+    const auto behavior_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(behavior_on->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& behavior_initial = *behavior_initial_holder;
 
     std::array<BehaviorTransitionRecord, 8> subject_transitions{};
     std::size_t subject_transition_count = 0;
@@ -2409,7 +2543,7 @@ BehaviorTransitionOracle run_behavior_transition_oracle() {
         const auto& on_snapshot = behavior_on->current_snapshot();
         const auto& off_snapshot = behavior_off->current_snapshot();
         const auto& on_prior = behavior_on->previous_snapshot();
-        for (std::size_t index = 0; index < on_snapshot.sheep.size(); ++index) {
+        for (std::size_t index = 0; index < on_snapshot.sheep_count; ++index) {
             const auto& on_member = on_snapshot.sheep[index];
             const auto& off_member = off_snapshot.sheep[index];
             const auto& stimulus = on_snapshot.sheep_dog_pressure_evidence[index];
@@ -2583,7 +2717,9 @@ BehaviorTransitionOracle run_behavior_transition_oracle() {
     // hysteresis band, differ only in the label they started from — and publish
     // two different labels for the whole window. No rule that reads arousal
     // alone can produce that.
-    auto band_alert_scenario = *behavior_on_scenario;
+    const auto band_alert_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*behavior_on_scenario);
+    auto& band_alert_scenario = *band_alert_scenario_holder;
     band_alert_scenario.initial_sheep[2].arousal = kBandArousal;
     band_alert_scenario.initial_sheep[2].behavior = SheepBehaviorState::alert;
     auto band_driven_scenario = band_alert_scenario;
@@ -2626,7 +2762,9 @@ BehaviorTransitionOracle run_behavior_transition_oracle() {
     // counterfactual is computed from the published arousal series rather than
     // from a second rule in the engine: a threshold-only rule using the same
     // `driven_arousal` would have changed the label once per crossing.
-    auto adversarial_scenario = *behavior_on_scenario;
+    const auto adversarial_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*behavior_on_scenario);
+    auto& adversarial_scenario = *adversarial_scenario_holder;
     adversarial_scenario.initial_sheep[0].position = {.x = 24.0, .y = 1.0, .z = 20.0};
     adversarial_scenario.initial_sheep[0].velocity = {.x = kAdversarialHoldSpeed};
     const SimulationHandle adversarial = make_simulation(adversarial_scenario);
@@ -2675,7 +2813,9 @@ BehaviorTransitionOracle run_behavior_transition_oracle() {
     // longer exact — the dog motor's acceleration is not a binary fraction — but
     // the sequence and its cause are the same, so the result does not depend on
     // which body the fixture chose to move.
-    auto scripted_scenario = *behavior_on_scenario;
+    const auto scripted_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*behavior_on_scenario);
+    auto& scripted_scenario = *scripted_scenario_holder;
     scripted_scenario.initial_sheep[0].velocity = {};
     const SimulationHandle scripted = make_simulation(scripted_scenario);
     SheepBehaviorState scripted_state = SheepBehaviorState::settled;
@@ -2727,7 +2867,9 @@ BehaviorTransitionOracle run_behavior_transition_oracle() {
 
     // A nervous sheep close to the dog would carry the product above one.
     // Arousal is a bounded design parameter, so the stimulus clamps instead.
-    auto clamped_scenario = *behavior_on_scenario;
+    const auto clamped_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*behavior_on_scenario);
+    auto& clamped_scenario = *clamped_scenario_holder;
     clamped_scenario.initial_sheep[3].position = {.x = 22.0, .y = 1.0, .z = 21.0};
     const SimulationHandle clamped = make_simulation(clamped_scenario);
     clamped->fixed_update({});
@@ -2767,9 +2909,12 @@ BehaviorTransitionOracle run_behavior_transition_oracle() {
         return result;
     }
 
-    auto reversed_behavior_scenario = *behavior_on_scenario;
+    const auto reversed_behavior_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*behavior_on_scenario);
+    auto& reversed_behavior_scenario = *reversed_behavior_scenario_holder;
     std::reverse(reversed_behavior_scenario.initial_sheep.begin(),
-                 reversed_behavior_scenario.initial_sheep.end());
+                 reversed_behavior_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_behavior_scenario.sheep_count));
     const SimulationHandle reversed_behavior = make_simulation(reversed_behavior_scenario);
     for (std::uint64_t tick = 1; tick <= 120; ++tick) {
         reversed_behavior->fixed_update({});
@@ -2816,9 +2961,13 @@ BehaviorTransitionOracle run_behavior_transition_oracle() {
     // keep the transitions switched off so the scenario's own construction
     // checks do not reject the value first: the point is that the *contract*
     // rejects it.
-    auto unknown_behavior_scenario = *behavior_off_scenario;
+    const auto unknown_behavior_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*behavior_off_scenario);
+    auto& unknown_behavior_scenario = *unknown_behavior_scenario_holder;
     unknown_behavior_scenario.initial_sheep[0].behavior = static_cast<SheepBehaviorState>(255);
-    auto out_of_range_scenario = *behavior_off_scenario;
+    const auto out_of_range_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*behavior_off_scenario);
+    auto& out_of_range_scenario = *out_of_range_scenario_holder;
     out_of_range_scenario.initial_sheep[0].arousal = 1.5;
     const SimulationHandle unknown_behavior = make_simulation(unknown_behavior_scenario);
     const SimulationHandle out_of_range = make_simulation(out_of_range_scenario);
@@ -2906,10 +3055,10 @@ struct FlockResponseOracle {
 
 // One tick of the published cause, taken by ID rather than by buffer index so
 // the fold cannot silently depend on storage order.
-std::array<double, wide_eye::game::kGameplaySheepCount>
+std::array<double, wide_eye::game::kDefaultGameplaySheepCount>
 published_arousal_stimulus(const wide_eye::game::GameplaySnapshot& snapshot) {
-    std::array<double, wide_eye::game::kGameplaySheepCount> stimulus{};
-    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+    std::array<double, wide_eye::game::kDefaultGameplaySheepCount> stimulus{};
+    for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
         stimulus[index] =
             evidence_with_id(snapshot.sheep_dog_pressure_evidence, snapshot.sheep[index].id)
                 .arousal_stimulus;
@@ -2952,8 +3101,8 @@ FlockResponseOracle run_flock_response_oracle() {
     // has to be an event before "how long did the flock take to answer it" can
     // be a duration.
     constexpr wide_eye::game::Vec3 kScriptedDogStart{.x = 8.0, .y = 1.0, .z = 20.0};
-    const auto scenario = wide_eye::game::find_gameplay_scenario("sheep-behavior-transitions-on");
-    if (!check(scenario.has_value() && scenario->sheep_behavior.enabled,
+    const ScenarioHandle scenario = named_scenario("sheep-behavior-transitions-on");
+    if (!check(scenario != nullptr && scenario->sheep_behavior.enabled,
                "the_flock_response_fixture_is_the_named_behavior_transition_scenario")) {
         return result;
     }
@@ -2962,7 +3111,9 @@ FlockResponseOracle run_flock_response_oracle() {
     result.scripted_ticks = kScriptedTicks;
     result.passing_ticks = kPassingTicks;
 
-    auto scripted_scenario = *scenario;
+    const auto scripted_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*scenario);
+    auto& scripted_scenario = *scripted_scenario_holder;
     scripted_scenario.initial_sheep[0].velocity = {};
     scripted_scenario.dog.initial_state.position = kScriptedDogStart;
     const SimulationHandle scripted = make_simulation(scripted_scenario);
@@ -2981,15 +3132,16 @@ FlockResponseOracle run_flock_response_oracle() {
         }
         scripted->fixed_update(input);
         const auto& snapshot = scripted->current_snapshot();
-        const auto observables = wide_eye::game::compute_five_sheep_observables(
-            snapshot.sheep, std::array<std::uint32_t, wide_eye::game::kGameplaySheepCount>{},
+        const auto observables = wide_eye::game::compute_flock_observables(
+            active_sheep(snapshot), NoChosenNeighbors{},
             kConnectivityDistance, snapshot.dog.position);
         if (!observables.has_value()) {
             observables_valid = false;
             break;
         }
         const auto next = wide_eye::game::advance_flock_response_timing(
-            timing, tick, snapshot.sheep, published_arousal_stimulus(snapshot),
+            timing, tick, active_sheep(snapshot),
+                      published_arousal_stimulus(snapshot),
             observables->connected_component_count, scenario->sheep_behavior.rest_arousal);
         if (!next.has_value()) {
             folded = false;
@@ -3003,7 +3155,7 @@ FlockResponseOracle run_flock_response_oracle() {
         if (timing.releases != previous_releases) {
             previous_releases = timing.releases;
             result.release_dog = observables->dog;
-            for (const auto& member : snapshot.sheep) {
+            for (const auto& member : active(snapshot.sheep, snapshot.sheep_count)) {
                 result.release_peak_arousal = std::max(result.release_peak_arousal, member.arousal);
             }
         }
@@ -3096,13 +3248,14 @@ FlockResponseOracle run_flock_response_oracle() {
     for (std::uint64_t tick = 1; tick <= kPassingTicks; ++tick) {
         passing->fixed_update({});
         const auto& snapshot = passing->current_snapshot();
-        const auto observables = wide_eye::game::compute_five_sheep_observables(
-            snapshot.sheep, std::array<std::uint32_t, wide_eye::game::kGameplaySheepCount>{},
+        const auto observables = wide_eye::game::compute_flock_observables(
+            active_sheep(snapshot), NoChosenNeighbors{},
             kConnectivityDistance, snapshot.dog.position);
         const auto next =
             observables.has_value()
                 ? wide_eye::game::advance_flock_response_timing(
-                      passing_timing, tick, snapshot.sheep, published_arousal_stimulus(snapshot),
+                      passing_timing, tick, active_sheep(snapshot),
+                      published_arousal_stimulus(snapshot),
                       observables->connected_component_count, scenario->sheep_behavior.rest_arousal)
                 : std::nullopt;
         if (!next.has_value()) {
@@ -3155,8 +3308,12 @@ FlockResponseOracle run_flock_response_oracle() {
     // The record is a fold over published state, so re-running the same
     // scenario reproduces it exactly, and reversing the storage order of the
     // fixture cannot change it.
-    auto reversed_scenario = *scenario;
-    std::reverse(reversed_scenario.initial_sheep.begin(), reversed_scenario.initial_sheep.end());
+    const auto reversed_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*scenario);
+    auto& reversed_scenario = *reversed_scenario_holder;
+    std::reverse(reversed_scenario.initial_sheep.begin(),
+                 reversed_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_scenario.sheep_count));
     const SimulationHandle repeated = make_simulation(*scenario);
     const SimulationHandle reversed = make_simulation(reversed_scenario);
     wide_eye::game::FlockResponseTiming repeated_timing{};
@@ -3167,14 +3324,15 @@ FlockResponseOracle run_flock_response_oracle() {
         reversed->fixed_update({});
         for (const auto* simulation : {repeated.get(), reversed.get()}) {
             const auto& snapshot = simulation->current_snapshot();
-            const auto observables = wide_eye::game::compute_five_sheep_observables(
-                snapshot.sheep, std::array<std::uint32_t, wide_eye::game::kGameplaySheepCount>{},
+            const auto observables = wide_eye::game::compute_flock_observables(
+                active_sheep(snapshot), NoChosenNeighbors{},
                 kConnectivityDistance, snapshot.dog.position);
             auto& target = simulation == repeated.get() ? repeated_timing : reversed_timing;
             const auto next =
                 observables.has_value()
                     ? wide_eye::game::advance_flock_response_timing(
-                          target, tick, snapshot.sheep, published_arousal_stimulus(snapshot),
+                          target, tick, active_sheep(snapshot),
+                      published_arousal_stimulus(snapshot),
                           observables->connected_component_count,
                           scenario->sheep_behavior.rest_arousal)
                     : std::nullopt;
@@ -3200,13 +3358,14 @@ FlockResponseOracle run_flock_response_oracle() {
     for (std::uint64_t tick = 1; tick <= 600; ++tick) {
         allocation_fixture->fixed_update({});
         const auto& snapshot = allocation_fixture->current_snapshot();
-        const auto observables = wide_eye::game::compute_five_sheep_observables(
-            snapshot.sheep, std::array<std::uint32_t, wide_eye::game::kGameplaySheepCount>{},
+        const auto observables = wide_eye::game::compute_flock_observables(
+            active_sheep(snapshot), NoChosenNeighbors{},
             kConnectivityDistance, snapshot.dog.position);
         const auto next =
             observables.has_value()
                 ? wide_eye::game::advance_flock_response_timing(
-                      allocation_timing, tick, snapshot.sheep, published_arousal_stimulus(snapshot),
+                      allocation_timing, tick, active_sheep(snapshot),
+                      published_arousal_stimulus(snapshot),
                       observables->connected_component_count, scenario->sheep_behavior.rest_arousal)
                 : std::nullopt;
         allocation_folded = allocation_folded && next.has_value();
@@ -3312,6 +3471,168 @@ struct SteeringStabilityOracle {
     std::size_t allocations = 0;
 };
 
+// ------------------------------------------------------------ flock scale
+// The authoritative flock size is scenario-owned data, so a scenario can carry
+// more members than the accepted five. `fifty-sheep-paddock` is the fixture
+// that proves it, and this oracle asserts only what a larger flock has to
+// satisfy to be authoritative at all: that the fixture is physically placeable,
+// that every published record describes a real member, that nothing writes past
+// the active count, that the tick allocates nothing, and that the whole
+// published sequence is reproducible. It deliberately asserts nothing about the
+// motion fifty sheep produce; no owner has reviewed that.
+struct FlockScaleOracle {
+    bool passed = false;
+    std::size_t published_count = 0;
+    std::size_t capacity = wide_eye::game::kMaximumGameplaySheepCount;
+    std::uint64_t ticks = 0;
+    std::size_t allocations = 0;
+    double minimum_start_separation = 0.0;
+    std::size_t state_dump_bytes = 0;
+    std::size_t state_dump_member_records = 0;
+};
+
+[[nodiscard]] bool member_records_match_flock(const wide_eye::game::GameplaySnapshot& snapshot) {
+    if (snapshot.sheep_count == 0 || snapshot.sheep_count > snapshot.sheep.size()) {
+        return false;
+    }
+    for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
+        const wide_eye::game::SheepState& member = snapshot.sheep[index];
+        if (member.id != index + 1 || !std::isfinite(member.position.x) ||
+            !std::isfinite(member.position.z) || !std::isfinite(member.velocity.x) ||
+            !std::isfinite(member.velocity.z) || !std::isfinite(member.heading_radians) ||
+            member.arousal < wide_eye::game::kSheepMinimumArousal ||
+            member.arousal > wide_eye::game::kSheepMaximumArousal ||
+            member.position.x < wide_eye::game::PaddockCollisionField::kMinimumX ||
+            member.position.x > wide_eye::game::PaddockCollisionField::kMaximumX ||
+            member.position.z < wide_eye::game::PaddockCollisionField::kMinimumZ ||
+            member.position.z > wide_eye::game::PaddockCollisionField::kMaximumZ ||
+            snapshot.sheep_social_evidence[index].subject_id != member.id ||
+            snapshot.sheep_dog_pressure_evidence[index].subject_id != member.id ||
+            snapshot.sheep_collision_evidence[index].subject_id != member.id ||
+            snapshot.sheep_avoidance_evidence[index].subject_id != member.id ||
+            snapshot.sheep_combined_influence_evidence[index].subject_id != member.id ||
+            snapshot.sheep_motion_limit_evidence[index].subject_id != member.id) {
+            return false;
+        }
+    }
+    // Nothing past the active count exists. A rule that wrote there would be
+    // publishing a member no contract describes, and it would show up here
+    // rather than in whatever read it later.
+    for (std::size_t index = snapshot.sheep_count; index < snapshot.sheep.size(); ++index) {
+        if (!(snapshot.sheep[index] == wide_eye::game::SheepState{}) ||
+            !(snapshot.sheep_social_evidence[index] == wide_eye::game::SheepSocialEvidence{}) ||
+            !(snapshot.sheep_dog_pressure_evidence[index] ==
+              wide_eye::game::SheepDogPressureEvidence{}) ||
+            !(snapshot.sheep_collision_evidence[index] ==
+              wide_eye::game::SheepCollisionEvidence{}) ||
+            !(snapshot.sheep_avoidance_evidence[index] ==
+              wide_eye::game::SheepAvoidanceEvidence{}) ||
+            !(snapshot.sheep_combined_influence_evidence[index] ==
+              wide_eye::game::SheepCombinedInfluenceEvidence{}) ||
+            !(snapshot.sheep_motion_limit_evidence[index] ==
+              wide_eye::game::SheepMotionLimitEvidence{})) {
+            return false;
+        }
+    }
+    return true;
+}
+
+FlockScaleOracle run_flock_scale_oracle() {
+    constexpr std::uint64_t kScaleTicks = 600;
+    FlockScaleOracle result;
+    result.ticks = kScaleTicks;
+
+    const ScenarioHandle scenario = named_scenario("fifty-sheep-paddock");
+    if (!check(scenario != nullptr, "the_fifty_sheep_scenario_exists")) {
+        return result;
+    }
+    result.published_count = scenario->sheep_count;
+
+    // Placement is asked of the analytic paddock rather than trusted from the
+    // constants beside the fixture. A body clear of every shape and inside the
+    // bounds is left exactly where it is by a zero displacement; a body that
+    // started inside a wall would be pushed out and would say so.
+    const wide_eye::game::PaddockCollisionField paddock{scenario->gate_open};
+    bool every_member_starts_clear = true;
+    double minimum_separation = std::numeric_limits<double>::infinity();
+    for (std::size_t index = 0; index < scenario->sheep_count; ++index) {
+        const wide_eye::game::SheepState& member = scenario->initial_sheep[index];
+        const wide_eye::game::CylinderMoveResult resolved = paddock.resolve_cylinder_move(
+            member.position, wide_eye::game::Vec3{}, wide_eye::game::kSheepCollisionRadius);
+        every_member_starts_clear = every_member_starts_clear &&
+                                    resolved.position == member.position && !resolved.clipped_x &&
+                                    !resolved.clipped_z &&
+                                    resolved.obstacle == wide_eye::game::PaddockObstacle::none &&
+                                    member.id == index + 1;
+        for (std::size_t other = index + 1; other < scenario->sheep_count; ++other) {
+            minimum_separation = std::min(
+                minimum_separation, planar_distance(member, scenario->initial_sheep[other]));
+        }
+    }
+    result.minimum_start_separation = minimum_separation;
+
+    const SimulationHandle simulation = make_simulation(*scenario);
+    const SimulationHandle repeat = make_simulation(*scenario);
+    const bool published_count_is_scenario_owned =
+        simulation->current_snapshot().sheep_count == scenario->sheep_count &&
+        simulation->previous_snapshot().sheep_count == scenario->sheep_count;
+    bool every_tick_is_coherent = member_records_match_flock(simulation->current_snapshot());
+    bool repeats_exactly = true;
+
+    // The allocation window opens after construction, so it measures the fixed
+    // tick rather than the one-time setup the scenario paid for.
+    const std::size_t allocations_before = g_allocation_count;
+    for (std::uint64_t tick = 0; tick < kScaleTicks; ++tick) {
+        simulation->fixed_update(input_for_tick(tick));
+        every_tick_is_coherent =
+            every_tick_is_coherent && member_records_match_flock(simulation->current_snapshot());
+    }
+    result.allocations = g_allocation_count - allocations_before;
+
+    for (std::uint64_t tick = 0; tick < kScaleTicks; ++tick) {
+        repeat->fixed_update(input_for_tick(tick));
+    }
+    repeats_exactly = repeat->current_snapshot() == simulation->current_snapshot() &&
+                      repeat->previous_snapshot() == simulation->previous_snapshot();
+
+    const auto dump = wide_eye::game::gameplay_state_dump_json(*simulation);
+    if (dump) {
+        result.state_dump_bytes = dump.text.size();
+        std::size_t records = 0;
+        for (std::size_t at = dump.text.find("\"temperament\":"); at != std::string::npos;
+             at = dump.text.find("\"temperament\":", at + 1)) {
+            ++records;
+        }
+        result.state_dump_member_records = records;
+    }
+
+    repeat->restart();
+    const bool restart_republishes_the_fixture =
+        repeat->current_snapshot().sheep_count == scenario->sheep_count &&
+        repeat->current_snapshot().sheep == scenario->initial_sheep &&
+        repeat->current_snapshot() == repeat->previous_snapshot();
+
+    result.passed =
+        check(result.published_count == 50, "the_scale_fixture_publishes_fifty_members") &&
+        check(result.published_count <= wide_eye::game::kMaximumGameplaySheepCount &&
+                  wide_eye::game::kMaximumGameplaySheepCount <=
+                      wide_eye::game::SheepSpatialGrid::kMaximumMemberCount,
+              "the_capacity_fits_the_published_buffers_and_the_spatial_grid") &&
+        check(every_member_starts_clear,
+              "every_member_starts_clear_of_every_paddock_shape_and_bound") &&
+        check(minimum_separation >= 2.0 * wide_eye::game::kSheepCollisionRadius,
+              "no_member_starts_inside_another") &&
+        check(published_count_is_scenario_owned, "the_published_count_is_the_scenario_count") &&
+        check(every_tick_is_coherent,
+              "every_published_record_describes_a_member_and_nothing_past_the_count") &&
+        check(result.allocations == 0, "fifty_members_tick_without_heap_allocation") &&
+        check(repeats_exactly, "the_fifty_member_sequence_is_reproducible") &&
+        check(restart_republishes_the_fixture, "restart_republishes_the_fifty_member_fixture") &&
+        check(dump && result.state_dump_member_records == 2 * result.published_count,
+              "the_state_dump_writes_one_record_per_active_member");
+    return result;
+}
+
 SteeringStabilityOracle run_steering_stability_oracle() {
     SteeringStabilityOracle result;
     // Randomness, stability, and attribution. The roadmap item asks for evidence
@@ -3347,9 +3668,9 @@ SteeringStabilityOracle run_steering_stability_oracle() {
     // sample: a term that consumed hidden entropy would only have to do it in
     // one of them, so every scenario in the table is swept rather than only the
     // fixture this outcome adds.
-    const auto diagnostic =
-        wide_eye::game::find_gameplay_scenario("sheep-all-influences-diagnostic");
-    if (!check(diagnostic.has_value(), "all_influences_diagnostic_scenario_exists")) {
+    const ScenarioHandle diagnostic =
+        named_scenario("sheep-all-influences-diagnostic");
+    if (!check(diagnostic != nullptr, "all_influences_diagnostic_scenario_exists")) {
         return result;
     }
     if (!check(diagnostic->version == 1 && diagnostic->seed == 0,
@@ -3373,8 +3694,8 @@ SteeringStabilityOracle run_steering_stability_oracle() {
         if (name == "unknown") {
             continue;
         }
-        const auto definition = wide_eye::game::find_gameplay_scenario(name);
-        if (!check(definition.has_value(), "every_named_scenario_resolves")) {
+        const ScenarioHandle definition = named_scenario(name);
+        if (!check(definition != nullptr, "every_named_scenario_resolves")) {
             return result;
         }
         ++result.scenarios;
@@ -3470,10 +3791,10 @@ SteeringStabilityOracle run_steering_stability_oracle() {
         fine_frames.fill(10ms);
         std::array<std::chrono::nanoseconds, 10> coarse_frames{};
         coarse_frames.fill(100ms);
-        const CadenceResult fine = run_cadence(*diagnostic, fine_frames);
-        const CadenceResult coarse = run_cadence(*diagnostic, coarse_frames);
-        if (!check(fine.scheduled_ticks == 60 && fine.snapshot.tick == 60 &&
-                       fine.snapshot == coarse.snapshot,
+        const CadenceHandle fine = run_cadence(*diagnostic, fine_frames);
+        const CadenceHandle coarse = run_cadence(*diagnostic, coarse_frames);
+        if (!check(fine->scheduled_ticks == 60 && fine->snapshot.tick == 60 &&
+                       fine->snapshot == coarse->snapshot,
                    "all_influences_state_ignores_render_cadence")) {
             return result;
         }
@@ -3496,26 +3817,29 @@ SteeringStabilityOracle run_steering_stability_oracle() {
     const double arousal_step =
         std::max(behavior.rise_rate_per_second, behavior.recovery_rate_per_second) * kFixedDelta;
 
-    std::array<std::array<Vec3, kSteeringTermCount>, wide_eye::game::kGameplaySheepCount>
+    std::array<std::array<Vec3, kSteeringTermCount>, wide_eye::game::kDefaultGameplaySheepCount>
         previous_terms{};
-    std::array<std::array<bool, kSteeringTermCount>, wide_eye::game::kGameplaySheepCount>
+    std::array<std::array<bool, kSteeringTermCount>, wide_eye::game::kDefaultGameplaySheepCount>
         previous_term_live{};
-    std::array<std::array<std::uint64_t, kSteeringTermCount>, wide_eye::game::kGameplaySheepCount>
+    std::array<std::array<std::uint64_t, kSteeringTermCount>,
+               wide_eye::game::kDefaultGameplaySheepCount>
         flaps{};
-    std::array<std::array<std::uint64_t, kSteeringTermCount>, wide_eye::game::kGameplaySheepCount>
+    std::array<std::array<std::uint64_t, kSteeringTermCount>,
+               wide_eye::game::kDefaultGameplaySheepCount>
         flap_run{};
-    std::array<std::array<std::uint64_t, kSteeringTermCount>, wide_eye::game::kGameplaySheepCount>
+    std::array<std::array<std::uint64_t, kSteeringTermCount>,
+               wide_eye::game::kDefaultGameplaySheepCount>
         longest_flap_run{};
-    std::array<std::uint64_t, wide_eye::game::kGameplaySheepCount> last_label_change{};
-    std::array<SheepBehaviorState, wide_eye::game::kGameplaySheepCount> label_before_change{};
-    std::array<std::uint64_t, wide_eye::game::kGameplaySheepCount> sheep_label_changes{};
-    std::array<double, wide_eye::game::kGameplaySheepCount> minimum_z{};
+    std::array<std::uint64_t, wide_eye::game::kDefaultGameplaySheepCount> last_label_change{};
+    std::array<SheepBehaviorState, wide_eye::game::kDefaultGameplaySheepCount> label_before_change{};
+    std::array<std::uint64_t, wide_eye::game::kDefaultGameplaySheepCount> sheep_label_changes{};
+    std::array<double, wide_eye::game::kDefaultGameplaySheepCount> minimum_z{};
     std::array<std::uint64_t, kStabilityTicks> digests{};
     result.minimum_label_dwell = kStabilityTicks;
     result.closest_wall_gap = std::numeric_limits<double>::infinity();
 
     const SimulationHandle stability = make_simulation(*diagnostic);
-    for (std::size_t index = 0; index < wide_eye::game::kGameplaySheepCount; ++index) {
+    for (std::size_t index = 0; index < wide_eye::game::kDefaultGameplaySheepCount; ++index) {
         minimum_z[index] = diagnostic->initial_sheep[index].position.z;
     }
 
@@ -3527,7 +3851,7 @@ SteeringStabilityOracle run_steering_stability_oracle() {
         }
         const GameplaySnapshot& previous = stability->previous_snapshot();
         const GameplaySnapshot& current = stability->current_snapshot();
-        for (std::size_t index = 0; index < current.sheep.size(); ++index) {
+        for (std::size_t index = 0; index < current.sheep_count; ++index) {
             const auto& prior = previous.sheep[index];
             const auto& next = current.sheep[index];
             const auto& social = current.sheep_social_evidence[index];
@@ -3718,7 +4042,7 @@ SteeringStabilityOracle run_steering_stability_oracle() {
         }
     }
 
-    for (std::size_t index = 0; index < wide_eye::game::kGameplaySheepCount; ++index) {
+    for (std::size_t index = 0; index < wide_eye::game::kDefaultGameplaySheepCount; ++index) {
         for (std::size_t term = 0; term < kSteeringTermCount; ++term) {
             result.term_flaps[term] = std::max(result.term_flaps[term], flaps[index][term]);
             result.term_flap_runs[term] =
@@ -3846,7 +4170,8 @@ SteeringStabilityOracle run_steering_stability_oracle() {
     {
         GameplayScenarioDefinition reversed_scenario = *diagnostic;
         std::reverse(reversed_scenario.initial_sheep.begin(),
-                     reversed_scenario.initial_sheep.end());
+                     reversed_scenario.initial_sheep.begin() +
+                         static_cast<std::ptrdiff_t>(reversed_scenario.sheep_count));
         const SimulationHandle forward = make_simulation(*diagnostic);
         const SimulationHandle reversed = make_simulation(reversed_scenario);
         bool reversed_matches = true;
@@ -3857,7 +4182,8 @@ SteeringStabilityOracle run_steering_stability_oracle() {
             const auto& forward_snapshot = forward->current_snapshot();
             const auto& reversed_snapshot = reversed->current_snapshot();
             reversed_matches = reversed_matches && forward_snapshot.dog == reversed_snapshot.dog;
-            for (const auto& member : forward_snapshot.sheep) {
+            for (const auto& member :
+                 active(forward_snapshot.sheep, forward_snapshot.sheep_count)) {
                 reversed_matches =
                     reversed_matches &&
                     sheep_with_id(reversed_snapshot.sheep, member.id) == member &&
@@ -3931,8 +4257,8 @@ int main() {
     static_assert(
         std::is_trivially_copyable_v<wide_eye::game::SheepCombinedInfluenceEvidenceBuffer>);
 
-    const auto scenario = wide_eye::game::find_gameplay_scenario("paddock-start");
-    if (!check(scenario.has_value(), "scenario_available") ||
+    const ScenarioHandle scenario = named_scenario("paddock-start");
+    if (!check(scenario != nullptr, "scenario_available") ||
         !check(wide_eye::game::GameplaySimulation::kTicksPerSecond ==
                    wide_eye::core::FixedStepAccumulator::ticks_per_second,
                "single_fixed_rate_definition")) {
@@ -3944,20 +4270,23 @@ int main() {
     std::array<std::chrono::nanoseconds, 10> coarse_frames{};
     coarse_frames.fill(100ms);
 
-    const CadenceResult fine = run_cadence(*scenario, fine_frames);
-    const CadenceResult coarse = run_cadence(*scenario, coarse_frames);
-    if (!check(fine.scheduled_ticks == 60 && coarse.scheduled_ticks == 60,
+    const CadenceHandle fine = run_cadence(*scenario, fine_frames);
+    const CadenceHandle coarse = run_cadence(*scenario, coarse_frames);
+    if (!check(fine->scheduled_ticks == 60 && coarse->scheduled_ticks == 60,
                "one_second_schedules_sixty_ticks") ||
-        !check(fine.snapshot.tick == 60 && coarse.snapshot.tick == 60,
+        !check(fine->snapshot.tick == 60 && coarse->snapshot.tick == 60,
                "gameplay_consumes_every_scheduled_tick") ||
-        !check(fine.snapshot == coarse.snapshot, "authoritative_state_ignores_render_cadence")) {
+        !check(fine->snapshot == coarse->snapshot, "authoritative_state_ignores_render_cadence")) {
         return EXIT_FAILURE;
     }
 
     const SimulationHandle simulation = make_simulation(*scenario);
-    const wide_eye::game::GameplaySnapshot initial = simulation->current_snapshot();
-    bool initial_sheep_valid = initial.sheep.size() == wide_eye::game::kGameplaySheepCount;
-    for (std::size_t index = 0; index < initial.sheep.size(); ++index) {
+    const auto initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(simulation->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& initial = *initial_holder;
+    bool initial_sheep_valid =
+        initial.sheep_count == wide_eye::game::kDefaultGameplaySheepCount;
+    for (std::size_t index = 0; index < initial.sheep_count; ++index) {
         const wide_eye::game::SheepState& sheep = initial.sheep[index];
         initial_sheep_valid = initial_sheep_valid && sheep.id == index + 1 &&
                               sheep.behavior == wide_eye::game::SheepBehaviorState::settled &&
@@ -3981,8 +4310,9 @@ int main() {
         !check(simulation->previous_snapshot().sheep == initial.sheep &&
                    simulation->current_snapshot().sheep == initial.sheep,
                "sheep_next_state_reads_immutable_prior") ||
-        !check(simulation->interpolated_snapshot(0.0).dog == initial.dog &&
-                   simulation->interpolated_snapshot(1.0).dog == simulation->current_snapshot().dog,
+        !check(interpolated_dog_equals(*simulation, 0.0, initial.dog) &&
+                   interpolated_dog_equals(*simulation, 1.0,
+                                           simulation->current_snapshot().dog),
                "render_interpolation_is_read_only")) {
         return EXIT_FAILURE;
     }
@@ -4043,8 +4373,8 @@ int main() {
     }
     simulation->restart();
 
-    const auto motion_scenario = wide_eye::game::find_gameplay_scenario("presentation-motion");
-    if (!check(motion_scenario.has_value() &&
+    const ScenarioHandle motion_scenario = named_scenario("presentation-motion");
+    if (!check(motion_scenario != nullptr &&
                    motion_scenario->sheep_fixture ==
                        wide_eye::game::SheepFixture::scripted_presentation_motion,
                "named_presentation_motion_fixture_available")) {
@@ -4052,14 +4382,17 @@ int main() {
     }
     const SimulationHandle motion_a = make_simulation(*motion_scenario);
     const SimulationHandle motion_b = make_simulation(*motion_scenario);
-    const auto motion_initial = motion_a->current_snapshot();
+    const auto motion_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(motion_a->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& motion_initial = *motion_initial_holder;
     for (std::uint64_t tick = 0; tick < 61; ++tick) {
         motion_a->fixed_update({});
         motion_b->fixed_update({});
     }
-    const auto motion_mid_turn = motion_a->interpolated_snapshot(0.5);
+    const auto motion_mid_turn_holder = interpolated_on_heap(*motion_a, 0.5);
+    const wide_eye::game::GameplaySnapshot& motion_mid_turn = *motion_mid_turn_holder;
     bool all_sheep_scripted = true;
-    for (std::size_t index = 0; index < motion_mid_turn.sheep.size(); ++index) {
+    for (std::size_t index = 0; index < motion_mid_turn.sheep_count; ++index) {
         const auto& sheep = motion_mid_turn.sheep[index];
         all_sheep_scripted = all_sheep_scripted && sheep.id == index + 1 &&
                              sheep.position.z < motion_initial.sheep[index].position.z &&
@@ -4085,9 +4418,9 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    const auto separation_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-only-separation");
-    if (!check(separation_scenario.has_value() &&
+    const ScenarioHandle separation_scenario =
+        named_scenario("sheep-only-separation");
+    if (!check(separation_scenario != nullptr &&
                    separation_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_only_separation &&
                    separation_scenario->sheep_fixture ==
@@ -4099,7 +4432,9 @@ int main() {
     }
 
     const SimulationHandle separation = make_simulation(*separation_scenario);
-    const auto separation_initial = separation->current_snapshot();
+    const auto separation_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(separation->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& separation_initial = *separation_initial_holder;
     if (!check(planar_distance(sheep_with_id(separation_initial.sheep, 1),
                                sheep_with_id(separation_initial.sheep, 2)) == 0.0,
                "separation_fixture_starts_with_exact_overlap")) {
@@ -4138,7 +4473,9 @@ int main() {
             return EXIT_FAILURE;
         }
     }
-    const auto separation_final = separation->current_snapshot();
+    const auto separation_final_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(separation->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& separation_final = *separation_final_holder;
     if (!check(separation->previous_snapshot().sheep != separation_final.sheep,
                "separation_publishes_prior_and_current") ||
         !check(planar_distance(sheep_with_id(separation_final.sheep, 1),
@@ -4153,14 +4490,17 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    auto reversed_separation_scenario = *separation_scenario;
+    const auto reversed_separation_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*separation_scenario);
+    auto& reversed_separation_scenario = *reversed_separation_scenario_holder;
     std::reverse(reversed_separation_scenario.initial_sheep.begin(),
-                 reversed_separation_scenario.initial_sheep.end());
+                 reversed_separation_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_separation_scenario.sheep_count));
     const SimulationHandle reversed_separation = make_simulation(reversed_separation_scenario);
     for (std::uint64_t tick = 0; tick < kSeparationTicks; ++tick) {
         reversed_separation->fixed_update({});
     }
-    for (const auto& member : separation_final.sheep) {
+    for (const auto& member : active(separation_final.sheep, separation_final.sheep_count)) {
         if (!check(member ==
                        sheep_with_id(reversed_separation->current_snapshot().sheep, member.id),
                    "separation_result_is_stable_by_id_under_reversed_storage")) {
@@ -4184,9 +4524,9 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    const auto attraction_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-only-attraction");
-    if (!check(attraction_scenario.has_value() &&
+    const ScenarioHandle attraction_scenario =
+        named_scenario("sheep-only-attraction");
+    if (!check(attraction_scenario != nullptr &&
                    attraction_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_only_attraction &&
                    attraction_scenario->sheep_fixture ==
@@ -4200,9 +4540,13 @@ int main() {
     }
 
     const SimulationHandle attraction = make_simulation(*attraction_scenario);
-    const auto attraction_initial = attraction->current_snapshot();
+    const auto attraction_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(attraction->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& attraction_initial = *attraction_initial_holder;
     attraction->fixed_update({});
-    const auto attraction_after_one = attraction->current_snapshot();
+    const auto attraction_after_one_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(attraction->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& attraction_after_one = *attraction_after_one_holder;
     const auto& subject_one_evidence =
         evidence_with_id(attraction_after_one.sheep_social_evidence, 1);
     const auto& subject_one = sheep_with_id(attraction_after_one.sheep, 1);
@@ -4235,7 +4579,8 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    for (const auto& evidence : attraction_after_one.sheep_social_evidence) {
+    for (const auto& evidence :
+         active(attraction_after_one.sheep_social_evidence, attraction_after_one.sheep_count)) {
         if (!check(evidence.attraction_neighbor_count <=
                            attraction_scenario->sheep_attraction.neighbor_limit &&
                        evidence.attraction_candidate_count >= evidence.attraction_neighbor_count &&
@@ -4247,12 +4592,16 @@ int main() {
         }
     }
 
-    auto reversed_attraction_scenario = *attraction_scenario;
+    const auto reversed_attraction_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*attraction_scenario);
+    auto& reversed_attraction_scenario = *reversed_attraction_scenario_holder;
     std::reverse(reversed_attraction_scenario.initial_sheep.begin(),
-                 reversed_attraction_scenario.initial_sheep.end());
+                 reversed_attraction_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_attraction_scenario.sheep_count));
     const SimulationHandle reversed_attraction = make_simulation(reversed_attraction_scenario);
     reversed_attraction->fixed_update({});
-    for (const auto& member : attraction_after_one.sheep) {
+    for (const auto& member :
+         active(attraction_after_one.sheep, attraction_after_one.sheep_count)) {
         if (!check(member ==
                        sheep_with_id(reversed_attraction->current_snapshot().sheep, member.id),
                    "attraction_result_is_stable_by_id_under_reversed_storage") ||
@@ -4291,21 +4640,20 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    const auto alignment_off_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-alignment-off");
-    const auto alignment_on_scenario = wide_eye::game::find_gameplay_scenario("sheep-alignment-on");
-    auto alignment_on_as_control =
-        alignment_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
-    if (alignment_off_scenario.has_value()) {
-        alignment_on_as_control.id = alignment_off_scenario->id;
+    const ScenarioHandle alignment_off_scenario =
+        named_scenario("sheep-alignment-off");
+    const ScenarioHandle alignment_on_scenario = named_scenario("sheep-alignment-on");
+    auto alignment_on_as_control = mutable_scenario_copy(alignment_on_scenario);
+    if (alignment_off_scenario != nullptr) {
+        alignment_on_as_control->id = alignment_off_scenario->id;
     }
-    alignment_on_as_control.sheep_alignment.enabled = false;
-    if (!check(alignment_off_scenario.has_value() && alignment_on_scenario.has_value() &&
+    alignment_on_as_control->sheep_alignment.enabled = false;
+    if (!check(alignment_off_scenario != nullptr && alignment_on_scenario != nullptr &&
                    alignment_off_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_alignment_off &&
                    alignment_on_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_alignment_on &&
-                   alignment_on_as_control == *alignment_off_scenario &&
+                   *alignment_on_as_control == *alignment_off_scenario &&
                    alignment_on_scenario->sheep_alignment.enabled &&
                    alignment_on_scenario->sheep_alignment.neighbor_limit ==
                        wide_eye::game::kMaximumSelectedAlignmentNeighbors,
@@ -4315,11 +4663,18 @@ int main() {
 
     const SimulationHandle alignment_off = make_simulation(*alignment_off_scenario);
     const SimulationHandle alignment_on = make_simulation(*alignment_on_scenario);
-    const auto alignment_initial = alignment_on->current_snapshot();
+    const auto alignment_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(alignment_on->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& alignment_initial = *alignment_initial_holder;
     alignment_off->fixed_update({});
     alignment_on->fixed_update({});
-    const auto alignment_off_after_one = alignment_off->current_snapshot();
-    const auto alignment_on_after_one = alignment_on->current_snapshot();
+    const auto alignment_off_after_one_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(alignment_off->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& alignment_off_after_one =
+        *alignment_off_after_one_holder;
+    const auto alignment_on_after_one_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(alignment_on->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& alignment_on_after_one = *alignment_on_after_one_holder;
     const auto& alignment_evidence =
         evidence_with_id(alignment_on_after_one.sheep_social_evidence, 1);
     const auto& aligned_subject = sheep_with_id(alignment_on_after_one.sheep, 1);
@@ -4352,7 +4707,8 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    for (const auto& evidence : alignment_on_after_one.sheep_social_evidence) {
+    for (const auto& evidence :
+         active(alignment_on_after_one.sheep_social_evidence, alignment_on_after_one.sheep_count)) {
         if (!check(evidence.alignment_neighbor_count <=
                            alignment_on_scenario->sheep_alignment.neighbor_limit &&
                        evidence.alignment_candidate_count >= evidence.alignment_neighbor_count &&
@@ -4369,12 +4725,12 @@ int main() {
         alignment_off->fixed_update({});
         alignment_on->fixed_update({});
     }
-    constexpr std::array<std::uint32_t, wide_eye::game::kGameplaySheepCount> kNoNeighbors{};
-    const auto alignment_off_observables = wide_eye::game::compute_five_sheep_observables(
-        alignment_off->current_snapshot().sheep, kNoNeighbors, 3.0,
+    constexpr std::array<std::uint32_t, wide_eye::game::kDefaultGameplaySheepCount> kNoNeighbors{};
+    const auto alignment_off_observables = wide_eye::game::compute_flock_observables(
+        active_sheep(alignment_off->current_snapshot()), kNoNeighbors, 3.0,
         alignment_off->current_snapshot().dog.position);
-    const auto alignment_on_observables = wide_eye::game::compute_five_sheep_observables(
-        alignment_on->current_snapshot().sheep, kNoNeighbors, 3.0,
+    const auto alignment_on_observables = wide_eye::game::compute_flock_observables(
+        active_sheep(alignment_on->current_snapshot()), kNoNeighbors, 3.0,
         alignment_on->current_snapshot().dog.position);
     if (!check(alignment_off_observables.has_value() && alignment_on_observables.has_value() &&
                    alignment_on_observables->polarization >
@@ -4383,9 +4739,12 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    auto reversed_alignment_scenario = *alignment_on_scenario;
+    const auto reversed_alignment_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*alignment_on_scenario);
+    auto& reversed_alignment_scenario = *reversed_alignment_scenario_holder;
     std::reverse(reversed_alignment_scenario.initial_sheep.begin(),
-                 reversed_alignment_scenario.initial_sheep.end());
+                 reversed_alignment_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_alignment_scenario.sheep_count));
     const SimulationHandle reversed_alignment = make_simulation(reversed_alignment_scenario);
     for (std::uint64_t tick = 0; tick < kAlignmentComparisonTicks; ++tick) {
         reversed_alignment->fixed_update({});
@@ -4426,22 +4785,21 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    const auto dog_pressure_off_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-dog-pressure-off");
-    const auto dog_pressure_on_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-dog-pressure-on");
-    auto dog_pressure_on_as_control =
-        dog_pressure_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
-    if (dog_pressure_off_scenario.has_value()) {
-        dog_pressure_on_as_control.id = dog_pressure_off_scenario->id;
+    const ScenarioHandle dog_pressure_off_scenario =
+        named_scenario("sheep-dog-pressure-off");
+    const ScenarioHandle dog_pressure_on_scenario =
+        named_scenario("sheep-dog-pressure-on");
+    auto dog_pressure_on_as_control = mutable_scenario_copy(dog_pressure_on_scenario);
+    if (dog_pressure_off_scenario != nullptr) {
+        dog_pressure_on_as_control->id = dog_pressure_off_scenario->id;
     }
-    dog_pressure_on_as_control.sheep_dog_pressure.enabled = false;
-    if (!check(dog_pressure_off_scenario.has_value() && dog_pressure_on_scenario.has_value() &&
+    dog_pressure_on_as_control->sheep_dog_pressure.enabled = false;
+    if (!check(dog_pressure_off_scenario != nullptr && dog_pressure_on_scenario != nullptr &&
                    dog_pressure_off_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_dog_pressure_off &&
                    dog_pressure_on_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_dog_pressure_on &&
-                   dog_pressure_on_as_control == *dog_pressure_off_scenario &&
+                   *dog_pressure_on_as_control == *dog_pressure_off_scenario &&
                    dog_pressure_on_scenario->sheep_dog_pressure.enabled,
                "paired_dog_pressure_fixture_differs_only_by_pressure_switch")) {
         return EXIT_FAILURE;
@@ -4449,7 +4807,9 @@ int main() {
 
     const SimulationHandle dog_pressure_off = make_simulation(*dog_pressure_off_scenario);
     const SimulationHandle dog_pressure_on = make_simulation(*dog_pressure_on_scenario);
-    const auto dog_pressure_initial = dog_pressure_on->current_snapshot();
+    const auto dog_pressure_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(dog_pressure_on->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& dog_pressure_initial = *dog_pressure_initial_holder;
     dog_pressure_off->fixed_update({.dog_move = wide_eye::game::DogMoveInput{.world_x = 1.0}});
     dog_pressure_on->fixed_update({.dog_move = wide_eye::game::DogMoveInput{.world_x = 1.0}});
     const auto& dog_pressure_off_after_one = dog_pressure_off->current_snapshot();
@@ -4487,7 +4847,9 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    for (const auto& on_evidence : dog_pressure_on_after_one.sheep_dog_pressure_evidence) {
+    for (const auto& on_evidence :
+         active(dog_pressure_on_after_one.sheep_dog_pressure_evidence,
+                dog_pressure_on_after_one.sheep_count)) {
         const auto& off_evidence = evidence_with_id(
             dog_pressure_off_after_one.sheep_dog_pressure_evidence, on_evidence.subject_id);
         const auto& current_member =
@@ -4515,7 +4877,9 @@ int main() {
         }
     }
 
-    auto overlapping_dog_pressure_scenario = *dog_pressure_on_scenario;
+    const auto overlapping_dog_pressure_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*dog_pressure_on_scenario);
+    auto& overlapping_dog_pressure_scenario = *overlapping_dog_pressure_scenario_holder;
     overlapping_dog_pressure_scenario.initial_sheep[0].position =
         overlapping_dog_pressure_scenario.dog.initial_state.position;
     const SimulationHandle overlapping_dog_pressure =
@@ -4532,12 +4896,16 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    auto reversed_dog_pressure_scenario = *dog_pressure_on_scenario;
+    const auto reversed_dog_pressure_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*dog_pressure_on_scenario);
+    auto& reversed_dog_pressure_scenario = *reversed_dog_pressure_scenario_holder;
     std::reverse(reversed_dog_pressure_scenario.initial_sheep.begin(),
-                 reversed_dog_pressure_scenario.initial_sheep.end());
+                 reversed_dog_pressure_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_dog_pressure_scenario.sheep_count));
     const SimulationHandle reversed_dog_pressure = make_simulation(reversed_dog_pressure_scenario);
     reversed_dog_pressure->fixed_update({.dog_move = wide_eye::game::DogMoveInput{.world_x = 1.0}});
-    for (const auto& member : dog_pressure_on_after_one.sheep) {
+    for (const auto& member :
+         active(dog_pressure_on_after_one.sheep, dog_pressure_on_after_one.sheep_count)) {
         if (!check(member ==
                        sheep_with_id(reversed_dog_pressure->current_snapshot().sheep, member.id),
                    "dog_pressure_result_is_stable_by_id_under_reversed_storage") ||
@@ -4579,22 +4947,21 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    const auto approach_off_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-dog-approach-off");
-    const auto approach_on_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-dog-approach-on");
-    auto approach_on_as_control =
-        approach_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
-    if (approach_off_scenario.has_value()) {
-        approach_on_as_control.id = approach_off_scenario->id;
+    const ScenarioHandle approach_off_scenario =
+        named_scenario("sheep-dog-approach-off");
+    const ScenarioHandle approach_on_scenario =
+        named_scenario("sheep-dog-approach-on");
+    auto approach_on_as_control = mutable_scenario_copy(approach_on_scenario);
+    if (approach_off_scenario != nullptr) {
+        approach_on_as_control->id = approach_off_scenario->id;
     }
-    approach_on_as_control.sheep_dog_approach.enabled = false;
-    if (!check(approach_off_scenario.has_value() && approach_on_scenario.has_value() &&
+    approach_on_as_control->sheep_dog_approach.enabled = false;
+    if (!check(approach_off_scenario != nullptr && approach_on_scenario != nullptr &&
                    approach_off_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_dog_approach_off &&
                    approach_on_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_dog_approach_on &&
-                   approach_on_as_control == *approach_off_scenario &&
+                   *approach_on_as_control == *approach_off_scenario &&
                    approach_on_scenario->sheep_dog_approach.enabled &&
                    approach_off_scenario->sheep_dog_pressure.enabled &&
                    approach_off_scenario->sheep_dog_pressure ==
@@ -4605,7 +4972,9 @@ int main() {
 
     const SimulationHandle approach_off = make_simulation(*approach_off_scenario);
     const SimulationHandle approach_on = make_simulation(*approach_on_scenario);
-    const auto approach_initial = approach_on->current_snapshot();
+    const auto approach_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(approach_on->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& approach_initial = *approach_initial_holder;
     approach_off->fixed_update({});
     approach_on->fixed_update({});
     const auto& approach_off_after_one = approach_off->current_snapshot();
@@ -4645,7 +5014,9 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    for (const auto& on_evidence : approach_on_after_one.sheep_dog_pressure_evidence) {
+    for (const auto& on_evidence :
+         active(approach_on_after_one.sheep_dog_pressure_evidence,
+                approach_on_after_one.sheep_count)) {
         const auto& off_evidence = evidence_with_id(
             approach_off_after_one.sheep_dog_pressure_evidence, on_evidence.subject_id);
         const auto& current_member =
@@ -4688,7 +5059,9 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    auto overlapping_approach_scenario = *approach_on_scenario;
+    const auto overlapping_approach_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*approach_on_scenario);
+    auto& overlapping_approach_scenario = *overlapping_approach_scenario_holder;
     overlapping_approach_scenario.initial_sheep[0].position =
         overlapping_approach_scenario.dog.initial_state.position;
     const SimulationHandle overlapping_approach = make_simulation(overlapping_approach_scenario);
@@ -4705,12 +5078,16 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    auto reversed_approach_scenario = *approach_on_scenario;
+    const auto reversed_approach_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*approach_on_scenario);
+    auto& reversed_approach_scenario = *reversed_approach_scenario_holder;
     std::reverse(reversed_approach_scenario.initial_sheep.begin(),
-                 reversed_approach_scenario.initial_sheep.end());
+                 reversed_approach_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_approach_scenario.sheep_count));
     const SimulationHandle reversed_approach = make_simulation(reversed_approach_scenario);
     reversed_approach->fixed_update({});
-    for (const auto& member : approach_on_after_one.sheep) {
+    for (const auto& member :
+         active(approach_on_after_one.sheep, approach_on_after_one.sheep_count)) {
         if (!check(member == sheep_with_id(reversed_approach->current_snapshot().sheep, member.id),
                    "approach_result_is_stable_by_id_under_reversed_storage") ||
             !check(evidence_with_id(approach_on_after_one.sheep_dog_pressure_evidence, member.id) ==
@@ -4746,20 +5123,19 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    const auto facing_off_scenario = wide_eye::game::find_gameplay_scenario("sheep-dog-facing-off");
-    const auto facing_on_scenario = wide_eye::game::find_gameplay_scenario("sheep-dog-facing-on");
-    auto facing_on_as_control =
-        facing_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
-    if (facing_off_scenario.has_value()) {
-        facing_on_as_control.id = facing_off_scenario->id;
+    const ScenarioHandle facing_off_scenario = named_scenario("sheep-dog-facing-off");
+    const ScenarioHandle facing_on_scenario = named_scenario("sheep-dog-facing-on");
+    auto facing_on_as_control = mutable_scenario_copy(facing_on_scenario);
+    if (facing_off_scenario != nullptr) {
+        facing_on_as_control->id = facing_off_scenario->id;
     }
-    facing_on_as_control.sheep_dog_facing.enabled = false;
+    facing_on_as_control->sheep_dog_facing.enabled = false;
     if (!check(
-            facing_off_scenario.has_value() && facing_on_scenario.has_value() &&
+            facing_off_scenario != nullptr && facing_on_scenario != nullptr &&
                 facing_off_scenario->id ==
                     wide_eye::game::GameplayScenarioId::sheep_dog_facing_off &&
                 facing_on_scenario->id == wide_eye::game::GameplayScenarioId::sheep_dog_facing_on &&
-                facing_on_as_control == *facing_off_scenario &&
+                *facing_on_as_control == *facing_off_scenario &&
                 facing_on_scenario->sheep_dog_facing.enabled &&
                 facing_off_scenario->sheep_dog_pressure.enabled &&
                 facing_off_scenario->sheep_dog_pressure == facing_on_scenario->sheep_dog_pressure &&
@@ -4771,7 +5147,9 @@ int main() {
 
     const SimulationHandle facing_off = make_simulation(*facing_off_scenario);
     const SimulationHandle facing_on = make_simulation(*facing_on_scenario);
-    const auto facing_initial = facing_on->current_snapshot();
+    const auto facing_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(facing_on->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& facing_initial = *facing_initial_holder;
     facing_off->fixed_update({});
     facing_on->fixed_update({});
     const auto& facing_off_after_one = facing_off->current_snapshot();
@@ -4808,7 +5186,8 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    for (const auto& on_evidence : facing_on_after_one.sheep_dog_pressure_evidence) {
+    for (const auto& on_evidence :
+         active(facing_on_after_one.sheep_dog_pressure_evidence, facing_on_after_one.sheep_count)) {
         const auto& off_evidence = evidence_with_id(
             facing_off_after_one.sheep_dog_pressure_evidence, on_evidence.subject_id);
         const auto& current_member =
@@ -4853,7 +5232,9 @@ int main() {
     // Facing must be read from the dog's heading rather than assumed from the
     // fixture layout. Turning the same dog through half a turn swaps which sheep
     // it looks at without moving any position.
-    auto reversed_heading_scenario = *facing_on_scenario;
+    const auto reversed_heading_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*facing_on_scenario);
+    auto& reversed_heading_scenario = *reversed_heading_scenario_holder;
     reversed_heading_scenario.dog.initial_state.heading_radians = 3.14159265358979323846;
     const SimulationHandle reversed_heading = make_simulation(reversed_heading_scenario);
     reversed_heading->fixed_update({});
@@ -4885,7 +5266,9 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    auto overlapping_facing_scenario = *facing_on_scenario;
+    const auto overlapping_facing_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*facing_on_scenario);
+    auto& overlapping_facing_scenario = *overlapping_facing_scenario_holder;
     overlapping_facing_scenario.initial_sheep[0].position =
         overlapping_facing_scenario.dog.initial_state.position;
     const SimulationHandle overlapping_facing = make_simulation(overlapping_facing_scenario);
@@ -4902,12 +5285,15 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    auto reversed_facing_scenario = *facing_on_scenario;
+    const auto reversed_facing_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*facing_on_scenario);
+    auto& reversed_facing_scenario = *reversed_facing_scenario_holder;
     std::reverse(reversed_facing_scenario.initial_sheep.begin(),
-                 reversed_facing_scenario.initial_sheep.end());
+                 reversed_facing_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_facing_scenario.sheep_count));
     const SimulationHandle reversed_facing = make_simulation(reversed_facing_scenario);
     reversed_facing->fixed_update({});
-    for (const auto& member : facing_on_after_one.sheep) {
+    for (const auto& member : active(facing_on_after_one.sheep, facing_on_after_one.sheep_count)) {
         if (!check(member == sheep_with_id(reversed_facing->current_snapshot().sheep, member.id),
                    "facing_result_is_stable_by_id_under_reversed_storage") ||
             !check(
@@ -4943,22 +5329,21 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    const auto sight_off_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-dog-line-of-sight-off");
-    const auto sight_on_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-dog-line-of-sight-on");
-    auto sight_on_as_control =
-        sight_on_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
-    if (sight_off_scenario.has_value()) {
-        sight_on_as_control.id = sight_off_scenario->id;
+    const ScenarioHandle sight_off_scenario =
+        named_scenario("sheep-dog-line-of-sight-off");
+    const ScenarioHandle sight_on_scenario =
+        named_scenario("sheep-dog-line-of-sight-on");
+    auto sight_on_as_control = mutable_scenario_copy(sight_on_scenario);
+    if (sight_off_scenario != nullptr) {
+        sight_on_as_control->id = sight_off_scenario->id;
     }
-    sight_on_as_control.sheep_dog_line_of_sight.enabled = false;
-    if (!check(sight_off_scenario.has_value() && sight_on_scenario.has_value() &&
+    sight_on_as_control->sheep_dog_line_of_sight.enabled = false;
+    if (!check(sight_off_scenario != nullptr && sight_on_scenario != nullptr &&
                    sight_off_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_dog_line_of_sight_off &&
                    sight_on_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_dog_line_of_sight_on &&
-                   sight_on_as_control == *sight_off_scenario &&
+                   *sight_on_as_control == *sight_off_scenario &&
                    sight_on_scenario->sheep_dog_line_of_sight.enabled &&
                    sight_off_scenario->sheep_dog_pressure.enabled &&
                    sight_off_scenario->sheep_dog_pressure ==
@@ -4972,7 +5357,9 @@ int main() {
 
     const SimulationHandle sight_off = make_simulation(*sight_off_scenario);
     const SimulationHandle sight_on = make_simulation(*sight_on_scenario);
-    const auto sight_initial = sight_on->current_snapshot();
+    const auto sight_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(sight_on->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& sight_initial = *sight_initial_holder;
     sight_off->fixed_update({});
     sight_on->fixed_update({});
     const auto& sight_off_after_one = sight_off->current_snapshot();
@@ -5025,7 +5412,8 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    for (const auto& on_evidence : sight_on_after_one.sheep_dog_pressure_evidence) {
+    for (const auto& on_evidence :
+         active(sight_on_after_one.sheep_dog_pressure_evidence, sight_on_after_one.sheep_count)) {
         const auto& off_evidence = evidence_with_id(sight_off_after_one.sheep_dog_pressure_evidence,
                                                     on_evidence.subject_id);
         const auto& prior_member = sheep_with_id(sight_initial.sheep, on_evidence.subject_id);
@@ -5076,7 +5464,9 @@ int main() {
     // The gate is world state, not fixture layout: closing it must hide the dog
     // from the sheep that was watching through the opening and leave every other
     // sight line unchanged.
-    auto closed_gate_sight_scenario = *sight_on_scenario;
+    const auto closed_gate_sight_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*sight_on_scenario);
+    auto& closed_gate_sight_scenario = *closed_gate_sight_scenario_holder;
     closed_gate_sight_scenario.gate_open = false;
     const SimulationHandle closed_gate_sight = make_simulation(closed_gate_sight_scenario);
     closed_gate_sight->fixed_update({});
@@ -5097,7 +5487,9 @@ int main() {
 
     // Visibility multiplies every dog term rather than adding a fourth vector,
     // so the same occluder must release approach and facing with pressure.
-    auto combined_sight_on_scenario = *sight_on_scenario;
+    const auto combined_sight_on_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*sight_on_scenario);
+    auto& combined_sight_on_scenario = *combined_sight_on_scenario_holder;
     combined_sight_on_scenario.dog.initial_state.velocity = {.z = 3.0};
     combined_sight_on_scenario.sheep_dog_approach.enabled = true;
     combined_sight_on_scenario.sheep_dog_facing.enabled = true;
@@ -5157,7 +5549,9 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    auto overlapping_sight_scenario = *sight_on_scenario;
+    const auto overlapping_sight_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*sight_on_scenario);
+    auto& overlapping_sight_scenario = *overlapping_sight_scenario_holder;
     overlapping_sight_scenario.initial_sheep[0].position =
         overlapping_sight_scenario.dog.initial_state.position;
     const SimulationHandle overlapping_sight = make_simulation(overlapping_sight_scenario);
@@ -5176,12 +5570,15 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    auto reversed_sight_scenario = *sight_on_scenario;
+    const auto reversed_sight_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*sight_on_scenario);
+    auto& reversed_sight_scenario = *reversed_sight_scenario_holder;
     std::reverse(reversed_sight_scenario.initial_sheep.begin(),
-                 reversed_sight_scenario.initial_sheep.end());
+                 reversed_sight_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_sight_scenario.sheep_count));
     const SimulationHandle reversed_sight = make_simulation(reversed_sight_scenario);
     reversed_sight->fixed_update({});
-    for (const auto& member : sight_on_after_one.sheep) {
+    for (const auto& member : active(sight_on_after_one.sheep, sight_on_after_one.sheep_count)) {
         if (!check(member == sheep_with_id(reversed_sight->current_snapshot().sheep, member.id),
                    "line_of_sight_result_is_stable_by_id_under_reversed_storage") ||
             !check(
@@ -5235,22 +5632,21 @@ int main() {
         wide_eye::game::PaddockCollisionField::kMinimumX + wide_eye::game::kSheepCollisionRadius;
     constexpr double kSouthernBoundZ =
         wide_eye::game::PaddockCollisionField::kMinimumZ + wide_eye::game::kSheepCollisionRadius;
-    const auto collision_closed_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-paddock-collision-closed-gate");
-    const auto collision_open_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-paddock-collision-open-gate");
-    auto collision_open_as_control =
-        collision_open_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
-    if (collision_closed_scenario.has_value()) {
-        collision_open_as_control.id = collision_closed_scenario->id;
+    const ScenarioHandle collision_closed_scenario =
+        named_scenario("sheep-paddock-collision-closed-gate");
+    const ScenarioHandle collision_open_scenario =
+        named_scenario("sheep-paddock-collision-open-gate");
+    auto collision_open_as_control = mutable_scenario_copy(collision_open_scenario);
+    if (collision_closed_scenario != nullptr) {
+        collision_open_as_control->id = collision_closed_scenario->id;
     }
-    collision_open_as_control.gate_open = false;
-    if (!check(collision_closed_scenario.has_value() && collision_open_scenario.has_value() &&
+    collision_open_as_control->gate_open = false;
+    if (!check(collision_closed_scenario != nullptr && collision_open_scenario != nullptr &&
                    collision_closed_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_paddock_collision_closed_gate &&
                    collision_open_scenario->id ==
                        wide_eye::game::GameplayScenarioId::sheep_paddock_collision_open_gate &&
-                   collision_open_as_control == *collision_closed_scenario &&
+                   *collision_open_as_control == *collision_closed_scenario &&
                    collision_open_scenario->gate_open && !collision_closed_scenario->gate_open &&
                    collision_closed_scenario->version == 1 &&
                    collision_closed_scenario->seed == 0 &&
@@ -5267,16 +5663,16 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    const PaddockCollisionRun closed_gate_run = run_paddock_collision(
+    const PaddockCollisionHandle closed_gate_run = run_paddock_collision(
         *collision_closed_scenario, kPaddockCollisionTicks, kPaddockCollisionMidpointTick);
-    const PaddockCollisionRun open_gate_run = run_paddock_collision(
+    const PaddockCollisionHandle open_gate_run = run_paddock_collision(
         *collision_open_scenario, kPaddockCollisionTicks, kPaddockCollisionMidpointTick);
-    const SheepContactRecord& left_wall_contact = contact_with_id(closed_gate_run.contacts, 1);
-    const SheepContactRecord& gate_contact = contact_with_id(closed_gate_run.contacts, 2);
-    const SheepContactRecord& right_wall_contact = contact_with_id(closed_gate_run.contacts, 3);
-    const SheepContactRecord& untouched_contact = contact_with_id(closed_gate_run.contacts, 4);
-    const SheepContactRecord& bound_contact = contact_with_id(closed_gate_run.contacts, 5);
-    const auto& closed_gate_sheep_two = sheep_with_id(closed_gate_run.final_snapshot.sheep, 2);
+    const SheepContactRecord& left_wall_contact = contact_with_id(closed_gate_run->contacts, 1);
+    const SheepContactRecord& gate_contact = contact_with_id(closed_gate_run->contacts, 2);
+    const SheepContactRecord& right_wall_contact = contact_with_id(closed_gate_run->contacts, 3);
+    const SheepContactRecord& untouched_contact = contact_with_id(closed_gate_run->contacts, 4);
+    const SheepContactRecord& bound_contact = contact_with_id(closed_gate_run->contacts, 5);
+    const auto& closed_gate_sheep_two = sheep_with_id(closed_gate_run->final_snapshot.sheep, 2);
     if (!check(left_wall_contact.observed && left_wall_contact.evidence.clipped_z &&
                    !left_wall_contact.evidence.clipped_x &&
                    left_wall_contact.evidence.obstacle ==
@@ -5285,7 +5681,7 @@ int main() {
                    left_wall_contact.state.position.z == kWallRestZ &&
                    left_wall_contact.state.velocity.z == 0.0 &&
                    left_wall_contact.minimum_z == kWallRestZ &&
-                   sheep_with_id(closed_gate_run.final_snapshot.sheep, 1).position.z == kWallRestZ,
+                   sheep_with_id(closed_gate_run->final_snapshot.sheep, 1).position.z == kWallRestZ,
                "wall_stops_a_moving_sheep_at_the_clipped_coordinate") ||
         !check(gate_contact.observed && gate_contact.evidence.clipped_z &&
                    gate_contact.evidence.obstacle == wide_eye::game::PaddockObstacle::gate &&
@@ -5303,9 +5699,9 @@ int main() {
                    right_wall_contact.state.velocity.z == 0.0 &&
                    right_wall_contact.state.velocity.x == -3.0 &&
                    right_wall_contact.state.position.x < right_wall_contact.prior.position.x &&
-                   sheep_with_id(closed_gate_run.final_snapshot.sheep, 3).position.z ==
+                   sheep_with_id(closed_gate_run->final_snapshot.sheep, 3).position.z ==
                        kWallRestZ &&
-                   sheep_with_id(closed_gate_run.final_snapshot.sheep, 3).position.x < 4.0,
+                   sheep_with_id(closed_gate_run->final_snapshot.sheep, 3).position.x < 4.0,
                "contact_clears_only_the_blocked_axis_velocity") ||
         !check(bound_contact.observed && bound_contact.evidence.clipped_x &&
                    !bound_contact.evidence.clipped_z &&
@@ -5319,9 +5715,9 @@ int main() {
 
     // The same fixture with the gate open must let that sheep through and then
     // stop it on the paddock's own southern bound instead.
-    const SheepContactRecord& open_gate_contact = contact_with_id(open_gate_run.contacts, 2);
-    const auto& open_gate_sheep_two = sheep_with_id(open_gate_run.final_snapshot.sheep, 2);
-    if (!check(sheep_with_id(open_gate_run.midpoint.sheep, 2).position.z < 15.0 &&
+    const SheepContactRecord& open_gate_contact = contact_with_id(open_gate_run->contacts, 2);
+    const auto& open_gate_sheep_two = sheep_with_id(open_gate_run->final_snapshot.sheep, 2);
+    if (!check(sheep_with_id(open_gate_run->midpoint.sheep, 2).position.z < 15.0 &&
                    open_gate_contact.observed &&
                    open_gate_contact.tick > kPaddockCollisionMidpointTick &&
                    open_gate_contact.evidence.obstacle == wide_eye::game::PaddockObstacle::none &&
@@ -5345,22 +5741,22 @@ int main() {
     }
     bool untouched_matches_control =
         !untouched_contact.observed && untouched_contact.contact_ticks == 0 &&
-        sheep_with_id(closed_gate_run.final_snapshot.sheep, 4) ==
-            sheep_with_id(open_gate_run.final_snapshot.sheep, 4) &&
-        sheep_with_id(closed_gate_run.final_snapshot.sheep, 4) == unclipped;
+        sheep_with_id(closed_gate_run->final_snapshot.sheep, 4) ==
+            sheep_with_id(open_gate_run->final_snapshot.sheep, 4) &&
+        sheep_with_id(closed_gate_run->final_snapshot.sheep, 4) == unclipped;
     for (const std::uint32_t id : {1U, 3U, 4U, 5U}) {
         untouched_matches_control =
             untouched_matches_control &&
-            sheep_with_id(closed_gate_run.final_snapshot.sheep, id) ==
-                sheep_with_id(open_gate_run.final_snapshot.sheep, id) &&
-            evidence_with_id(closed_gate_run.final_snapshot.sheep_social_evidence, id) ==
-                evidence_with_id(open_gate_run.final_snapshot.sheep_social_evidence, id) &&
-            evidence_with_id(closed_gate_run.final_snapshot.sheep_dog_pressure_evidence, id) ==
-                evidence_with_id(open_gate_run.final_snapshot.sheep_dog_pressure_evidence, id) &&
-            evidence_with_id(closed_gate_run.final_snapshot.sheep_collision_evidence, id) ==
-                evidence_with_id(open_gate_run.final_snapshot.sheep_collision_evidence, id) &&
-            contact_with_id(closed_gate_run.contacts, id).tick ==
-                contact_with_id(open_gate_run.contacts, id).tick;
+            sheep_with_id(closed_gate_run->final_snapshot.sheep, id) ==
+                sheep_with_id(open_gate_run->final_snapshot.sheep, id) &&
+            evidence_with_id(closed_gate_run->final_snapshot.sheep_social_evidence, id) ==
+                evidence_with_id(open_gate_run->final_snapshot.sheep_social_evidence, id) &&
+            evidence_with_id(closed_gate_run->final_snapshot.sheep_dog_pressure_evidence, id) ==
+                evidence_with_id(open_gate_run->final_snapshot.sheep_dog_pressure_evidence, id) &&
+            evidence_with_id(closed_gate_run->final_snapshot.sheep_collision_evidence, id) ==
+                evidence_with_id(open_gate_run->final_snapshot.sheep_collision_evidence, id) &&
+            contact_with_id(closed_gate_run->contacts, id).tick ==
+                contact_with_id(open_gate_run->contacts, id).tick;
     }
     if (!check(untouched_matches_control,
                "collision_authority_leaves_a_non_contacting_sheep_untouched")) {
@@ -5370,7 +5766,9 @@ int main() {
     // A dog placed north of the gate line must physically drive one sheep into
     // the closed gate and be unable to push it through, while the same fixture
     // with the gate open lets that sheep out.
-    auto driven_closed_scenario = *collision_closed_scenario;
+    const auto driven_closed_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*collision_closed_scenario);
+    auto& driven_closed_scenario = *driven_closed_scenario_holder;
     driven_closed_scenario.dog.initial_state.position = {.x = 16.0, .y = 1.0, .z = 20.0};
     driven_closed_scenario.initial_sheep[1] = {.id = 2,
                                                .position = {.x = 16.0, .y = 1.0, .z = 18.0},
@@ -5381,25 +5779,25 @@ int main() {
     driven_open_scenario.id = collision_open_scenario->id;
     driven_open_scenario.gate_open = true;
     constexpr std::uint64_t kDrivenCollisionTicks = 300;
-    const PaddockCollisionRun driven_closed_run = run_paddock_collision(
+    const PaddockCollisionHandle driven_closed_run = run_paddock_collision(
         driven_closed_scenario, kDrivenCollisionTicks, kPaddockCollisionMidpointTick);
-    const PaddockCollisionRun driven_open_run = run_paddock_collision(
+    const PaddockCollisionHandle driven_open_run = run_paddock_collision(
         driven_open_scenario, kDrivenCollisionTicks, kPaddockCollisionMidpointTick);
-    const SheepContactRecord& driven_contact = contact_with_id(driven_closed_run.contacts, 2);
-    const auto& driven_closed_two = sheep_with_id(driven_closed_run.final_snapshot.sheep, 2);
-    const auto& driven_open_two = sheep_with_id(driven_open_run.final_snapshot.sheep, 2);
+    const SheepContactRecord& driven_contact = contact_with_id(driven_closed_run->contacts, 2);
+    const auto& driven_closed_two = sheep_with_id(driven_closed_run->final_snapshot.sheep, 2);
+    const auto& driven_open_two = sheep_with_id(driven_open_run->final_snapshot.sheep, 2);
     const auto& driven_pressure =
-        evidence_with_id(driven_closed_run.final_snapshot.sheep_dog_pressure_evidence, 2);
+        evidence_with_id(driven_closed_run->final_snapshot.sheep_dog_pressure_evidence, 2);
     const auto& driven_collision =
-        evidence_with_id(driven_closed_run.final_snapshot.sheep_collision_evidence, 2);
+        evidence_with_id(driven_closed_run->final_snapshot.sheep_collision_evidence, 2);
     if (!check(driven_contact.observed &&
                    driven_contact.evidence.obstacle == wide_eye::game::PaddockObstacle::gate &&
                    driven_closed_two.position.z == kWallRestZ &&
                    driven_closed_two.velocity.z == 0.0 &&
                    driven_contact.contact_ticks == kDrivenCollisionTicks - driven_contact.tick + 1,
                "a_closed_gate_holds_a_dog_driven_sheep_on_every_pushed_tick") ||
-        !check(!contact_with_id(driven_open_run.contacts, 2).observed &&
-                   sheep_with_id(driven_open_run.midpoint.sheep, 2).position.z < 15.0 &&
+        !check(!contact_with_id(driven_open_run->contacts, 2).observed &&
+                   sheep_with_id(driven_open_run->midpoint.sheep, 2).position.z < 15.0 &&
                    driven_open_two.position.z < driven_closed_two.position.z &&
                    driven_open_two.velocity.z < 0.0,
                "the_same_dog_drives_that_sheep_through_an_open_gate") ||
@@ -5413,21 +5811,26 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    auto reversed_collision_scenario = *collision_closed_scenario;
+    const auto reversed_collision_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*collision_closed_scenario);
+    auto& reversed_collision_scenario = *reversed_collision_scenario_holder;
     std::reverse(reversed_collision_scenario.initial_sheep.begin(),
-                 reversed_collision_scenario.initial_sheep.end());
-    const PaddockCollisionRun reversed_collision_run = run_paddock_collision(
+                 reversed_collision_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_collision_scenario.sheep_count));
+    const PaddockCollisionHandle reversed_collision_run = run_paddock_collision(
         reversed_collision_scenario, kPaddockCollisionTicks, kPaddockCollisionMidpointTick);
-    for (const auto& member : closed_gate_run.final_snapshot.sheep) {
-        const SheepContactRecord& expected = contact_with_id(closed_gate_run.contacts, member.id);
+    for (const auto& member :
+         active(closed_gate_run->final_snapshot.sheep,
+                closed_gate_run->final_snapshot.sheep_count)) {
+        const SheepContactRecord& expected = contact_with_id(closed_gate_run->contacts, member.id);
         const SheepContactRecord& observed =
-            contact_with_id(reversed_collision_run.contacts, member.id);
-        if (!check(member == sheep_with_id(reversed_collision_run.final_snapshot.sheep, member.id),
+            contact_with_id(reversed_collision_run->contacts, member.id);
+        if (!check(member == sheep_with_id(reversed_collision_run->final_snapshot.sheep, member.id),
                    "collision_result_is_stable_by_id_under_reversed_storage") ||
             !check(
-                evidence_with_id(closed_gate_run.final_snapshot.sheep_collision_evidence,
+                evidence_with_id(closed_gate_run->final_snapshot.sheep_collision_evidence,
                                  member.id) ==
-                    evidence_with_id(reversed_collision_run.final_snapshot.sheep_collision_evidence,
+                    evidence_with_id(reversed_collision_run->final_snapshot.sheep_collision_evidence,
                                      member.id),
                 "collision_evidence_is_stable_under_reversed_storage") ||
             !check(expected.observed == observed.observed && expected.tick == observed.tick &&
@@ -5464,7 +5867,9 @@ int main() {
     }
 
     const SimulationHandle collision_restart = make_simulation(*collision_closed_scenario);
-    const auto collision_initial = collision_restart->current_snapshot();
+    const auto collision_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(collision_restart->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& collision_initial = *collision_initial_holder;
     for (std::uint64_t tick = 0; tick < 120; ++tick) {
         collision_restart->fixed_update({});
     }
@@ -5489,23 +5894,22 @@ int main() {
     // (1 - 5/6) * 3 = 0.5 of pressure at that ring.
     constexpr double kOrdinaryRingPressure = 0.5;
     constexpr std::uint64_t kTemperamentDriftTicks = 120;
-    const auto temperament_neutral_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-temperament-neutral");
-    const auto temperament_varied_scenario =
-        wide_eye::game::find_gameplay_scenario("sheep-temperament-varied");
-    auto temperament_varied_as_control =
-        temperament_varied_scenario.value_or(wide_eye::game::GameplayScenarioDefinition{});
-    if (temperament_neutral_scenario.has_value()) {
-        temperament_varied_as_control.id = temperament_neutral_scenario->id;
+    const ScenarioHandle temperament_neutral_scenario =
+        named_scenario("sheep-temperament-neutral");
+    const ScenarioHandle temperament_varied_scenario =
+        named_scenario("sheep-temperament-varied");
+    auto temperament_varied_as_control = mutable_scenario_copy(temperament_varied_scenario);
+    if (temperament_neutral_scenario != nullptr) {
+        temperament_varied_as_control->id = temperament_neutral_scenario->id;
     }
-    temperament_varied_as_control.sheep_temperament.enabled = false;
+    temperament_varied_as_control->sheep_temperament.enabled = false;
     if (!check(
-            temperament_neutral_scenario.has_value() && temperament_varied_scenario.has_value() &&
+            temperament_neutral_scenario != nullptr && temperament_varied_scenario != nullptr &&
                 temperament_neutral_scenario->id ==
                     wide_eye::game::GameplayScenarioId::sheep_temperament_neutral &&
                 temperament_varied_scenario->id ==
                     wide_eye::game::GameplayScenarioId::sheep_temperament_varied &&
-                temperament_varied_as_control == *temperament_neutral_scenario &&
+                *temperament_varied_as_control == *temperament_neutral_scenario &&
                 temperament_varied_scenario->sheep_temperament.enabled &&
                 !temperament_neutral_scenario->sheep_temperament.enabled &&
                 temperament_varied_scenario->sheep_temperament.nervous_response_scale ==
@@ -5548,7 +5952,9 @@ int main() {
 
     const SimulationHandle temperament_neutral = make_simulation(*temperament_neutral_scenario);
     const SimulationHandle temperament_varied = make_simulation(*temperament_varied_scenario);
-    const auto temperament_initial = temperament_varied->current_snapshot();
+    const auto temperament_initial_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(temperament_varied->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& temperament_initial = *temperament_initial_holder;
     temperament_neutral->fixed_update({});
     temperament_varied->fixed_update({});
     const auto& temperament_neutral_after_one = temperament_neutral->current_snapshot();
@@ -5569,7 +5975,9 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    for (const auto& varied_evidence : temperament_varied_after_one.sheep_dog_pressure_evidence) {
+    for (const auto& varied_evidence :
+         active(temperament_varied_after_one.sheep_dog_pressure_evidence,
+                temperament_varied_after_one.sheep_count)) {
         const std::uint32_t subject_id = varied_evidence.subject_id;
         const auto& neutral_evidence =
             evidence_with_id(temperament_neutral_after_one.sheep_dog_pressure_evidence, subject_id);
@@ -5672,8 +6080,11 @@ int main() {
     // tuning: a fixture whose sheep are all ordinary must produce the same
     // authoritative state with the factor switched on as with it switched off,
     // for every tick, including every published evidence field.
-    auto all_ordinary_scenario = *temperament_varied_scenario;
-    for (auto& member : all_ordinary_scenario.initial_sheep) {
+    const auto all_ordinary_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*temperament_varied_scenario);
+    auto& all_ordinary_scenario = *all_ordinary_scenario_holder;
+    for (std::size_t index = 0; index < all_ordinary_scenario.sheep_count; ++index) {
+        wide_eye::game::SheepState& member = all_ordinary_scenario.initial_sheep[index];
         member.temperament = wide_eye::game::SheepTemperament::ordinary;
     }
     auto all_ordinary_control_scenario = all_ordinary_scenario;
@@ -5727,7 +6138,9 @@ int main() {
     // a derived fixture that also enables approach and facing must scale all
     // three vectors by the same published factor while the stimulus that
     // produced them stays identical.
-    auto combined_temperament_varied_scenario = *temperament_varied_scenario;
+    const auto combined_temperament_varied_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*temperament_varied_scenario);
+    auto& combined_temperament_varied_scenario = *combined_temperament_varied_scenario_holder;
     combined_temperament_varied_scenario.dog.initial_state.velocity = {.z = -3.0};
     combined_temperament_varied_scenario.sheep_dog_approach.enabled = true;
     combined_temperament_varied_scenario.sheep_dog_facing.enabled = true;
@@ -5787,7 +6200,9 @@ int main() {
     // effective pressure and does not give the flock-neighbour terms one, so a
     // derived fixture with every social term enabled must publish identical
     // social evidence while the dog vectors still differ.
-    auto social_temperament_varied_scenario = *temperament_varied_scenario;
+    const auto social_temperament_varied_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*temperament_varied_scenario);
+    auto& social_temperament_varied_scenario = *social_temperament_varied_scenario_holder;
     social_temperament_varied_scenario.sheep_separation.enabled = true;
     social_temperament_varied_scenario.sheep_attraction.enabled = true;
     social_temperament_varied_scenario.sheep_alignment.enabled = true;
@@ -5843,12 +6258,16 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    auto reversed_temperament_scenario = *temperament_varied_scenario;
+    const auto reversed_temperament_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*temperament_varied_scenario);
+    auto& reversed_temperament_scenario = *reversed_temperament_scenario_holder;
     std::reverse(reversed_temperament_scenario.initial_sheep.begin(),
-                 reversed_temperament_scenario.initial_sheep.end());
+                 reversed_temperament_scenario.initial_sheep.begin() +
+                     static_cast<std::ptrdiff_t>(reversed_temperament_scenario.sheep_count));
     const SimulationHandle reversed_temperament = make_simulation(reversed_temperament_scenario);
     reversed_temperament->fixed_update({});
-    for (const auto& member : temperament_varied_after_one.sheep) {
+    for (const auto& member :
+         active(temperament_varied_after_one.sheep, temperament_varied_after_one.sheep_count)) {
         if (!check(member ==
                        sheep_with_id(reversed_temperament->current_snapshot().sheep, member.id),
                    "temperament_result_is_stable_by_id_under_reversed_storage") ||
@@ -5878,7 +6297,9 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    auto unknown_temperament_scenario = *temperament_varied_scenario;
+    const auto unknown_temperament_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*temperament_varied_scenario);
+    auto& unknown_temperament_scenario = *unknown_temperament_scenario_holder;
     unknown_temperament_scenario.initial_sheep[0].temperament =
         static_cast<wide_eye::game::SheepTemperament>(255);
     const ConstSimulationHandle unknown_temperament_simulation =
@@ -5969,6 +6390,13 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // The scale fixture owns its own frame for the same reason: it holds two
+    // fifty-member simulations and a state dump of both their snapshots.
+    const FlockScaleOracle flock_scale = run_flock_scale_oracle();
+    if (!flock_scale.passed) {
+        return EXIT_FAILURE;
+    }
+
     const SimulationHandle replay_a = make_simulation(*scenario);
     const SimulationHandle replay_b = make_simulation(*scenario);
     const wide_eye::game::GameplayReplay replay = sample_replay(*replay_a);
@@ -5976,7 +6404,7 @@ int main() {
     if (!check(wide_eye::game::kGameplaySeedFormatVersion == 1 &&
                    wide_eye::game::kGameplayActionInputFormatVersion == 1 &&
                    wide_eye::game::kGameplayReplayFormatVersion == 1 &&
-                   wide_eye::game::kGameplayStateDumpFormatVersion == 14,
+                   wide_eye::game::kGameplayStateDumpFormatVersion == 15,
                "contract_versions_are_explicit") ||
         !check(replay_text &&
                    replay_text.text ==
@@ -6001,7 +6429,7 @@ int main() {
     const auto state_b = wide_eye::game::gameplay_state_dump_json(*replay_b);
     if (!check(state_a && state_b && state_a.text == state_b.text,
                "canonical_state_dump_repeats") ||
-        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":14,"
+        !check(state_a.text.starts_with("{\"schema\":\"wide-eye.gameplay-state\",\"version\":15,"
                                         "\"tick_rate\":60,\"scenario\":{"),
                "state_dump_schema_header") ||
         !check(state_a.text.find("\"current\":{\"tick\":3") != std::string::npos,
@@ -6018,7 +6446,9 @@ int main() {
 
     wide_eye::game::GameplayReplay incompatible = replay;
     incompatible.format_version += 1;
-    const auto before_rejection = replay_a->current_snapshot();
+    const auto before_rejection_holder =
+        std::make_unique<wide_eye::game::GameplaySnapshot>(replay_a->current_snapshot());
+    const wide_eye::game::GameplaySnapshot& before_rejection = *before_rejection_holder;
     if (!check(wide_eye::game::apply_gameplay_replay(*replay_a, incompatible) ==
                    wide_eye::game::GameplayContractError::unsupported_replay_version,
                "unsupported_replay_version_rejected") ||
@@ -6102,7 +6532,9 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    wide_eye::game::GameplayScenarioDefinition invalid_state_scenario = *scenario;
+    const auto invalid_state_scenario_holder =
+        std::make_unique<wide_eye::game::GameplayScenarioDefinition>(*scenario);
+    auto& invalid_state_scenario = *invalid_state_scenario_holder;
     invalid_state_scenario.dog.initial_state.position.x = std::numeric_limits<double>::quiet_NaN();
     const ConstSimulationHandle invalid_state_simulation = make_simulation(invalid_state_scenario);
     if (!check(wide_eye::game::gameplay_state_dump_json(*invalid_state_simulation).error ==
@@ -6123,7 +6555,7 @@ int main() {
         << "authoritative_tick_hz=" << wide_eye::game::GameplaySimulation::kTicksPerSecond << '\n'
         << "fine_render_frames=" << fine_frames.size() << '\n'
         << "coarse_render_frames=" << coarse_frames.size() << '\n'
-        << "authoritative_ticks=" << fine.snapshot.tick << '\n'
+        << "authoritative_ticks=" << fine->snapshot.tick << '\n'
         << "cadence_state_equal=yes\n"
         << "replay_contract_version=" << wide_eye::game::kGameplayReplayFormatVersion << '\n'
         << "state_dump_contract_version=" << wide_eye::game::kGameplayStateDumpFormatVersion << '\n'
@@ -6167,7 +6599,7 @@ int main() {
         << "sheep_outer_bound_rest_x=" << bound_contact.state.position.x << '\n'
         << "sheep_open_gate_final_z=" << open_gate_sheep_two.position.z << '\n'
         << "sheep_untouched_control_final_x="
-        << sheep_with_id(closed_gate_run.final_snapshot.sheep, 4).position.x << '\n'
+        << sheep_with_id(closed_gate_run->final_snapshot.sheep, 4).position.x << '\n'
         << "sheep_dog_driven_gate_contact_tick=" << driven_contact.tick << '\n'
         << "sheep_dog_driven_gate_contact_ticks=" << driven_contact.contact_ticks << '\n'
         << "sheep_dog_driven_pinned_pressure_z=" << driven_pressure.pressure_acceleration.z << '\n'
@@ -6537,6 +6969,19 @@ int main() {
                   << "_flap_allowance_per_hundred_ticks=" << stability.term_flap_allowance[term]
                   << '\n';
     }
+    std::cout << "flock_scale_scenario=fifty-sheep-paddock\n"
+              << "flock_scale_published_members=" << flock_scale.published_count << '\n'
+              << "flock_scale_buffer_capacity=" << flock_scale.capacity << '\n'
+              << "flock_scale_grid_capacity="
+              << wide_eye::game::SheepSpatialGrid::kMaximumMemberCount << '\n'
+              << "flock_scale_ticks=" << flock_scale.ticks << '\n'
+              << "flock_scale_steady_state_allocations=" << flock_scale.allocations << '\n'
+              << "flock_scale_minimum_start_separation="
+              << flock_scale.minimum_start_separation << '\n'
+              << "flock_scale_state_dump_member_records="
+              << flock_scale.state_dump_member_records << '\n'
+              << "flock_scale_state_dump_bytes=" << flock_scale.state_dump_bytes << '\n'
+              << "flock_scale_meaning=scale_fixture_not_accepted_tuned_gameplay\n";
     std::cout << "gameplay_simulation_result=pass\n";
     return EXIT_SUCCESS;
 }

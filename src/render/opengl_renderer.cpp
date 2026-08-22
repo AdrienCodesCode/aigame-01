@@ -672,6 +672,14 @@ struct OpenGlRenderer::Impl {
     // the frame builder carries a checked ceiling in the first place.
     GLuint influence_debug_vertex_array = 0;
     GLuint influence_debug_vertex_buffer = 0;
+    // Upload scratch for the influence overlay, owned here rather than declared
+    // in the draw call. At the authoritative sheep capacity the ceiling is
+    // 14,096 segments, so this array is 677 KiB — a stack frame that size
+    // overflows the default thread stack before it reaches the driver. It is
+    // still fixed-size and still allocated once, so the per-frame path remains
+    // allocation-free.
+    std::array<DebugLineVertex, kMaximumInfluenceDebugSegments * 2U>
+        influence_debug_vertices{};
     GLint paddock_aspect_ratio = -1;
     GLint paddock_camera_eye = -1;
     GLint paddock_camera_target = -1;
@@ -1473,8 +1481,10 @@ void OpenGlRenderer::render_influence_debug_overlay(int pixel_width, int pixel_h
 
     // Fixed scratch storage rather than a vector: the overlay is rebuilt every
     // frame, and a presentation path that heap-allocates once per frame is a
-    // cost nobody asked for. The ceiling is the frame builder's own.
-    std::array<DebugLineVertex, kMaximumInfluenceDebugSegments * 2U> vertices{};
+    // cost nobody asked for. The ceiling is the frame builder's own, and the
+    // storage lives in `impl_` because at that ceiling it is far too large for a
+    // stack frame.
+    auto& vertices = impl_->influence_debug_vertices;
     const std::size_t segment_count = std::min(frame.segment_count, frame.segments.size());
     for (std::size_t index = 0; index < segment_count; ++index) {
         const DebugSegment& segment = frame.segments[index];

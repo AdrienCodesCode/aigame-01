@@ -6,7 +6,7 @@ namespace wide_eye::render {
 
 SheepProxyPoseBuffer make_sheep_proxy_poses(const game::GameplaySnapshot& snapshot) noexcept {
     SheepProxyPoseBuffer poses{};
-    for (std::size_t index = 0; index < poses.size(); ++index) {
+    for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
         const game::SheepState& sheep = snapshot.sheep[index];
         poses[index] = {
             .id = sheep.id,

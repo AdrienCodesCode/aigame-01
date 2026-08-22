@@ -127,8 +127,59 @@ struct SheepState {
     bool operator==(const SheepState&) const = default;
 };
 
-inline constexpr std::size_t kGameplaySheepCount = 5;
-using SheepStateBuffer = std::array<SheepState, kGameplaySheepCount>;
+// The compile-time capacity of every authoritative sheep buffer. It is **not**
+// the flock size: the number of members a run actually simulates is
+// scenario-owned data carried by `GameplayScenarioDefinition::sheep_count` and
+// republished on every `GameplaySnapshot`, and every loop, publication,
+// observable, and evidence buffer iterates that active count. This constant only
+// answers "how many members can a buffer hold".
+//
+// Why 256. The immediate content requirement is a 50-member flock, and the owner
+// intends to raise it: 100 and 250 are both named as expected next steps, and
+// they must cost a scenario-definition edit rather than another architectural
+// change. 256 is the smallest power of two that covers all three with headroom,
+// and it stays under `SheepSpatialGrid::kMaximumMemberCount`, so the grid the
+// social terms rebuild from still accepts a full flock.
+//
+// What it costs, measured on this host (MSVC 19.44 x64, `dev` preset,
+// 2026-08-22) rather than estimated. Every published per-member record together
+// is 464 bytes — 80 for `SheepState` plus 384 across the six evidence records —
+// and the four types this constant sizes are exactly linear in it:
+//
+//   sizeof(GameplaySnapshot)           =     80 +   464 * capacity
+//   sizeof(GameplayScenarioDefinition) =    408 +    80 * capacity
+//   sizeof(GameplaySimulation)         = 113,024 + 1,008 * capacity
+//   sizeof(InfluenceDebugFrame)        =    928 + 2,640 * capacity
+//
+// The simulation's constant term is the 112,040-byte spatial grid it holds by
+// value; its slope is one snapshot pair plus the scenario's own fixture copy. At
+// 256 those are 118,864, 20,888, 371,072, and 676,768 bytes. The engine holds one
+// simulation and one debug frame, so that is about a megabyte of the process.
+//
+// The cost that actually bites is not the engine's: it is any *frame* that holds
+// these by value. A capacity-sized `GameplayScenarioDefinition` is 20 KiB and a
+// snapshot is 116 KiB, and the gameplay-simulation harness names about thirty
+// scenarios and copies a dozen snapshots. Those live on the heap for the same
+// reason QA-002 put the simulations there, and the render boundary's debug frame
+// and its upload scratch do too.
+//
+// Raising this further is one edit and a rebuild, but two by-value returns are
+// the next wall, and they arrive well before the grid's 1,000-member ceiling:
+// `GameplaySimulation::interpolated_snapshot` materializes a whole snapshot in
+// its caller's frame, which is 232 KiB at 512 members and 453 KiB at 1,000
+// against the 512 KiB stack budget QA-002 left behind.
+inline constexpr std::size_t kMaximumGameplaySheepCount = 256;
+
+// The member count of `kDefaultGameplaySheepStates` below, and the accepted
+// first-playable flock size that every scenario written before flock size became
+// scenario-owned uses. It is a **fixture default**, not a capacity and not the
+// active count of any particular run: a scenario that says nothing about flock
+// size gets this many members, and a scenario that wants another number says so.
+inline constexpr std::size_t kDefaultGameplaySheepCount = 5;
+
+// Sized at the capacity above. The entries past a run's active count are
+// default-constructed and are never read, written, published, or serialized.
+using SheepStateBuffer = std::array<SheepState, kMaximumGameplaySheepCount>;
 
 inline constexpr std::size_t kMaximumSelectedAttractionNeighbors = 2;
 inline constexpr std::size_t kMaximumSelectedAlignmentNeighbors = 1;
@@ -161,7 +212,7 @@ struct SheepSocialEvidence {
     bool operator==(const SheepSocialEvidence&) const = default;
 };
 
-using SheepSocialEvidenceBuffer = std::array<SheepSocialEvidence, kGameplaySheepCount>;
+using SheepSocialEvidenceBuffer = std::array<SheepSocialEvidence, kMaximumGameplaySheepCount>;
 
 // Dog stimulus remains separate from social evidence so paired controls can
 // publish identical geometry while independently switching the applied term.
@@ -211,7 +262,8 @@ struct SheepDogPressureEvidence {
     bool operator==(const SheepDogPressureEvidence&) const = default;
 };
 
-using SheepDogPressureEvidenceBuffer = std::array<SheepDogPressureEvidence, kGameplaySheepCount>;
+using SheepDogPressureEvidenceBuffer =
+    std::array<SheepDogPressureEvidence, kMaximumGameplaySheepCount>;
 
 // Positional evidence published with each authoritative sheep snapshot. The
 // steering terms above describe what a sheep tried to do; this records what the
@@ -230,7 +282,7 @@ struct SheepCollisionEvidence {
     bool operator==(const SheepCollisionEvidence&) const = default;
 };
 
-using SheepCollisionEvidenceBuffer = std::array<SheepCollisionEvidence, kGameplaySheepCount>;
+using SheepCollisionEvidenceBuffer = std::array<SheepCollisionEvidence, kMaximumGameplaySheepCount>;
 
 // Read-only evidence for the steering term that tries to make the hard collision
 // authority unnecessary. Avoidance is a term like the others: it publishes its
@@ -261,7 +313,7 @@ struct SheepAvoidanceEvidence {
     bool operator==(const SheepAvoidanceEvidence&) const = default;
 };
 
-using SheepAvoidanceEvidenceBuffer = std::array<SheepAvoidanceEvidence, kGameplaySheepCount>;
+using SheepAvoidanceEvidenceBuffer = std::array<SheepAvoidanceEvidence, kMaximumGameplaySheepCount>;
 
 // Read-only evidence for the single bound that limits what every published
 // steering term can do to one sheep together. Each social and dog term keeps its
@@ -286,7 +338,7 @@ struct SheepCombinedInfluenceEvidence {
 };
 
 using SheepCombinedInfluenceEvidenceBuffer =
-    std::array<SheepCombinedInfluenceEvidence, kGameplaySheepCount>;
+    std::array<SheepCombinedInfluenceEvidence, kMaximumGameplaySheepCount>;
 
 // Planar speed below which a sheep is treated as standing still for the purpose
 // of choosing which way it faces. A sheep whose steering terms exactly cancel
@@ -329,7 +381,8 @@ struct SheepMotionLimitEvidence {
     bool operator==(const SheepMotionLimitEvidence&) const = default;
 };
 
-using SheepMotionLimitEvidenceBuffer = std::array<SheepMotionLimitEvidence, kGameplaySheepCount>;
+using SheepMotionLimitEvidenceBuffer =
+    std::array<SheepMotionLimitEvidence, kMaximumGameplaySheepCount>;
 
 inline constexpr SheepStateBuffer kDefaultGameplaySheepStates{{
     {.id = 1,

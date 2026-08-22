@@ -169,7 +169,7 @@ inline constexpr double kFlockCentroidArmLength = 0.70;
 inline constexpr double kBalanceRingRadius = 0.90;
 inline constexpr std::size_t kBalanceRingSegmentCount = 8;
 
-// The connectivity distance `compute_five_sheep_observables` needs in order to
+// The connectivity distance `compute_flock_observables` needs in order to
 // return at all. **No connectivity distance is accepted**, so this view
 // deliberately draws nothing derived from it and publishes no component count;
 // the value matches the one the scenario oracle uses only so that a reader
@@ -202,8 +202,14 @@ inline constexpr std::size_t kMaximumFlockDebugSegments = 2   // centroid cross 
                                                           + 2  // the breach cross through the ring
                                                           + 1; // rear-member stem
 
+// The frame is sized for a full-capacity flock, because it is handed whatever
+// snapshot the debug path is pointed at and truncating a reviewer's evidence
+// is worse than paying for the room. At `kMaximumGameplaySheepCount` of 256
+// that is 14,096 segments and 676,768 bytes, which is why the builder below
+// fills a caller-owned frame instead of returning one by value.
 inline constexpr std::size_t kMaximumInfluenceDebugSegments =
-    game::kGameplaySheepCount * kMaximumInfluenceDebugSegmentsPerSheep + kMaximumFlockDebugSegments;
+    game::kMaximumGameplaySheepCount * kMaximumInfluenceDebugSegmentsPerSheep +
+    kMaximumFlockDebugSegments;
 
 // One tick's worth of debug geometry plus the flock-level quantities it was
 // derived from, so a capture and a dump can be checked against each other.
@@ -248,12 +254,17 @@ struct InfluenceDebugFrame {
 };
 
 // Builds the frame for one published tick. `snapshot` supplies every drawn
-// value; `scenario` supplies only the read-only arousal thresholds the bar's
-// scale marks come from, so those marks cannot drift from the accepted
-// transition rule. Allocation-free and deterministic: the same snapshot always
-// produces the same frame, byte for byte.
-[[nodiscard]] InfluenceDebugFrame
-build_influence_debug_frame(const game::GameplaySnapshot& snapshot,
-                            const game::GameplayScenarioDefinition& scenario) noexcept;
+// value, including how many members to draw; `scenario` supplies only the
+// read-only arousal thresholds the bar's scale marks come from, so those marks
+// cannot drift from the accepted transition rule. Allocation-free and
+// deterministic: the same snapshot always produces the same frame, byte for
+// byte.
+//
+// `frame` is caller-owned and fully overwritten. It is an out-parameter rather
+// than a return value because at the published capacity the frame is over half
+// a megabyte, and a returned one is materialized in the caller's stack frame.
+void build_influence_debug_frame(const game::GameplaySnapshot& snapshot,
+                                 const game::GameplayScenarioDefinition& scenario,
+                                 InfluenceDebugFrame& frame) noexcept;
 
 } // namespace wide_eye::render

@@ -4,8 +4,10 @@
 #include "game/sheep_state.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 
 namespace wide_eye::game {
 
@@ -75,32 +77,43 @@ struct FlockDogObservables {
     bool operator==(const FlockDogObservables&) const = default;
 };
 
-// Ground-plane observables for the fixed five-sheep Tracer 2 snapshot. The
-// connectivity distance, chosen-neighbor counts, and dog position are explicit
-// inputs so a caller can supply them from published state without running a
-// second neighbor-selection path or acquiring a dependency on the dog motor.
-// This function only reads published state; it neither chooses neighbors nor
+// Ground-plane observables for one published flock snapshot. The connectivity
+// distance, chosen-neighbor counts, and dog position are explicit inputs so a
+// caller can supply them from published state without running a second
+// neighbor-selection path or acquiring a dependency on the dog motor. This
+// function only reads published state; it neither chooses neighbors nor
 // mutates simulation state.
-struct FiveSheepObservables {
+//
+// The flock size is the caller's span, not a constant: the pass describes
+// however many members it is handed, from one up to
+// `kMaximumGameplaySheepCount`. `nearest_neighbor_spacing` is sized at that
+// capacity and only its first `member_count` entries are written.
+struct FlockObservables {
+    std::size_t member_count = 0;
     Vec3 centroid{};
     double mean_radius = 0.0;
     double polarization = 0.0;
     // Bounded planar covariance anisotropy: 0 is isotropic and 1 is collinear.
     double elongation = 0.0;
     double group_speed = 0.0;
-    std::array<double, kGameplaySheepCount> nearest_neighbor_spacing{};
+    std::array<double, kMaximumGameplaySheepCount> nearest_neighbor_spacing{};
     double mean_nearest_neighbor_spacing = 0.0;
     std::uint32_t connected_component_count = 0;
     ChosenNeighborCountSummary chosen_neighbors{};
     FlockDogObservables dog{};
 
-    bool operator==(const FiveSheepObservables&) const = default;
+    bool operator==(const FlockObservables&) const = default;
 };
 
-[[nodiscard]] std::optional<FiveSheepObservables> compute_five_sheep_observables(
-    const SheepStateBuffer& sheep,
-    const std::array<std::uint32_t, kGameplaySheepCount>& chosen_neighbor_counts,
-    double connectivity_distance, const std::optional<Vec3>& dog_position) noexcept;
+// Returns `std::nullopt` for a flock this pass cannot describe: an empty span,
+// more members than a published buffer can hold, a chosen-neighbor-count span
+// of a different length, an invalid or duplicate-ID member, or a non-finite
+// connectivity distance or dog position.
+[[nodiscard]] std::optional<FlockObservables>
+compute_flock_observables(std::span<const SheepState> sheep,
+                          std::span<const std::uint32_t> chosen_neighbor_counts,
+                          double connectivity_distance,
+                          const std::optional<Vec3>& dog_position) noexcept;
 
 // The temporal half of the flock observables. Bearing, distance, spacing, and
 // shape are properties of one published snapshot; response latency, split and
@@ -109,7 +122,7 @@ struct FiveSheepObservables {
 // That temporal state is a **plain value the caller owns and threads**:
 // `advance_flock_response_timing` takes the previous record and returns the next
 // one, exactly the way each tick derives the next sheep buffer from the
-// immutable prior buffer. `compute_five_sheep_observables` therefore stays a
+// immutable prior buffer. `compute_flock_observables` therefore stays a
 // pure pass, and no clock, mutable static, or hidden singleton exists anywhere
 // in this file. The record is fixed-size, allocation-free, comparable, and
 // reproducible from a replay by folding it over the same published snapshots
@@ -206,12 +219,12 @@ struct FlockResponseTiming {
 // this pass cannot describe: the same sheep-validity and duplicate-ID rules the
 // snapshot pass applies, a stimulus outside
 // `[kSheepMinimumArousal, kSheepMaximumArousal]`, a `rest_arousal` outside the
-// same range, a component count outside `[1, kGameplaySheepCount]`, or a tick
-// that does not advance. `previous` must be a default-constructed record or one
-// this function returned.
+// same range, a stimulus span of a different length from the sheep span, a
+// component count outside `[1, sheep.size()]`, or a tick that does not advance.
+// `previous` must be a default-constructed record or one this function returned.
 [[nodiscard]] std::optional<FlockResponseTiming> advance_flock_response_timing(
-    const FlockResponseTiming& previous, std::uint64_t tick, const SheepStateBuffer& sheep,
-    const std::array<double, kGameplaySheepCount>& arousal_stimulus,
+    const FlockResponseTiming& previous, std::uint64_t tick,
+    std::span<const SheepState> sheep, std::span<const double> arousal_stimulus,
     std::uint32_t connected_component_count, double rest_arousal) noexcept;
 
 } // namespace wide_eye::game

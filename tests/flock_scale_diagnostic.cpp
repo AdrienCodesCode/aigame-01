@@ -93,11 +93,11 @@ using wide_eye::game::Vec3;
 
 using Clock = std::chrono::steady_clock;
 
-// The four member counts the roadmap item names. `kGameplaySheepCount` is the
-// authoritative one and stays first, because it is the only one with a
+// The four member counts the roadmap item names. The accepted five-member
+// flock stays first, because it is the only one with a `GameplaySimulation`
 // reference to compare against.
 constexpr std::array<std::size_t, 4> kMemberCounts{5, 14, 25, 100};
-static_assert(kMemberCounts.front() == wide_eye::game::kGameplaySheepCount);
+static_assert(kMemberCounts.front() == wide_eye::game::kDefaultGameplaySheepCount);
 static_assert(kMemberCounts.back() <= SheepSpatialGrid::kMaximumMemberCount);
 
 constexpr std::uint64_t kValidateTicks = 240;
@@ -503,10 +503,14 @@ bool check(bool condition, std::string_view stage) {
     GameplayScenarioDefinition scenario =
         wide_eye::game::find_gameplay_scenario("sheep-all-influences-diagnostic").value();
     scenario.dog.initial_state = kDiagnosticDogState;
-    // Only the five-member reference reads `initial_sheep`; the diagnostic flock
-    // carries its own storage. Filling it keeps the two fixtures identical where
-    // they overlap.
-    for (std::size_t index = 0; index < scenario.initial_sheep.size(); ++index) {
+    // Only the five-member reference constructs a `GameplaySimulation` from this;
+    // the diagnostic flock carries its own storage. Filling it keeps the two
+    // fixtures identical where they overlap. A lattice larger than a published
+    // buffer can hold is still a legal diagnostic flock, so the scenario carries
+    // whatever part of it fits.
+    scenario.sheep_count =
+        std::min(lattice.size(), wide_eye::game::kMaximumGameplaySheepCount);
+    for (std::size_t index = 0; index < scenario.sheep_count; ++index) {
         scenario.initial_sheep[index] = lattice[index];
     }
     return scenario;
@@ -551,7 +555,7 @@ bool check(bool condition, std::string_view stage) {
     if (!(snapshot.dog == flock.dog())) {
         return false;
     }
-    for (std::size_t index = 0; index < wide_eye::game::kGameplaySheepCount; ++index) {
+    for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
         if (!(snapshot.sheep[index] == flock.sheep()[index]) ||
             !(snapshot.sheep_social_evidence[index] == flock.social()[index]) ||
             !(snapshot.sheep_dog_pressure_evidence[index] == flock.dog_pressure()[index]) ||
@@ -653,7 +657,8 @@ struct MemberRun {
 // The five-member reference: `GameplaySimulation` and the diagnostic, same
 // scenario, same scripted dog, compared every tick.
 [[nodiscard]] std::int64_t first_reference_mismatch_tick(std::uint64_t ticks) {
-    const std::vector<SheepState> lattice = make_lattice(wide_eye::game::kGameplaySheepCount);
+    const std::vector<SheepState> lattice =
+        make_lattice(wide_eye::game::kDefaultGameplaySheepCount);
     const GameplayScenarioDefinition scenario = diagnostic_scenario(lattice);
     auto simulation = std::make_unique<GameplaySimulation>(scenario);
     auto flock = std::make_unique<DiagnosticFlock>(scenario, lattice);
@@ -746,9 +751,10 @@ int main(int argc, char** argv) {
 
     std::cout << "flock_scale_schema=1\n"
               << "flock_scale_scenario=sheep-all-influences-diagnostic\n"
-              << "flock_scale_authoritative_members=" << wide_eye::game::kGameplaySheepCount << '\n'
+              << "flock_scale_authoritative_members="
+              << wide_eye::game::kDefaultGameplaySheepCount << '\n'
               << "flock_scale_grid_capacity=" << SheepSpatialGrid::kMaximumMemberCount << '\n'
-              << "flock_scale_reference members=" << wide_eye::game::kGameplaySheepCount
+              << "flock_scale_reference members=" << wide_eye::game::kDefaultGameplaySheepCount
               << " ticks=" << kValidateTicks << " published_snapshot_equal=yes\n"
               << "flock_scale_timing_status=" << (run_benchmark ? "measured" : "not_measured")
               << '\n'

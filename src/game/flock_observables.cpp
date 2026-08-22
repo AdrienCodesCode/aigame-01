@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 
 namespace wide_eye::game {
@@ -22,7 +23,7 @@ namespace {
 // The identity and finite-value rules a published buffer must satisfy before
 // either pass in this file will describe it. Both passes share one predicate so
 // a snapshot the spatial pass rejects can never be one the timing pass folds in.
-[[nodiscard]] bool valid_sheep_buffer(const SheepStateBuffer& sheep) noexcept {
+[[nodiscard]] bool valid_sheep_buffer(std::span<const SheepState> sheep) noexcept {
     for (std::size_t index = 0; index < sheep.size(); ++index) {
         if (!valid_state(sheep[index])) {
             return false;
@@ -38,11 +39,17 @@ namespace {
 
 } // namespace
 
-std::optional<FiveSheepObservables> compute_five_sheep_observables(
-    const SheepStateBuffer& sheep,
-    const std::array<std::uint32_t, kGameplaySheepCount>& chosen_neighbor_counts,
-    double connectivity_distance, const std::optional<Vec3>& dog_position) noexcept {
-    if (!std::isfinite(connectivity_distance) || connectivity_distance < 0.0 ||
+std::optional<FlockObservables>
+compute_flock_observables(std::span<const SheepState> sheep,
+                          std::span<const std::uint32_t> chosen_neighbor_counts,
+                          double connectivity_distance,
+                          const std::optional<Vec3>& dog_position) noexcept {
+    // The flock size is whatever the caller published. A count of zero has no
+    // centroid, a count past the capacity cannot be stored, and a
+    // chosen-neighbor span of another length is describing a different flock.
+    if (sheep.empty() || sheep.size() > kMaximumGameplaySheepCount ||
+        chosen_neighbor_counts.size() != sheep.size() ||
+        !std::isfinite(connectivity_distance) || connectivity_distance < 0.0 ||
         !valid_sheep_buffer(sheep)) {
         return std::nullopt;
     }
@@ -57,7 +64,8 @@ std::optional<FiveSheepObservables> compute_five_sheep_observables(
         return std::nullopt;
     }
 
-    FiveSheepObservables result;
+    FlockObservables result;
+    result.member_count = sheep.size();
     for (const SheepState& member : sheep) {
         result.centroid.x += member.position.x;
         result.centroid.y += member.position.y;
@@ -106,8 +114,8 @@ std::optional<FiveSheepObservables> compute_five_sheep_observables(
         result.elongation = std::clamp(eigenvalue_delta / covariance_trace, 0.0, 1.0);
     }
 
-    std::array<std::size_t, kGameplaySheepCount> component_parent{};
-    for (std::size_t index = 0; index < component_parent.size(); ++index) {
+    std::array<std::size_t, kMaximumGameplaySheepCount> component_parent{};
+    for (std::size_t index = 0; index < sheep.size(); ++index) {
         component_parent[index] = index;
         result.nearest_neighbor_spacing[index] = std::numeric_limits<double>::infinity();
     }
@@ -133,11 +141,11 @@ std::optional<FiveSheepObservables> compute_five_sheep_observables(
             }
         }
     }
-    for (const double spacing : result.nearest_neighbor_spacing) {
-        result.mean_nearest_neighbor_spacing += spacing;
+    for (std::size_t index = 0; index < sheep.size(); ++index) {
+        result.mean_nearest_neighbor_spacing += result.nearest_neighbor_spacing[index];
     }
     result.mean_nearest_neighbor_spacing /= member_count;
-    for (std::size_t index = 0; index < component_parent.size(); ++index) {
+    for (std::size_t index = 0; index < sheep.size(); ++index) {
         if (find_root(index) == index) {
             ++result.connected_component_count;
         }
@@ -198,11 +206,13 @@ std::optional<FiveSheepObservables> compute_five_sheep_observables(
 }
 
 std::optional<FlockResponseTiming> advance_flock_response_timing(
-    const FlockResponseTiming& previous, std::uint64_t tick, const SheepStateBuffer& sheep,
-    const std::array<double, kGameplaySheepCount>& arousal_stimulus,
+    const FlockResponseTiming& previous, std::uint64_t tick,
+    std::span<const SheepState> sheep, std::span<const double> arousal_stimulus,
     std::uint32_t connected_component_count, double rest_arousal) noexcept {
-    if (!std::isfinite(rest_arousal) || rest_arousal < kSheepMinimumArousal ||
-        rest_arousal > kSheepMaximumArousal || connected_component_count == 0 ||
+    if (sheep.empty() || sheep.size() > kMaximumGameplaySheepCount ||
+        arousal_stimulus.size() != sheep.size() || !std::isfinite(rest_arousal) ||
+        rest_arousal < kSheepMinimumArousal || rest_arousal > kSheepMaximumArousal ||
+        connected_component_count == 0 ||
         connected_component_count > sheep.size() || !valid_sheep_buffer(sheep)) {
         return std::nullopt;
     }

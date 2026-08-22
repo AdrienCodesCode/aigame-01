@@ -4,7 +4,9 @@
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <cstddef>
 #include <limits>
+#include <span>
 #include <system_error>
 
 namespace wide_eye::game {
@@ -48,7 +50,7 @@ bool valid_social_evidence(const GameplaySnapshot& snapshot) noexcept {
                                                 std::uint32_t neighbor_count,
                                                 std::uint32_t candidate_count) {
         if (neighbor_count > neighbor_ids.size() || candidate_count < neighbor_count ||
-            candidate_count >= snapshot.sheep.size()) {
+            candidate_count >= snapshot.sheep_count) {
             return false;
         }
         for (std::size_t neighbor_index = 0; neighbor_index < neighbor_ids.size();
@@ -64,7 +66,8 @@ bool valid_social_evidence(const GameplaySnapshot& snapshot) noexcept {
                 return false;
             }
             const bool neighbor_exists = std::any_of(
-                snapshot.sheep.begin(), snapshot.sheep.end(),
+                snapshot.sheep.begin(),
+                snapshot.sheep.begin() + static_cast<std::ptrdiff_t>(snapshot.sheep_count),
                 [neighbor_id](const SheepState& sheep) { return sheep.id == neighbor_id; });
             if (!neighbor_exists) {
                 return false;
@@ -78,7 +81,7 @@ bool valid_social_evidence(const GameplaySnapshot& snapshot) noexcept {
         return true;
     };
 
-    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+    for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
         const SheepSocialEvidence& evidence = snapshot.sheep_social_evidence[index];
         if (evidence.subject_id != snapshot.sheep[index].id ||
             !valid_neighbor_set(evidence.subject_id, evidence.attraction_neighbor_ids,
@@ -97,7 +100,7 @@ bool valid_social_evidence(const GameplaySnapshot& snapshot) noexcept {
 
 bool valid_dog_pressure_evidence(const GameplaySnapshot& snapshot) noexcept {
     constexpr double kPi = 3.14159265358979323846;
-    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+    for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
         const SheepDogPressureEvidence& evidence = snapshot.sheep_dog_pressure_evidence[index];
         if (evidence.subject_id != snapshot.sheep[index].id ||
             !std::isfinite(evidence.dog_distance) || evidence.dog_distance < 0.0 ||
@@ -143,7 +146,7 @@ bool valid_dog_pressure_evidence(const GameplaySnapshot& snapshot) noexcept {
 }
 
 bool valid_collision_evidence(const GameplaySnapshot& snapshot) noexcept {
-    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+    for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
         const SheepCollisionEvidence& evidence = snapshot.sheep_collision_evidence[index];
         if (evidence.subject_id != snapshot.sheep[index].id ||
             !is_known_paddock_obstacle(evidence.obstacle)) {
@@ -161,7 +164,7 @@ bool valid_collision_evidence(const GameplaySnapshot& snapshot) noexcept {
 }
 
 bool valid_avoidance_evidence(const GameplaySnapshot& snapshot) noexcept {
-    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+    for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
         const SheepAvoidanceEvidence& evidence = snapshot.sheep_avoidance_evidence[index];
         if (evidence.subject_id != snapshot.sheep[index].id ||
             !is_known_paddock_obstacle(evidence.obstacle) ||
@@ -188,7 +191,7 @@ bool valid_avoidance_evidence(const GameplaySnapshot& snapshot) noexcept {
 }
 
 bool valid_combined_influence_evidence(const GameplaySnapshot& snapshot) noexcept {
-    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+    for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
         const SheepCombinedInfluenceEvidence& evidence =
             snapshot.sheep_combined_influence_evidence[index];
         if (evidence.subject_id != snapshot.sheep[index].id ||
@@ -215,7 +218,7 @@ bool valid_combined_influence_evidence(const GameplaySnapshot& snapshot) noexcep
 
 bool valid_motion_limit_evidence(const GameplaySnapshot& snapshot) noexcept {
     constexpr double kPi = 3.14159265358979323846;
-    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+    for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
         const SheepMotionLimitEvidence& evidence = snapshot.sheep_motion_limit_evidence[index];
         if (evidence.subject_id != snapshot.sheep[index].id ||
             !std::isfinite(evidence.integrated_speed) || evidence.integrated_speed < 0.0 ||
@@ -573,6 +576,16 @@ bool append_motion_limit_evidence(std::string& output, const SheepMotionLimitEvi
     return true;
 }
 
+// The published buffers are sized at `kMaximumGameplaySheepCount`; only the
+// first `sheep_count` entries were ever written by a rule, and only those are
+// serialized. Nothing past the count exists as far as this contract is
+// concerned.
+template <typename Record, std::size_t Capacity>
+[[nodiscard]] std::span<const Record> active(const std::array<Record, Capacity>& buffer,
+                                             std::size_t count) noexcept {
+    return std::span<const Record>{buffer.data(), count};
+}
+
 bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
     output += "{\"tick\":";
     if (!append_integer(output, snapshot.tick)) {
@@ -582,9 +595,13 @@ bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
     if (!append_dog_state(output, snapshot.dog)) {
         return false;
     }
+    output += ",\"sheep_count\":";
+    if (!append_integer(output, snapshot.sheep_count)) {
+        return false;
+    }
     output += ",\"sheep\":[";
     bool first_sheep = true;
-    for (const SheepState& sheep : snapshot.sheep) {
+    for (const SheepState& sheep : active(snapshot.sheep, snapshot.sheep_count)) {
         if (!first_sheep) {
             output += ',';
         }
@@ -596,7 +613,8 @@ bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
     output += ']';
     output += ",\"sheep_social_evidence\":[";
     bool first_evidence = true;
-    for (const SheepSocialEvidence& evidence : snapshot.sheep_social_evidence) {
+    for (const SheepSocialEvidence& evidence :
+         active(snapshot.sheep_social_evidence, snapshot.sheep_count)) {
         if (!first_evidence) {
             output += ',';
         }
@@ -608,7 +626,8 @@ bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
     output += ']';
     output += ",\"sheep_dog_pressure_evidence\":[";
     bool first_dog_evidence = true;
-    for (const SheepDogPressureEvidence& evidence : snapshot.sheep_dog_pressure_evidence) {
+    for (const SheepDogPressureEvidence& evidence :
+         active(snapshot.sheep_dog_pressure_evidence, snapshot.sheep_count)) {
         if (!first_dog_evidence) {
             output += ',';
         }
@@ -620,7 +639,8 @@ bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
     output += ']';
     output += ",\"sheep_collision_evidence\":[";
     bool first_collision_evidence = true;
-    for (const SheepCollisionEvidence& evidence : snapshot.sheep_collision_evidence) {
+    for (const SheepCollisionEvidence& evidence :
+         active(snapshot.sheep_collision_evidence, snapshot.sheep_count)) {
         if (!first_collision_evidence) {
             output += ',';
         }
@@ -632,7 +652,8 @@ bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
     output += ']';
     output += ",\"sheep_avoidance_evidence\":[";
     bool first_avoidance_evidence = true;
-    for (const SheepAvoidanceEvidence& evidence : snapshot.sheep_avoidance_evidence) {
+    for (const SheepAvoidanceEvidence& evidence :
+         active(snapshot.sheep_avoidance_evidence, snapshot.sheep_count)) {
         if (!first_avoidance_evidence) {
             output += ',';
         }
@@ -645,7 +666,7 @@ bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
     output += ",\"sheep_combined_influence_evidence\":[";
     bool first_combined_evidence = true;
     for (const SheepCombinedInfluenceEvidence& evidence :
-         snapshot.sheep_combined_influence_evidence) {
+         active(snapshot.sheep_combined_influence_evidence, snapshot.sheep_count)) {
         if (!first_combined_evidence) {
             output += ',';
         }
@@ -657,7 +678,8 @@ bool append_snapshot(std::string& output, const GameplaySnapshot& snapshot) {
     output += ']';
     output += ",\"sheep_motion_limit_evidence\":[";
     bool first_motion_limit_evidence = true;
-    for (const SheepMotionLimitEvidence& evidence : snapshot.sheep_motion_limit_evidence) {
+    for (const SheepMotionLimitEvidence& evidence :
+         active(snapshot.sheep_motion_limit_evidence, snapshot.sheep_count)) {
         if (!first_motion_limit_evidence) {
             output += ',';
         }
@@ -819,14 +841,18 @@ GameplayTextResult gameplay_state_dump_json(const GameplaySimulation& simulation
     if (!finite(simulation.previous_snapshot().dog) || !finite(simulation.current_snapshot().dog)) {
         return {.error = GameplayContractError::non_finite_state, .text = {}};
     }
-    for (const SheepState& sheep : simulation.previous_snapshot().sheep) {
-        if (!valid_state(sheep)) {
+    // A published count of zero, or one past the buffer capacity, is not a
+    // smaller or larger flock; it is a snapshot this contract cannot describe.
+    for (const GameplaySnapshot* snapshot :
+         {&simulation.previous_snapshot(), &simulation.current_snapshot()}) {
+        if (snapshot->sheep_count == 0 ||
+            snapshot->sheep_count > kMaximumGameplaySheepCount) {
             return {.error = GameplayContractError::non_finite_state, .text = {}};
         }
-    }
-    for (const SheepState& sheep : simulation.current_snapshot().sheep) {
-        if (!valid_state(sheep)) {
-            return {.error = GameplayContractError::non_finite_state, .text = {}};
+        for (const SheepState& sheep : active(snapshot->sheep, snapshot->sheep_count)) {
+            if (!valid_state(sheep)) {
+                return {.error = GameplayContractError::non_finite_state, .text = {}};
+            }
         }
     }
     if (!valid_social_evidence(simulation.previous_snapshot()) ||

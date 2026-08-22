@@ -5,59 +5,60 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <span>
 
 namespace wide_eye::game {
 namespace {
 
 [[nodiscard]] SheepSocialEvidenceBuffer
-empty_social_evidence(const SheepStateBuffer& sheep) noexcept {
+empty_social_evidence(const SheepStateBuffer& sheep, std::size_t count) noexcept {
     SheepSocialEvidenceBuffer evidence{};
-    for (std::size_t index = 0; index < sheep.size(); ++index) {
+    for (std::size_t index = 0; index < count; ++index) {
         evidence[index].subject_id = sheep[index].id;
     }
     return evidence;
 }
 
 [[nodiscard]] SheepDogPressureEvidenceBuffer
-empty_dog_pressure_evidence(const SheepStateBuffer& sheep) noexcept {
+empty_dog_pressure_evidence(const SheepStateBuffer& sheep, std::size_t count) noexcept {
     SheepDogPressureEvidenceBuffer evidence{};
-    for (std::size_t index = 0; index < sheep.size(); ++index) {
+    for (std::size_t index = 0; index < count; ++index) {
         evidence[index].subject_id = sheep[index].id;
     }
     return evidence;
 }
 
 [[nodiscard]] SheepCollisionEvidenceBuffer
-empty_collision_evidence(const SheepStateBuffer& sheep) noexcept {
+empty_collision_evidence(const SheepStateBuffer& sheep, std::size_t count) noexcept {
     SheepCollisionEvidenceBuffer evidence{};
-    for (std::size_t index = 0; index < sheep.size(); ++index) {
+    for (std::size_t index = 0; index < count; ++index) {
         evidence[index].subject_id = sheep[index].id;
     }
     return evidence;
 }
 
 [[nodiscard]] SheepAvoidanceEvidenceBuffer
-empty_avoidance_evidence(const SheepStateBuffer& sheep) noexcept {
+empty_avoidance_evidence(const SheepStateBuffer& sheep, std::size_t count) noexcept {
     SheepAvoidanceEvidenceBuffer evidence{};
-    for (std::size_t index = 0; index < sheep.size(); ++index) {
+    for (std::size_t index = 0; index < count; ++index) {
         evidence[index].subject_id = sheep[index].id;
     }
     return evidence;
 }
 
 [[nodiscard]] SheepCombinedInfluenceEvidenceBuffer
-empty_combined_influence_evidence(const SheepStateBuffer& sheep) noexcept {
+empty_combined_influence_evidence(const SheepStateBuffer& sheep, std::size_t count) noexcept {
     SheepCombinedInfluenceEvidenceBuffer evidence{};
-    for (std::size_t index = 0; index < sheep.size(); ++index) {
+    for (std::size_t index = 0; index < count; ++index) {
         evidence[index].subject_id = sheep[index].id;
     }
     return evidence;
 }
 
 [[nodiscard]] SheepMotionLimitEvidenceBuffer
-empty_motion_limit_evidence(const SheepStateBuffer& sheep) noexcept {
+empty_motion_limit_evidence(const SheepStateBuffer& sheep, std::size_t count) noexcept {
     SheepMotionLimitEvidenceBuffer evidence{};
-    for (std::size_t index = 0; index < sheep.size(); ++index) {
+    for (std::size_t index = 0; index < count; ++index) {
         evidence[index].subject_id = sheep[index].id;
     }
     return evidence;
@@ -205,16 +206,19 @@ void validate_social_response_configuration(const GameplayScenarioDefinition& sc
                         "sheep driven arousal must be finite, above its release, and within range");
         // Arousal is bounded by design, so a starting value outside the range is
         // a broken contract rather than a stronger sheep.
-        for (const SheepState& sheep : scenario.initial_sheep) {
+        for (std::size_t index = 0; index < scenario.sheep_count; ++index) {
+            const SheepState& sheep = scenario.initial_sheep[index];
             WIDE_EYE_ASSERT(std::isfinite(sheep.arousal) && sheep.arousal >= kSheepMinimumArousal &&
                                 sheep.arousal <= kSheepMaximumArousal,
                             "initial sheep arousal must be finite and within the arousal range");
         }
     }
 }
-// One authoritative tick of the fixed five-sheep flock. The rules themselves
-// live in `sheep_rules.hpp`; what belongs here is the order they are applied in
-// and the five-member buffers they are applied to.
+// One authoritative tick of the flock. The rules themselves live in
+// `sheep_rules.hpp`; what belongs here is the order they are applied in and the
+// active member count they are applied over. That count is carried from the
+// previous snapshot onto the next one, so it is the tick's own data rather than
+// a constant, and the one line a later grow-or-shrink outcome replaces.
 void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot& next,
                               const GameplayScenarioDefinition& scenario,
                               const PaddockCollisionField& paddock,
@@ -233,11 +237,13 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
     constexpr std::array<double, kLegCount> kHeadings{{0.0, kHalfPi, kPi, -kHalfPi}};
 
     const SheepStateBuffer& prior = previous.sheep;
+    const std::size_t member_count = previous.sheep_count;
+    next.sheep_count = member_count;
 
     // Every fixture keeps the explicit prior-to-next pass so behavior cannot
     // acquire update-order dependence. The named motion fixture is scripted
     // presentation evidence, not a social-response implementation.
-    for (std::size_t index = 0; index < prior.size(); ++index) {
+    for (std::size_t index = 0; index < member_count; ++index) {
         next.sheep[index] = prior[index];
         next.sheep_social_evidence[index] = {.subject_id = prior[index].id};
         next.sheep_dog_pressure_evidence[index] = {.subject_id = prior[index].id};
@@ -279,16 +285,17 @@ void advance_sheep_from_prior(const GameplaySnapshot& previous, GameplaySnapshot
     if (grid_cell_size > 0.0) {
         // The rebuild call stays outside the assertion so a future
         // release-disabled assert cannot silently remove it.
-        const SpatialGridBuildError build_error = grid.rebuild(prior, grid_cell_size);
+        const SpatialGridBuildError build_error =
+            grid.rebuild(std::span{prior.data(), member_count}, grid_cell_size);
         WIDE_EYE_ASSERT(build_error == SpatialGridBuildError::none,
                         "valid sheep snapshot must rebuild the social-response grid");
         static_cast<void>(build_error);
     }
 
-    std::array<SpatialNeighbor, kGameplaySheepCount - 1> separation_scratch{};
+    std::array<SpatialNeighbor, kMaximumGameplaySheepCount - 1> separation_scratch{};
     std::array<SpatialNeighbor, kMaximumSelectedAttractionNeighbors> attraction_scratch{};
     std::array<SpatialNeighbor, kMaximumSelectedAlignmentNeighbors> alignment_scratch{};
-    for (std::size_t index = 0; index < prior.size(); ++index) {
+    for (std::size_t index = 0; index < member_count; ++index) {
         SheepSocialEvidence& evidence = next.sheep_social_evidence[index];
         SheepDogPressureEvidence& dog_evidence = next.sheep_dog_pressure_evidence[index];
         SheepAvoidanceEvidence& avoidance_evidence = next.sheep_avoidance_evidence[index];
@@ -367,17 +374,26 @@ SheepState interpolate_sheep_state(const SheepState& previous, const SheepState&
 
 GameplaySimulation::GameplaySimulation(GameplayScenarioDefinition scenario) noexcept
     : scenario_{scenario}, dog_{scenario.dog, scenario.gate_open}, paddock_{scenario.gate_open} {
+    // The flock size is scenario data, and a scenario that asks for none or for
+    // more members than a published buffer can hold is a broken contract rather
+    // than a smaller or larger flock.
+    WIDE_EYE_ASSERT(scenario_.sheep_count > 0 &&
+                        scenario_.sheep_count <= kMaximumGameplaySheepCount,
+                    "scenario sheep count must fit the published sheep buffers");
     if (scenario_.sheep_fixture == SheepFixture::local_social_response) {
         validate_social_response_configuration(scenario_);
     }
     current_.dog = dog_.state();
+    current_.sheep_count = scenario_.sheep_count;
     current_.sheep = scenario_.initial_sheep;
-    current_.sheep_social_evidence = empty_social_evidence(current_.sheep);
-    current_.sheep_dog_pressure_evidence = empty_dog_pressure_evidence(current_.sheep);
-    current_.sheep_collision_evidence = empty_collision_evidence(current_.sheep);
-    current_.sheep_avoidance_evidence = empty_avoidance_evidence(current_.sheep);
-    current_.sheep_combined_influence_evidence = empty_combined_influence_evidence(current_.sheep);
-    current_.sheep_motion_limit_evidence = empty_motion_limit_evidence(current_.sheep);
+    const std::size_t count = current_.sheep_count;
+    current_.sheep_social_evidence = empty_social_evidence(current_.sheep, count);
+    current_.sheep_dog_pressure_evidence = empty_dog_pressure_evidence(current_.sheep, count);
+    current_.sheep_collision_evidence = empty_collision_evidence(current_.sheep, count);
+    current_.sheep_avoidance_evidence = empty_avoidance_evidence(current_.sheep, count);
+    current_.sheep_combined_influence_evidence =
+        empty_combined_influence_evidence(current_.sheep, count);
+    current_.sheep_motion_limit_evidence = empty_motion_limit_evidence(current_.sheep, count);
     previous_ = current_;
 }
 
@@ -396,17 +412,22 @@ void GameplaySimulation::fixed_update(const GameplayTickInput& input) noexcept {
 
 void GameplaySimulation::restart() noexcept {
     dog_.restart();
+    const std::size_t count = scenario_.sheep_count;
     current_ = {.tick = 0,
                 .dog = dog_.state(),
+                .sheep_count = count,
                 .sheep = scenario_.initial_sheep,
-                .sheep_social_evidence = empty_social_evidence(scenario_.initial_sheep),
-                .sheep_dog_pressure_evidence = empty_dog_pressure_evidence(scenario_.initial_sheep),
-                .sheep_collision_evidence = empty_collision_evidence(scenario_.initial_sheep),
-                .sheep_avoidance_evidence = empty_avoidance_evidence(scenario_.initial_sheep),
+                .sheep_social_evidence = empty_social_evidence(scenario_.initial_sheep, count),
+                .sheep_dog_pressure_evidence =
+                    empty_dog_pressure_evidence(scenario_.initial_sheep, count),
+                .sheep_collision_evidence =
+                    empty_collision_evidence(scenario_.initial_sheep, count),
+                .sheep_avoidance_evidence =
+                    empty_avoidance_evidence(scenario_.initial_sheep, count),
                 .sheep_combined_influence_evidence =
-                    empty_combined_influence_evidence(scenario_.initial_sheep),
+                    empty_combined_influence_evidence(scenario_.initial_sheep, count),
                 .sheep_motion_limit_evidence =
-                    empty_motion_limit_evidence(scenario_.initial_sheep)};
+                    empty_motion_limit_evidence(scenario_.initial_sheep, count)};
     previous_ = current_;
 }
 
@@ -422,6 +443,7 @@ GameplaySnapshot GameplaySimulation::interpolated_snapshot(double alpha) const n
     GameplaySnapshot result{
         .tick = current_.tick,
         .dog = interpolate_dog_state(previous_.dog, current_.dog, alpha),
+        .sheep_count = current_.sheep_count,
         .sheep = current_.sheep,
         .sheep_social_evidence = current_.sheep_social_evidence,
         .sheep_dog_pressure_evidence = current_.sheep_dog_pressure_evidence,
@@ -430,7 +452,7 @@ GameplaySnapshot GameplaySimulation::interpolated_snapshot(double alpha) const n
         .sheep_combined_influence_evidence = current_.sheep_combined_influence_evidence,
         .sheep_motion_limit_evidence = current_.sheep_motion_limit_evidence,
     };
-    for (std::size_t index = 0; index < result.sheep.size(); ++index) {
+    for (std::size_t index = 0; index < result.sheep_count; ++index) {
         result.sheep[index] =
             interpolate_sheep_state(previous_.sheep[index], current_.sheep[index], alpha);
     }

@@ -3,6 +3,7 @@
 #include "game/dog_controller.hpp"
 #include "game/sheep_state.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string_view>
@@ -40,6 +41,7 @@ enum class GameplayScenarioId : std::uint8_t {
     sheep_behavior_transitions_off,
     sheep_behavior_transitions_on,
     sheep_all_influences_diagnostic,
+    fifty_sheep_paddock,
 };
 
 enum class SheepFixture : std::uint8_t {
@@ -287,6 +289,22 @@ struct GameplayScenarioDefinition {
     // sheep line-of-sight query needs it, so neither owns it.
     bool gate_open = false;
     SheepFixture sheep_fixture = SheepFixture::stationary;
+    // How many members of `initial_sheep` this scenario actually simulates. The
+    // buffer is sized at `kMaximumGameplaySheepCount`; this is the count every
+    // loop, publication, observable, and evidence buffer iterates, and the
+    // entries past it are never read, written, published, or serialized.
+    //
+    // The scenario supplies the **initial** value only. `GameplaySimulation`
+    // copies it onto the published snapshot and carries it from there, so the
+    // active count is data the simulation owns rather than a constant frozen at
+    // construction. Nothing bakes it into a type or a template parameter, which
+    // is what a later outcome that grows or shrinks a flock during play needs:
+    // that outcome changes where the next tick's count comes from, not the shape
+    // of any buffer, snapshot, or published record.
+    //
+    // Must be at least one and at most `kMaximumGameplaySheepCount`; the
+    // simulation asserts both before the first tick.
+    std::size_t sheep_count = kDefaultGameplaySheepCount;
     SheepStateBuffer initial_sheep = kDefaultGameplaySheepStates;
     SheepSeparationConfiguration sheep_separation{};
     SheepAttractionConfiguration sheep_attraction{};

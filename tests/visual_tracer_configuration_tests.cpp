@@ -73,7 +73,9 @@ int main() {
         route_40.dog_move.has_value() && route_40.dog_move->world_x == 0.75 &&
         route_90.dog_move.has_value() && route_90.dog_move->sprint &&
         route_150.dog_move.has_value() && route_150.dog_move->world_z == 1.0;
-    const bool stable_ids = snapshot.sheep.front().id == 1 && snapshot.sheep.back().id == 5;
+    // The published buffer is capacity-sized; the flock is its active count.
+    const bool stable_ids = snapshot.sheep_count == 5 && snapshot.sheep.front().id == 1 &&
+                            snapshot.sheep[snapshot.sheep_count - 1].id == 5;
     if (!check(first->current_snapshot() == repeat->current_snapshot(),
                "visual_tracer_route_repeats_exactly") ||
         !check(route_segments_match, "visual_tracer_route_boundaries") ||

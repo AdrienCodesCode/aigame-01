@@ -46,7 +46,8 @@ receive SDL scancodes, buttons, axes, windows, or event structures. The `render`
 boundary's `OpenGlRenderer` façade owns the Phase 1 triangle and
 perspective voxel-cube resources and draw paths, the Tracer 1 paddock's checked
 indexed upload and opaque draw path, camera-parameterized paddock/debug draws, an
-optional placeholder-dog draw, five static-mesh procedural sheep-proxy draws,
+optional placeholder-dog draw, one static-mesh procedural sheep-proxy draw per
+published flock member,
 and top-left RGBA8 readback; it does not own
 another entry-point table or authoritative camera/dog state. The boundary also
 supplies the color/depth oracle helpers and deterministic PNG encoding used by
@@ -143,9 +144,23 @@ The core `FixedStepAccumulator` is the only
 render-to-simulation scheduler. `GameplaySimulation` consumes exactly one
 domain input per fixed tick without receiving render-frame timing, owns the
 existing dog controller, and publishes read-only previous/current snapshots of
-the dog plus five authoritative sheep. Sheep IDs 1–5 and hot kinematic,
-arousal, behavior, and grounded fields live in one fixed contiguous buffer.
-Every tick derives the next sheep buffer from the immutable prior buffer. The
+the dog plus the scenario's authoritative flock. **The flock size is
+scenario-owned data, not a constant.** `GameplayScenarioDefinition::sheep_count`
+supplies the initial value, `GameplaySnapshot::sheep_count` republishes it every
+tick, and every loop, publication, observable, evidence buffer, renderer pose,
+and serialized record iterates that active count. The buffers behind it are
+fixed-size arrays of `kMaximumGameplaySheepCount`, currently `256` and bounded
+below the spatial grid's own 1,000-member ceiling; entries past the active count
+are default-constructed filler that no rule writes and nothing publishes.
+`kGameplaySheepCount` no longer exists: what remains is
+`kDefaultGameplaySheepCount`, the five-member size of the default fixture, which
+is a fixture default rather than a flock size. The count is carried rather than
+frozen so that a later outcome can grow or shrink a flock during play by changing
+what the next tick writes, without changing the shape of any buffer, snapshot, or
+published record; runtime add and remove are **not** implemented. Sheep IDs and
+hot kinematic, arousal, behavior, and grounded fields live in one fixed
+contiguous buffer. Every tick derives the next sheep buffer from the immutable
+prior buffer. The
 default no-behavior baseline preserves those records unchanged. The named
 `presentation-motion` fixture moves the same five records synchronously around
 a scripted square while retaining settled behavior and zero arousal; it is
@@ -158,7 +173,10 @@ influence debug view in `render/influence_debug_view` builds its line segments
 from the same published snapshot on the same terms: it reads the per-term
 acceleration vectors, chosen-neighbor IDs, arousal, behavior, heading target,
 and the combined-bound record, holds no authoritative state, and writes into a
-caller-owned bounded segment buffer so a debug frame cannot allocate or grow
+caller-owned bounded frame — an out-parameter rather than a return value,
+because at the published sheep capacity the frame is over half a megabyte and
+a returned one would be materialized in its caller's stack frame — so a debug
+frame cannot allocate or grow
 without bound. Its arrow length is a stated scale rather than a raw
 acceleration, and it is reachable only through its own strict argv shapes. Independent
 version 1 seed, action-input, and replay contracts bind the named
@@ -179,7 +197,7 @@ Compatibility validation completes before replay mutation, and canonical
 compact JSON writers expose replay plus published state. The bounded
 presentation capture path can write the latter beside a frame; file decoding
 and general replay/seed CLI integration remain tooling work. A pure fixed-size
-observable pass reads the published five-sheep buffer and explicit connectivity/
+observable pass reads the published flock span and explicit connectivity/
 chosen-neighbor/dog-position inputs to compute centroid, ground-plane radius,
 polarization, elongation, group speed, nearest-neighbor spacing, connected
 components, neighbor-count summaries, and the flock-level dog geometry —
@@ -359,8 +377,9 @@ meshes; the same game-owned field answers the sheep sight-line query. Version 1,
 `sheep-combined-influence-on`, `sheep-motion-limit-off`, `sheep-motion-limit-on`,
 `sheep-avoidance-off`, `sheep-avoidance-on`,
 `sheep-behavior-transitions-off`, `sheep-behavior-transitions-on`,
-`sheep-all-influences-diagnostic`, `wall-contact`, `closed-gate`, and
-`open-gate` gameplay definitions provide deterministic initialization and exact
+`sheep-all-influences-diagnostic`, `fifty-sheep-paddock`, `wall-contact`,
+`closed-gate`, and `open-gate` gameplay definitions provide deterministic
+initialization and exact
 restart. `sheep-all-influences-diagnostic` is the one deliberately maximal
 fixture — every steering term, both motion limits, temperament, line of sight,
 the combined bound, and the behavior transitions switched on together against a
@@ -369,23 +388,35 @@ for the properties that only appear when everything runs at once: that the
 applied acceleration is always exactly the published terms, that no term
 oscillates, and that the whole published sequence is reproducible. **It is a
 diagnostic, not accepted tuned gameplay**, and no owner has reviewed the motion
-it produces. Every one of those per-sheep rules — the paddock resolve, the dog
+it produces. `fifty-sheep-paddock` is the scale fixture: fifty authoritative
+members placed by an explicit row-major lattice rule — column `i % 10`, row
+`i / 10`, spacing `2.5`, anchored on the paddock's x axis — with the same maximal
+switch set. There is no randomness anywhere in the simulation and no rule reads
+the seed, so the placement is a rule rather than a generator. Its spacing clears
+the `1.0` body diameter, the `1.0` close-range separation radius, and the
+renderer's `2.2`-unit sheep proxy, and the occupied rectangle clears the paddock
+bounds and the wall line by more than a body radius, so no member relies on the
+collision field depenetrating a bad start. **It is a diagnostic rather than
+accepted tuned gameplay for the same reason**, and no accepted design says the
+first playable has fifty sheep. Every one of those per-sheep rules — the paddock
+resolve, the dog
 stimulus, the behavior transition, neighbour selection, the three social terms,
 avoidance, the combined bound and its integration, and the two motion limits —
 is declared in `game/sheep_rules.hpp` and defined in `sheep_rules.cpp` as a
 function over immutable prior state and a `std::span<const SheepState>`.
 `GameplaySimulation` remains the sole authoritative caller and still owns tick
-order, the fixed five-member buffers, snapshot publication, scenario validation,
-and the replay contract; what it no longer owns is a private monopoly on the
-arithmetic, because a rule only one caller can reach can only be measured
-through that caller. The member count reaches the rules only as an index, so a
-non-player diagnostic can drive the same functions over a longer caller-owned
-span **without any published contract growing a member**: `kGameplaySheepCount`
-is still `5`, every evidence buffer is still a five-member array, and
-`GameplaySnapshot` is still a fixed-size value.
+order, the published buffers, snapshot publication, scenario validation, and the
+replay contract; what it no longer owns is a private monopoly on the arithmetic,
+because a rule only one caller can reach can only be measured through that
+caller. The member count reaches the rules only as an index, so a non-player
+diagnostic can drive the same functions over a longer caller-owned span.
 [`ADR 0010`](../docs/decisions/0010-diagnostic-flock-scale-over-shared-sheep-rules.md)
 records that decision, the three widenings it rejected, and why the diagnostic
-lives in `tests/` and is never linked into `wide_eye`. The
+lives in `tests/` and is never linked into `wide_eye`. That decision deliberately
+kept the authoritative contract at five members; the scenario-owned flock size
+above **supersedes that half of it** while leaving the shared-rules half exactly
+as it was — the rules are the same functions, no second path was forked, and the
+diagnostic still reaches them the same way. The
 gameplay camera owns orbit yaw/pitch independently of dog facing; orchestration
 applies look first, resolves camera-yaw-relative movement on the ground plane,
 then advances the dog. The free-debug camera retains independent position/look

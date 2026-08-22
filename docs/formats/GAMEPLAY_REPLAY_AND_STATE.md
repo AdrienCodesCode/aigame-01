@@ -1,13 +1,13 @@
 # Gameplay replay and state-dump contracts
 
-**Status:** Version 1 seed/action/replay and version 14 dog, five-sheep, social-
-evidence, dog-stimulus-evidence, sheep-temperament, sheep-collision-evidence,
+**Status:** Version 1 seed/action/replay and version 15 dog, scenario-owned-flock,
+social-evidence, dog-stimulus-evidence, sheep-temperament, sheep-collision-evidence,
 combined-influence-bound, sheep-motion-limit, sheep-avoidance, and
 sheep-arousal-stimulus state dump implemented; the presentation capture CLI can
 write a state dump, while JSON decoding and general replay/seed CLI integration
 remain pending
 
-**Last revised:** 2026-08-21
+**Last revised:** 2026-08-22
 
 The `game` boundary owns these contracts. They make a fixed-tick input sequence
 and its observed state inspectable without giving file or renderer code control
@@ -40,8 +40,8 @@ The contracts use four independently named versions:
   authoritative tick;
 - replay format `1` binds the tick rate, seed contract, action-input version,
   and complete action sequence;
-- state-dump format `14` records the seed contract, tick rate, restart count, and
-  published previous/current dog, five-sheep, social-evidence, dog-stimulus-
+- state-dump format `15` records the seed contract, tick rate, restart count, and
+  published previous/current dog, flock, social-evidence, dog-stimulus-
   evidence, sheep-collision-evidence, combined-influence-bound,
   sheep-motion-limit, and sheep-avoidance snapshots. Version 1 was dog-only,
   version 2 added sheep state, version 3 added attraction evidence, version 4
@@ -61,7 +61,13 @@ The contracts use four independently named versions:
   version 13 added the per-sheep avoidance record: whether the term ran, the
   named analytic obstacle the sheep's look-ahead path reaches first and how far
   along it that shape lies, whether the ground under the look-ahead point is not
-  finite, and the acceleration the term produced. No
+  finite, and the acceleration the term produced, version 14 added the per-sheep
+  arousal stimulus the behavior transition follows, and version 15 made the flock
+  size scenario-owned: each snapshot now states its own `sheep_count` and writes
+  exactly that many records into each per-member array, where version 14 and every
+  version before it wrote exactly five. A version 14 reader must not be pointed at
+  a version 15 dump, because a dump of a scenario with more than five members has
+  arrays it cannot describe. No
   older version is silently reinterpreted.
 
 A replay consumer must reject an unsupported version, a tick rate other than
@@ -94,12 +100,26 @@ decoder, replay file path, checked-in replay fixture, and executable
 `--replay`/`--seed` flags are intentionally deferred. No untrusted or external
 JSON is accepted by the engine yet.
 
-## State dump version 14
+## State dump version 15
 
 The schema name is `wide-eye.gameplay-state`. The dump contains the scenario
 seed contract, fixed rate, restart count, and complete published previous and
 current snapshots. Each snapshot contains the dog position, velocity, heading,
-and grounded state plus exactly five sheep. Every sheep record contains ID,
+and grounded state, then its own `sheep_count`, then exactly that many sheep.
+
+The flock size is **scenario-owned data**, not a constant of the format.
+`GameplayScenarioDefinition::sheep_count` supplies the initial value, the
+simulation carries it on every published snapshot, and every per-member array in
+the dump — sheep, social evidence, dog-stimulus evidence, collision evidence,
+avoidance evidence, combined-influence evidence, and motion-limit evidence — has
+exactly `sheep_count` entries in the same order. The authoritative buffers behind
+them are fixed-size arrays of `kMaximumGameplaySheepCount`, currently `256`; the
+entries past the active count are default-constructed filler that no rule writes
+and the dump never serializes. A `sheep_count` of zero, or one above that
+capacity, is refused with `non_finite_state` before any text is produced. Every
+named scenario written before this version still publishes five, and their dumps
+are byte-identical to their version 14 dumps apart from the version number and
+the added `sheep_count` key. Every sheep record contains ID,
 position, velocity, heading, arousal, explicit behavior state, explicit
 temperament, and grounded state. Behavior is `settled`, `alert`, `driven`, or
 `recovering` and arousal is a bounded `[0, 1]` value; both are described under
@@ -769,6 +789,24 @@ clang-tidy passed. Every rate and threshold is a provisional legibility choice
 rather than a measured value, arousal is a named game parameter rather than a
 physiological measurement, and no player has seen a sheep change state.
 
+**Observed result (2026-08-22, native Windows, MSVC 19.44 x64):** making the
+flock size scenario-owned advanced the state dump to version 15. A direct
+comparison against a pre-change build ran all thirty pre-existing scenarios for
+240 scripted ticks each under one scripted moving-dog input, dumping the
+canonical state after construction and after every tick — 241 dumps per scenario,
+7,230 in total. The raw dumps differ in exactly three tokens per dump: the
+`"version"` value `14` becomes `15`, and each of the `previous` and `current`
+objects gains `"sheep_count":5`. With those two substitutions applied, all thirty
+files are byte-identical to the pre-change build, so no position, velocity,
+heading, arousal, behavior, temperament, evidence record, or applied acceleration
+moved. The new `fifty-sheep-paddock` scale fixture publishes fifty members,
+allocates zero heap bytes across 600 ticks, reproduces its whole published
+sequence in an independent run, and writes one record per active member into a
+188,212-byte dump. `dev` passed 46/46 CTests and `release` 48/48; `format-check`
+and `clang-tidy-check` were not run, because Clang 18 is absent on this host, and
+`wide_eye.gameplay_simulation_stack_budget` is registered only on UNIX and
+therefore did not run here either.
+
 **Observed result (2026-08-16):** the earlier native Windows Release capture
 commands wrote canonical version 2 state at presentation ticks 1, 61, and 121.
 The independent normal, repeat-normal, and face-normal debug commands at tick 61
@@ -777,7 +815,7 @@ byte-identical state files with SHA-256
 `8b2921e4a87bc2e8b8b86e08f4f17d8b3a7bf7c9413293b90b03b728ec27a905`.
 This is local same-platform evidence, not a cross-platform identity claim.
 
-Native Linux graphics, a native Windows version 14 capture, JSON decoding, CLI
+Native Linux graphics, a native Windows version 15 capture, JSON decoding, CLI
 replay/seed ingestion, persistent replay files, the terrain pressure factor,
 damping, avoidance against terrain rather than against the paddock edge, arousal
 causes other than the dog, any effect of behavior state on steering, objective

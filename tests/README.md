@@ -23,7 +23,14 @@ accepted Tracer 0 and Tracer 1 paddock packets' files, hashes, and verdicts; the
 60 Hz fixed-step accumulator; exact authoritative gameplay state after the same
 tick-indexed controls under 100×10 ms and 10×100 ms render partitions;
 previous/current snapshot publication, read-only interpolation, suspended-dog
-ticks, and restart coherence; one-to-one preservation of five published sheep
+ticks, and restart coherence; the scenario-owned flock size, checked on the
+fifty-member `fifty-sheep-paddock` fixture: that every member starts clear of
+every analytic paddock shape and bound and clear of every other member, that the
+published count is the scenario count, that every published record describes a
+member and nothing past the active count was written, that 600 ticks at fifty
+members allocate no heap memory, that the whole published sequence is reproduced
+by an independent run and by restart, and that the state dump writes one record
+per active member; one-to-one preservation of the published sheep
 IDs, positions, and headings in the renderer-facing proxy buffer; repeated
 hand-authored five-sheep centroid, ground-plane mean radius, polarization,
 bounded elongation, group-speed, nearest-neighbor spacing, threshold-connected
@@ -165,7 +172,7 @@ outside `[0, 1]`, and a light-projection extent at or below zero — is asserted
 by name; the guards were separately confirmed by deleting each one and watching
 this test fail;
 influence debug-view coverage that builds every debug primitive from published
-evidence across 30 scenarios and 240 ticks each, checking arrow geometry and the
+evidence across 31 scenarios and 240 ticks each, checking arrow geometry and the
 stated scale against the published vectors, chosen-neighbor link endpoints against
 the published IDs, bounded segment capacity, zero allocations, and that every
 near-black `applied` stroke carries its bright casing while the `applied` lane

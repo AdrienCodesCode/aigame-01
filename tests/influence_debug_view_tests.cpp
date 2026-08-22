@@ -20,6 +20,7 @@
 #include <memory>
 #include <new>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -69,7 +70,7 @@ using wide_eye::render::influence_channel_color;
 using wide_eye::render::influence_channel_index;
 using wide_eye::render::kInfluenceChannelCount;
 
-constexpr std::array<std::string_view, 30> kScenarioNames{{
+constexpr std::array<std::string_view, 31> kScenarioNames{{
     "paddock-start",
     "presentation-motion",
     "wall-contact",
@@ -100,6 +101,7 @@ constexpr std::array<std::string_view, 30> kScenarioNames{{
     "sheep-behavior-transitions-off",
     "sheep-behavior-transitions-on",
     "sheep-all-influences-diagnostic",
+    "fifty-sheep-paddock",
 }};
 
 bool check(bool condition, const char* name) {
@@ -235,6 +237,10 @@ int main() {
             applied_color[0] <= 0.10F && applied_color[1] <= 0.10F && applied_color[2] <= 0.10F;
     }
 
+    // One caller-owned frame, refilled. At the published capacity the frame is
+    // over half a megabyte, so a per-tick stack copy would be a stack overflow
+    // rather than a fixture.
+    const auto sweep_frame = std::make_unique<InfluenceDebugFrame>();
     for (const std::string_view name : kScenarioNames) {
         const auto scenario = wide_eye::game::find_gameplay_scenario(name);
         if (!check(scenario.has_value(), "scenario_available")) {
@@ -245,8 +251,8 @@ int main() {
         for (std::uint64_t tick = 0; tick < 240; ++tick) {
             simulation->fixed_update(input_for_tick(tick));
             const GameplaySnapshot& snapshot = simulation->current_snapshot();
-            const InfluenceDebugFrame frame =
-                wide_eye::render::build_influence_debug_frame(snapshot, *scenario);
+            wide_eye::render::build_influence_debug_frame(snapshot, *scenario, *sweep_frame);
+            const InfluenceDebugFrame& frame = *sweep_frame;
 
             mix_frame(sweep_digest, frame);
             worst_segment_count = std::max(worst_segment_count, frame.segment_count);
@@ -259,7 +265,7 @@ int main() {
             every_frame_within_capacity =
                 every_frame_within_capacity && frame.segment_count <= frame.segments.size();
 
-            for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+            for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
                 const auto& sheep = snapshot.sheep[index];
                 const auto sources = channel_sources(snapshot, index);
 
@@ -400,7 +406,8 @@ int main() {
                         }
                     }
                     bool endpoints_match = false;
-                    for (const auto& candidate : snapshot.sheep) {
+                    for (const auto& candidate :
+                         std::span{snapshot.sheep.data(), snapshot.sheep_count}) {
                         if (candidate.id != segment.object_id) {
                             continue;
                         }
@@ -527,9 +534,9 @@ int main() {
         std::uint32_t clamped = 0;
         for (std::uint64_t tick = 0; tick < 240; ++tick) {
             simulation->fixed_update(input_for_tick(tick));
-            clamped += wide_eye::render::build_influence_debug_frame(simulation->current_snapshot(),
-                                                                     *scenario)
-                           .clamped_arrow_count;
+            wide_eye::render::build_influence_debug_frame(simulation->current_snapshot(),
+                                                          *scenario, *sweep_frame);
+            clamped += sweep_frame->clamped_arrow_count;
         }
         if (name == "sheep-combined-influence-on") {
             bounded_clamped = clamped;
@@ -554,19 +561,19 @@ int main() {
     for (std::uint64_t tick = 0; tick < 120; ++tick) {
         deterministic->fixed_update(input_for_tick(tick));
     }
-    const auto first =
-        std::make_unique<InfluenceDebugFrame>(wide_eye::render::build_influence_debug_frame(
-            deterministic->current_snapshot(), *diagnostic));
-    const auto second =
-        std::make_unique<InfluenceDebugFrame>(wide_eye::render::build_influence_debug_frame(
-            deterministic->current_snapshot(), *diagnostic));
+    const auto first = std::make_unique<InfluenceDebugFrame>();
+    wide_eye::render::build_influence_debug_frame(deterministic->current_snapshot(),
+                                                  *diagnostic, *first);
+    const auto second = std::make_unique<InfluenceDebugFrame>();
+    wide_eye::render::build_influence_debug_frame(deterministic->current_snapshot(),
+                                                  *diagnostic, *second);
     deterministic->restart();
     for (std::uint64_t tick = 0; tick < 120; ++tick) {
         deterministic->fixed_update(input_for_tick(tick));
     }
-    const auto after_restart =
-        std::make_unique<InfluenceDebugFrame>(wide_eye::render::build_influence_debug_frame(
-            deterministic->current_snapshot(), *diagnostic));
+    const auto after_restart = std::make_unique<InfluenceDebugFrame>();
+    wide_eye::render::build_influence_debug_frame(deterministic->current_snapshot(),
+                                                  *diagnostic, *after_restart);
     if (!check(*first == *second, "repeated_build_is_identical") ||
         !check(*first == *after_restart, "restarted_run_rebuilds_an_identical_frame") ||
         !check(first->segment_count > 0, "diagnostic_frame_is_not_empty")) {
@@ -583,8 +590,8 @@ int main() {
         const auto untouched = std::make_unique<GameplaySimulation>(*scenario);
         for (std::uint64_t tick = 0; tick < 240; ++tick) {
             observed->fixed_update(input_for_tick(tick));
-            static_cast<void>(wide_eye::render::build_influence_debug_frame(
-                observed->current_snapshot(), *scenario));
+            wide_eye::render::build_influence_debug_frame(observed->current_snapshot(),
+                                                          *scenario, *sweep_frame);
             untouched->fixed_update(input_for_tick(tick));
             observation_is_inert = observation_is_inert &&
                                    observed->current_snapshot() == untouched->current_snapshot();
@@ -599,12 +606,15 @@ int main() {
     }
 
     // ----------------------------------------------------------- allocation
+    // The frame storage is acquired before the counter is read, so the loop
+    // measures the builder rather than one allocation of its output.
+    const auto warm_frame = std::make_unique<InfluenceDebugFrame>();
     const std::size_t allocations_before = g_influence_debug_allocation_count;
     std::uint64_t warm_digest = kFnvOffsetBasis;
     for (int repeat = 0; repeat < 600; ++repeat) {
-        const InfluenceDebugFrame frame = wide_eye::render::build_influence_debug_frame(
-            deterministic->current_snapshot(), *diagnostic);
-        mix_frame(warm_digest, frame);
+        wide_eye::render::build_influence_debug_frame(deterministic->current_snapshot(),
+                                                      *diagnostic, *warm_frame);
+        mix_frame(warm_digest, *warm_frame);
     }
     const std::size_t build_allocations = g_influence_debug_allocation_count - allocations_before;
     if (!check(build_allocations == 0, "building_a_debug_frame_does_not_allocate")) {

@@ -598,7 +598,62 @@ constexpr SheepStateBuffer kAllInfluencesSheepStates{{
 constexpr DogState kAllInfluencesDogState{
     .position = {.x = 16.0, .y = 1.0, .z = 27.0}, .heading_radians = 0.0, .grounded = true};
 
-constexpr std::array<NamedGameplayScenario, 30> kGameplayScenarios{{
+// Fifty authoritative sheep, placed by an explicit rule rather than by a
+// generator: this simulation contains no randomness and no rule reads the seed,
+// so a fixture that needed one would be describing a game this is not.
+//
+// The rule is a row-major lattice. Member `i` stands at column `i % 10` and row
+// `i / 10` of a 10 x 5 grid whose spacing is 2.5 world units, anchored so the
+// grid is centred on the paddock's x axis.
+//
+// The spacing is chosen, not tuned. It is above the 1.0 body diameter, so no
+// member starts inside another; above the 1.0 close-range separation radius, so
+// the flock starts settled rather than already pushing itself apart; and above
+// the 2.2-unit length of the renderer's sheep proxy, so the drawn bodies do not
+// interpenetrate either. It is below the 4.0 attraction radius, so the flock is
+// a flock rather than fifty independent animals.
+//
+// Every constant is checked against the analytic paddock rather than asserted:
+// the occupied rectangle is x in [4.75, 27.25] and z in [18, 28], which with the
+// 0.5 sheep body radius reaches x in [4.25, 27.75] and z in [17.5, 28.5]. That
+// clears the paddock bounds at 0 and 32 on both axes, and clears the wall line
+// -- both walls and the gate end at z = 16 -- by one and a half units.
+// `resolve_sheep_against_paddock` would depenetrate a bad start, but a fixture
+// that relies on that is a fixture that has not been placed.
+inline constexpr std::size_t kFiftySheepCount = 50;
+inline constexpr std::size_t kFiftySheepColumns = 10;
+inline constexpr double kFiftySheepSpacing = 2.5;
+inline constexpr double kFiftySheepOriginX = 4.75;
+inline constexpr double kFiftySheepOriginZ = 18.0;
+
+[[nodiscard]] constexpr SheepStateBuffer make_fifty_sheep_states() noexcept {
+    SheepStateBuffer sheep{};
+    for (std::size_t index = 0; index < kFiftySheepCount; ++index) {
+        const auto column = static_cast<double>(index % kFiftySheepColumns);
+        const auto row = static_cast<double>(index / kFiftySheepColumns);
+        sheep[index] = {
+            .id = static_cast<std::uint32_t>(index + 1),
+            .position = {.x = kFiftySheepOriginX + kFiftySheepSpacing * column,
+                         .y = PaddockCollisionField::kGroundHeight,
+                         .z = kFiftySheepOriginZ + kFiftySheepSpacing * row},
+            .heading_radians = 0.0,
+            .grounded = true,
+        };
+    }
+    return sheep;
+}
+
+constexpr SheepStateBuffer kFiftySheepStates = make_fifty_sheep_states();
+
+// Behind the lattice and clear of it, facing up the paddock at the flock, so the
+// dog terms have something to act on from the first tick. Heading zero is the
+// `-z` direction in the shared `atan2(x, -z)` convention, which is toward the
+// wall line the flock stands in front of. At the 0.42 dog radius this start
+// clears the paddock bound at 32 and stands 2.5 units behind the rear row.
+constexpr DogState kFiftySheepDogState{
+    .position = {.x = 16.0, .y = 1.0, .z = 30.5}, .heading_radians = 0.0, .grounded = true};
+
+constexpr std::array<NamedGameplayScenario, 31> kGameplayScenarios{{
     {
         .name = "paddock-start",
         .definition = {.id = GameplayScenarioId::paddock_start,
@@ -859,6 +914,35 @@ constexpr std::array<NamedGameplayScenario, 30> kGameplayScenarios{{
                        .dog = {.initial_state = kAllInfluencesDogState},
                        .sheep_fixture = SheepFixture::local_social_response,
                        .initial_sheep = kAllInfluencesSheepStates,
+                       .sheep_separation = {.enabled = true},
+                       .sheep_attraction = {.enabled = true},
+                       .sheep_alignment = {.enabled = true},
+                       .sheep_dog_pressure = {.enabled = true},
+                       .sheep_dog_approach = {.enabled = true},
+                       .sheep_dog_facing = {.enabled = true},
+                       .sheep_dog_line_of_sight = {.enabled = true},
+                       .sheep_temperament = {.enabled = true},
+                       .sheep_avoidance = {.enabled = true},
+                       .sheep_combined_influence = {.enabled = true},
+                       .sheep_motion_limit = {.enabled = true},
+                       .sheep_behavior = {.enabled = true}},
+    },
+    {
+        // The scale fixture. It exists to prove that an authoritative flock
+        // larger than the accepted five runs the same rules over the same
+        // contract, and every switch is on so that the grid rebuild, neighbour
+        // selection, all seven steering terms, both motion limits, the combined
+        // bound, the behaviour transition, and the paddock resolve are all
+        // exercised at fifty members. Like `sheep-all-influences-diagnostic`,
+        // and for the same reason, **it is a diagnostic rather than accepted
+        // tuned gameplay**: no owner has reviewed the motion fifty sheep
+        // produce, and no accepted design says the first playable has fifty.
+        .name = "fifty-sheep-paddock",
+        .definition = {.id = GameplayScenarioId::fifty_sheep_paddock,
+                       .dog = {.initial_state = kFiftySheepDogState},
+                       .sheep_fixture = SheepFixture::local_social_response,
+                       .sheep_count = kFiftySheepCount,
+                       .initial_sheep = kFiftySheepStates,
                        .sheep_separation = {.enabled = true},
                        .sheep_attraction = {.enabled = true},
                        .sheep_alignment = {.enabled = true},

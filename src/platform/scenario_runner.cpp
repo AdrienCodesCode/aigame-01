@@ -204,7 +204,7 @@ void write_influence_debug_dump(std::ostream& out, std::string_view scenario_nam
             << " balance_x=" << frame.balance_point.x << " balance_z=" << frame.balance_point.z
             << " dog_behind_flock=" << (frame.dog_behind_flock ? "yes" : "no") << '\n';
     }
-    for (std::size_t index = 0; index < snapshot.sheep.size(); ++index) {
+    for (std::size_t index = 0; index < snapshot.sheep_count; ++index) {
         const game::SheepState& sheep = snapshot.sheep[index];
         const game::SheepMotionLimitEvidence& motion = snapshot.sheep_motion_limit_evidence[index];
         const game::SheepCombinedInfluenceEvidence& combined =
@@ -311,7 +311,7 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
                 if (!gameplay_scenario_.has_value()) {
                     return WindowFailure{"dog_scenario_select", false};
                 }
-                simulation_.emplace(*gameplay_scenario_);
+                simulation_ = std::make_unique<game::GameplaySimulation>(*gameplay_scenario_);
                 camera_.emplace(simulation_->current_snapshot().dog);
                 previous_camera_state_ = camera_->state();
                 if (scenario_ == RenderScenario::sheep_motion_paddock ||
@@ -385,7 +385,7 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
                         write_influence_debug_dump(
                             output, game::gameplay_scenario_name(gameplay_scenario_->id),
                             *gameplay_scenario_, simulation_->current_snapshot(),
-                            build_influence_frame());
+                            *build_influence_frame());
                         if (!output) {
                             return WindowFailure{"influence_debug_dump_write", false};
                         }
@@ -417,7 +417,7 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
 
     WindowResult fixed_update(const NamedActionSnapshot& input,
                               double fixed_delta_seconds) override {
-        if (!simulation_.has_value() || !camera_.has_value()) {
+        if (simulation_ == nullptr || !camera_.has_value()) {
             return std::nullopt;
         }
 
@@ -513,9 +513,13 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
     // arrow taken from `current` drawn over a body halfway to `current` would be
     // a half-tick lie, and "the same tick produces the same frame" would depend
     // on the render cadence.
-    [[nodiscard]] render::InfluenceDebugFrame build_influence_frame() const {
-        return render::build_influence_debug_frame(simulation_->current_snapshot(),
-                                                   *gameplay_scenario_);
+    // The frame is over half a megabyte at the published capacity, so it is
+    // filled in caller-owned heap storage rather than returned by value.
+    [[nodiscard]] std::unique_ptr<render::InfluenceDebugFrame> build_influence_frame() const {
+        auto frame = std::make_unique<render::InfluenceDebugFrame>();
+        render::build_influence_debug_frame(simulation_->current_snapshot(),
+                                            *gameplay_scenario_, *frame);
+        return frame;
     }
 
     [[nodiscard]] render::HandcraftedPaddockFrame make_influence_debug_scene_frame() const {
@@ -531,7 +535,7 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
                     .heading_radians = static_cast<float>(snapshot.dog.heading_radians),
                 },
             .sheep = render::make_sheep_proxy_poses(snapshot),
-            .sheep_count = game::kGameplaySheepCount,
+            .sheep_count = snapshot.sheep_count,
         };
     }
 
@@ -539,8 +543,7 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
         const render::HandcraftedPaddockFrame scene = make_influence_debug_scene_frame();
         renderer_->render_handcrafted_paddock(window_state.pixel_width(),
                                               window_state.pixel_height(), scene);
-        const auto influence =
-            std::make_unique<render::InfluenceDebugFrame>(build_influence_frame());
+        const auto influence = build_influence_frame();
         renderer_->render_influence_debug_overlay(
             window_state.pixel_width(), window_state.pixel_height(), scene.camera, *influence);
         std::cout << "scenario=influence_debug\n"
@@ -641,7 +644,7 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
                     .heading_radians = static_cast<float>(render_dog.heading_radians),
                 },
             .sheep = render_sheep,
-            .sheep_count = render_sheep.size(),
+            .sheep_count = render_snapshot.sheep_count,
         };
     }
 
@@ -857,7 +860,10 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
     std::optional<VisualTracerConfiguration> visual_tracer_;
     VisualTracerCamera visual_tracer_camera_ = VisualTracerCamera::representative;
     std::optional<render::OpenGlRenderer> renderer_;
-    std::optional<game::GameplaySimulation> simulation_;
+    // Heap, not inline: `GameplaySimulation` is 362 KiB at the authoritative
+    // sheep capacity, and every `run_*` entry point holds this runner in a stack
+    // frame. Storing it by value put that frame over the default thread stack.
+    std::unique_ptr<game::GameplaySimulation> simulation_;
     std::optional<game::CameraController> camera_;
     game::CameraState previous_camera_state_{};
     std::optional<render::HandcraftedPaddockFrame> prepared_gameplay_frame_;
@@ -1174,8 +1180,8 @@ int run_influence_debug_dump_scenario(std::string_view gameplay_scenario,
     for (std::uint64_t tick = 0; tick < capture_tick; ++tick) {
         simulation->fixed_update(visual_tracer_input_for_tick(tick));
     }
-    const auto frame = std::make_unique<render::InfluenceDebugFrame>(
-        render::build_influence_debug_frame(simulation->current_snapshot(), *definition));
+    const auto frame = std::make_unique<render::InfluenceDebugFrame>();
+    render::build_influence_debug_frame(simulation->current_snapshot(), *definition, *frame);
     if (frame_dump_path.has_value()) {
         std::ofstream output{*frame_dump_path, std::ios::binary | std::ios::trunc};
         write_influence_debug_dump(output, game::gameplay_scenario_name(definition->id),
