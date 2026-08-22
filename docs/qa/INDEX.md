@@ -4,13 +4,15 @@
      in open/ and closed/ are the source of truth. Regenerate with the
      qa-index target, or `cmake -DMODE=index -P tools/qa/qa-tracker.cmake`. -->
 
-**0 open** · 7 closed · convention in [README.md](README.md)
+**1 open** · 7 closed · convention in [README.md](README.md)
 
 > No tracer-gate blockers open.
 
 ## Open
 
-_Nothing open. File with the `qa-intake` skill (`/qa`)._
+### S3 — minor
+
+- [ ] [QA-008](open/QA-008-generated-influence-evidence-committed-at-the-repository-root.md) Generated influence-debug evidence is committed at the repository root, outside the ignored artifacts tree, and no longer describes HEAD — _build · confirmed_
 
 ## By area
 
@@ -18,7 +20,7 @@ _Nothing open. File with the `qa-intake` skill (`/qa`)._
 | --- | --- | --- |
 | game | 0 | 3 |
 | tests | 0 | 1 |
-| build | 0 | 1 |
+| build | 1 | 1 |
 | docs | 0 | 2 |
 
 ## Closed
