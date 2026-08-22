@@ -616,6 +616,21 @@
   24/24 CTests after these changes; project formatting and bounded clang-tidy
   passed. Native graphics and measurements were not rerun because no
   presentation path changed.
+- **Decisions waiting on the owner (2026-08-22):** four, none of which an agent
+  should make. (1) The influence debug views need a readability verdict and a
+  capture from native hardware; the candidate packet is in
+  `artifacts/phase3/2026-08-22/debug-influence-views/`, and the roadmap item
+  stays unticked until then. (2)
+  [QA-004](docs/qa/open/QA-004-presets-do-not-pin-the-compiler.md): pin every
+  preset to Clang 18, or make the accidental GCC 13.3 Release build a stated
+  second preset — it has already caught a real portability defect, so it has
+  value worth keeping deliberately. (3)
+  [QA-005](docs/qa/open/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md):
+  fixing it means overturning the ADR 0008 section that considered and rejected
+  a graded proximity response, and two candidate corrections were measured and
+  reverted. (4) The dog-pressure item stays unticked on terrain alone; it is
+  deferred to Phase 5 because the paddock has one constant ground height, and
+  splitting the item instead is an owner call. No S1 issue is open.
 - **Unaccepted work awaiting the owner (2026-08-22):** the influence debug views
   are implemented, deterministic, and covered by two headless CTests, but no
   human has seen them and **no capture of them exists on any machine**. This
