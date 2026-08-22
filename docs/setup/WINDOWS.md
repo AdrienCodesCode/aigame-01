@@ -272,12 +272,25 @@ context smoke `tools/phase0/run-context-smoke.ps1`; ignored evidence log
   including every display-backed OpenGL test from `opengl_context_smoke`
   through `opengl_debug_high_severity` and `opengl_influence_debug_overlay`.
 
-**Not claimed:** no Phase 0 visual-feasibility baseline packet, capture,
-timing, memory, startup, or package measurement has been produced on this host.
-The RTX 5070 Ti is a newer GPU than the RTX 4070 Ti the approved plan assumed,
-so the provisional High budgets remain reasoned about untested hardware until
+**Observed result — the Phase 0 baseline packet, 2026-08-22.**
 [`run-visual-feasibility-baseline.ps1`](../../tools/phase3/run-visual-feasibility-baseline.ps1)
-actually runs here.
+has now run on this host at 2560×1440@60 and completed with `result=pass`.
+Ignored evidence packet:
+`artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/`. It records
+all 13 stages `pass` (including `ctest-release` 47/47),
+`gl_debug_high_severity_messages=0`, `within_performance_budget=yes`,
+`startup_to_first_capture_ms=392.116`, `compressed_package_bytes=956271`,
+`process_peak_rss_bytes=76713984`, and `synchronized_frame_p95_ns=6985000`.
+The first attempt, on the same day, aborted on a shell defect rather than a
+graphics one — see
+[QA-009](../qa/closed/QA-009-windows-evidence-runners-abort-on-benign-opengl-notification-stderr.md).
+
+**Not claimed:** the packet is unchanged pre-visual-implementation comparison
+evidence, so no visual quality, accepted look, or promoted baseline follows from
+it, and its owner camera/rubric verdict is still blank. The RTX 5070 Ti is also a
+newer GPU than the RTX 4070 Ti the approved plan assumed: the provisional High
+budgets were met here, but they remain provisional numbers chosen before this
+hardware was measured rather than budgets derived from it.
 
 ## Observed Windows host — 2026-08-15
 

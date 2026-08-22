@@ -24,6 +24,36 @@ function Write-Logged {
     }
 }
 
+# Windows PowerShell 5.1 wraps every native stderr line in a NativeCommandError
+# record, so $ErrorActionPreference = "Stop" aborts on a benign diagnostic even
+# when the process exits 0. The engine writes every OpenGL debug message to
+# stderr by design (src/platform/window_runtime.cpp), so lower the preference
+# around the invocation only, keep the merged text as evidence, and grade the
+# command by its exit code. See QA-009 in docs/qa/.
+function Invoke-NativeMerged {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [AllowEmptyCollection()]
+        [string[]]$Arguments = @()
+    )
+
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $merged = & $FilePath @Arguments 2>&1
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    $exitCode = $LASTEXITCODE
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Lines = [string[]]@($merged | ForEach-Object { $_.ToString() })
+    }
+}
+
 function Invoke-CheckedNative {
     param(
         [Parameter(Mandatory = $true)]
@@ -37,10 +67,11 @@ function Invoke-CheckedNative {
     )
 
     Write-Logged -Message ("command={0} {1}" -f $FilePath, ($NativeArguments -join " "))
-    & $FilePath @NativeArguments 2>&1 | ForEach-Object {
-        Write-Logged -Message $_.ToString()
+    $invocation = Invoke-NativeMerged -FilePath $FilePath -Arguments $NativeArguments
+    foreach ($line in $invocation.Lines) {
+        Write-Logged -Message $line
     }
-    $nativeExitCode = $LASTEXITCODE
+    $nativeExitCode = $invocation.ExitCode
     if ($nativeExitCode -ne 0) {
         throw "$Label failed with exit code $nativeExitCode."
     }
@@ -206,10 +237,11 @@ try {
 
     Write-Logged -Message ("smoke_executable={0}" -f $executable)
     Write-Logged -Message ("requested_gl={0}.{1}" -f $Major, $Minor)
-    & $executable $Major $Minor 2>&1 | ForEach-Object {
-        Write-Logged -Message $_.ToString()
+    $smoke = Invoke-NativeMerged -FilePath $executable -Arguments @("$Major", "$Minor")
+    foreach ($line in $smoke.Lines) {
+        Write-Logged -Message $line
     }
-    $scriptExitCode = $LASTEXITCODE
+    $scriptExitCode = $smoke.ExitCode
     Write-Logged -Message ("smoke_exit_code={0}" -f $scriptExitCode)
 }
 catch {

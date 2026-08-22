@@ -94,6 +94,36 @@ function Format-Command {
     return (@($FilePath) + $formattedArguments) -join " "
 }
 
+# Windows PowerShell 5.1 wraps every native stderr line in a NativeCommandError
+# record, so $ErrorActionPreference = "Stop" aborts on a benign diagnostic even
+# when the process exits 0. The engine writes every OpenGL debug message to
+# stderr by design (src/platform/window_runtime.cpp), so lower the preference
+# around the invocation only, keep the merged text as evidence, and grade the
+# command by its exit code. See QA-009 in docs/qa/.
+function Invoke-NativeMerged {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [AllowEmptyCollection()]
+        [string[]]$Arguments = @()
+    )
+
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $merged = & $FilePath @Arguments 2>&1
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    $exitCode = $LASTEXITCODE
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Lines = [string[]]@($merged | ForEach-Object { $_.ToString() })
+    }
+}
+
 function Invoke-CheckedNative {
     param(
         [Parameter(Mandatory = $true)]
@@ -120,12 +150,12 @@ function Invoke-CheckedNative {
     $nativeExitCode = -1
     $invocationError = $null
     try {
-        & $FilePath @NativeArguments 2>&1 | ForEach-Object {
-            $line = $_.ToString()
+        $invocation = Invoke-NativeMerged -FilePath $FilePath -Arguments $NativeArguments
+        foreach ($line in $invocation.Lines) {
             [void]$capturedLines.Add($line)
             Write-Logged -Message $line
         }
-        $nativeExitCode = $LASTEXITCODE
+        $nativeExitCode = $invocation.ExitCode
     }
     catch {
         $invocationError = $_.Exception.Message
@@ -331,7 +361,12 @@ function Get-SourceState {
         return [pscustomobject]$sourceState
     }
 
+    # 2>$null still routes native stderr through the error stream, so "Stop"
+    # would abort on a benign git diagnostic and silently blank the required
+    # manifest source fields. Grade by $LASTEXITCODE instead. See QA-009.
+    $previousPreference = $ErrorActionPreference
     try {
+        $ErrorActionPreference = "Continue"
         $safeRepositoryRoot = $RepositoryRoot.Replace("\", "/")
         $commit = & $git.Source -c "safe.directory=$safeRepositoryRoot" -C $RepositoryRoot rev-parse HEAD 2>$null
         if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commit)) {
@@ -354,6 +389,9 @@ function Get-SourceState {
     }
     catch {
         $sourceState.worktree_state = "unknown"
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
     }
     return [pscustomobject]$sourceState
 }
@@ -406,7 +444,10 @@ function Get-ToolVersion {
     if ([string]::IsNullOrWhiteSpace($FilePath)) {
         return $null
     }
+    # See Get-SourceState: 2>$null does not exempt a native command from "Stop".
+    $previousPreference = $ErrorActionPreference
     try {
+        $ErrorActionPreference = "Continue"
         $versionLines = @(& $FilePath --version 2>$null)
         if ($LASTEXITCODE -eq 0 -and $versionLines.Count -gt 0) {
             return $versionLines[0].ToString().Trim()
@@ -414,6 +455,9 @@ function Get-ToolVersion {
     }
     catch {
         return $null
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
     }
     return $null
 }

@@ -41,6 +41,36 @@ function Add-ObservedLines {
     }
 }
 
+# Windows PowerShell 5.1 wraps every native stderr line in a NativeCommandError
+# record, so $ErrorActionPreference = "Stop" aborts on a benign diagnostic even
+# when the process exits 0. The engine writes every OpenGL debug message to
+# stderr by design (src/platform/window_runtime.cpp), so lower the preference
+# around the invocation only, keep the merged text as evidence, and grade the
+# command by its exit code. See QA-009 in docs/qa/.
+function Invoke-NativeMerged {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [AllowEmptyCollection()]
+        [string[]]$Arguments = @()
+    )
+
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $merged = & $FilePath @Arguments 2>&1
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    $exitCode = $LASTEXITCODE
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Lines = [string[]]@($merged | ForEach-Object { $_.ToString() })
+    }
+}
+
 function Invoke-Checked {
     param(
         [Parameter(Mandatory = $true)][string]$Stage,
@@ -55,25 +85,25 @@ function Invoke-Checked {
     $displayCommand = "{0} {1}" -f $FilePath, ($Arguments -join " ")
     Write-Logged -Message ("command={0}" -f $displayCommand)
     if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) {
-        $commandOutput = & $FilePath @Arguments 2>&1
+        $invocation = Invoke-NativeMerged -FilePath $FilePath -Arguments $Arguments
     }
     else {
         $quotedArguments = @($Arguments | ForEach-Object { '"{0}"' -f $_.Replace('"', '\"') })
         $cmdCommand = 'pushd "{0}" && "{1}" {2}' -f $WorkingDirectory, $FilePath, ($quotedArguments -join " ")
         Push-Location -LiteralPath $env:SystemRoot
         try {
-            $commandOutput = & $env:COMSPEC /d /s /c $cmdCommand 2>&1
+            $invocation = Invoke-NativeMerged -FilePath $env:COMSPEC `
+                -Arguments @("/d", "/s", "/c", $cmdCommand)
         }
         finally {
             Pop-Location
         }
     }
-    $commandOutput | ForEach-Object {
-        $line = $_.ToString()
+    foreach ($line in $invocation.Lines) {
         [void]$lines.Add($line)
         Write-Logged -Message $line
     }
-    $exitCode = $LASTEXITCODE
+    $exitCode = $invocation.ExitCode
     $finished = (Get-Date).ToUniversalTime()
     [void]$script:Commands.Add([pscustomobject][ordered]@{
         stage = $Stage

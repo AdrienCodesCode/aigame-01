@@ -22,6 +22,36 @@ function Write-Logged {
     }
 }
 
+# Windows PowerShell 5.1 wraps every native stderr line in a NativeCommandError
+# record, so $ErrorActionPreference = "Stop" aborts on a benign diagnostic even
+# when the process exits 0. The engine writes every OpenGL debug message to
+# stderr by design (src/platform/window_runtime.cpp), so lower the preference
+# around the invocation only, keep the merged text as evidence, and grade the
+# command by its exit code. See QA-009 in docs/qa/.
+function Invoke-NativeMerged {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [AllowEmptyCollection()]
+        [string[]]$Arguments = @()
+    )
+
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $merged = & $FilePath @Arguments 2>&1
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    $exitCode = $LASTEXITCODE
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Lines = [string[]]@($merged | ForEach-Object { $_.ToString() })
+    }
+}
+
 function Invoke-Checked {
     param([string]$Stage, [string]$FilePath, [string[]]$Arguments,
           [string]$WorkingDirectory = "", [switch]$RecordState)
@@ -29,25 +59,27 @@ function Invoke-Checked {
     Write-Logged "command_stage=$Stage"
     Write-Logged ("command={0} {1}" -f $FilePath, ($Arguments -join " "))
     if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) {
-        $output = & $FilePath @Arguments 2>&1
+        $invocation = Invoke-NativeMerged -FilePath $FilePath -Arguments $Arguments
     }
     else {
         $quoted = @($Arguments | ForEach-Object { '"{0}"' -f $_.Replace('"', '\"') })
         $command = 'pushd "{0}" && "{1}" {2}' -f $WorkingDirectory, $FilePath, ($quoted -join " ")
         Push-Location -LiteralPath $env:SystemRoot
-        try { $output = & $env:COMSPEC /d /s /c $command 2>&1 }
+        try {
+            $invocation = Invoke-NativeMerged -FilePath $env:COMSPEC `
+                -Arguments @("/d", "/s", "/c", $command)
+        }
         finally { Pop-Location }
     }
     $lines = [System.Collections.Generic.List[string]]::new()
-    $output | ForEach-Object {
-        $line = $_.ToString()
+    foreach ($line in $invocation.Lines) {
         [void]$lines.Add($line)
         Write-Logged $line
         if ($RecordState -and $line -match "^([A-Za-z][A-Za-z0-9_.-]*)=(.*)$") {
             $script:Observed[$Matches[1]] = $Matches[2]
         }
     }
-    $exitCode = $LASTEXITCODE
+    $exitCode = $invocation.ExitCode
     [void]$script:Commands.Add([pscustomobject][ordered]@{
         stage = $Stage; file = $FilePath; arguments = @($Arguments)
         started_at_utc = $started.ToString("o")

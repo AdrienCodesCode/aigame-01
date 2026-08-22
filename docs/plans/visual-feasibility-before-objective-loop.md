@@ -767,8 +767,11 @@ machine and active OpenGL renderer, select the reproducible viewport (provisiona
 2560×1440/60 when supported), build the unchanged Release tree, and generate the
 reference/holdout baseline packet. As of 2026-08-22 the owner has access to that
 desktop and it is this repository's checked-out host, so the run is unblocked;
-the preparatory seam is already in place and the packet has not yet been
-produced. Should desktop access lapse again, the only safe preparatory code
+the preparatory seam is already in place and, as of 2026-08-22, the packet **has
+been produced** with `result=pass` at
+`artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/`. What
+remains of this step is the owner's camera/rubric verdict, which is still blank.
+Should desktop access lapse again, the only safe preparatory code
 outcome remains the narrowly configurable named-scene, camera, viewport, and
 manifest seam with byte/semantic-equivalent current captures; do not tune
 visuals against the laptop and later call them the RTX 5070 Ti baseline.

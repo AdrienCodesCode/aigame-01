@@ -11,8 +11,13 @@
   desktop, and that host is verified (AMD Ryzen 9 9950X, 61.6 GiB, NVIDIA
   GeForce RTX 5070 Ti on a 2560×1440 display, active OpenGL 4.6, native `dev`
   preset 45/45 CTests — see the reference-machine supersession entry below).
-  The Phase 0 baseline packet has still not been produced, so its roadmap box
-  stays unchecked.
+  The Phase 0 baseline packet **has now been produced** on that host, on
+  2026-08-22, once the S1 that blocked it was fixed
+  ([QA-009](docs/qa/closed/QA-009-windows-evidence-runners-abort-on-benign-opengl-notification-stderr.md),
+  closed 2026-08-22): `artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/`
+  records `result=pass`. Its roadmap box still stays unchecked, because that gate
+  also needs the owner's camera/rubric confirmation and the verdict boxes in the
+  packet's `review.md` are deliberately blank.
 - **Verified completed state:**
   - the accepted native C++23/SDL3/OpenGL foundation, bounded voxel paddock,
     and fixed 60 Hz gameplay;
@@ -648,9 +653,12 @@
   item stays unticked until that verdict exists. (2) The dog-pressure item stays
   unticked on terrain alone; it is
   deferred to Phase 5 because the paddock has one constant ground height, and
-  splitting the item instead is an owner call. One S1 issue is open:
-  [QA-009](docs/qa/open/QA-009-windows-evidence-runners-abort-on-benign-opengl-notification-stderr.md)
-  blocks the Phase 0 reference-baseline gate on the reference desktop.
+  splitting the item instead is an owner call. No S1 issue is open: the one that
+  was,
+  [QA-009](docs/qa/closed/QA-009-windows-evidence-runners-abort-on-benign-opengl-notification-stderr.md),
+  blocked the Phase 0 reference-baseline gate on the reference desktop and was
+  fixed and closed on 2026-08-22 — all five native evidence runners now complete
+  on this host, and the baseline packet exists.
 - **Unaccepted work awaiting the owner (2026-08-22):** the influence debug views
   are implemented, deterministic, covered by two headless CTests, and — as of
   2026-08-22 — **captured on native hardware for the first time**. What is
@@ -969,26 +977,35 @@
   [`visual_tracer_configuration_tests.cpp`](tests/visual_tracer_configuration_tests.cpp),
   and
   [`run-visual-feasibility-baseline.ps1`](tools/phase3/run-visual-feasibility-baseline.ps1).
-- **Next action:** fix
-  [QA-009](docs/qa/open/QA-009-windows-evidence-runners-abort-on-benign-opengl-notification-stderr.md),
-  then run
-  [`run-visual-feasibility-baseline.ps1`](tools/phase3/run-visual-feasibility-baseline.ps1)
-  against the retargeted RTX 5070 Ti gate to produce the unchanged Phase 0
-  baseline packet, then take the owner's camera/rubric confirmation. The
-  hardware half is no longer the obstacle — this host is the reference desktop
-  and is verified — but the runner aborts on a benign notification-severity
-  OpenGL message before it reaches its first capture, so the packet cannot be
-  produced until that is corrected. Observed result, 2026-08-22: the runner
-  passed configure, build, 47/47 Release CTests, and the scene-configuration
-  stage, then failed at `representative-normal` with
-  `failure_message=gl_debug_message severity=notification ... id=131185`, while
-  the process it ran exited 0 and reported
-  `gl_debug_high_severity_messages=0`. The retained failure packet is
-  `artifacts/phase3/2026-08-22/visual-feasibility-baseline-180412745/`. QA-005
+- **Next action:** take the owner's camera/rubric confirmation on the Phase 0
+  baseline packet now sitting at
+  `artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/`. Open its
+  `review.md` and `visual-rubric.md` beside `representative-normal.png`,
+  `representative-debug.png`, `holdout-normal.png`, `holdout-debug.png`, and the
+  three `motion-tick-*.png` frames, and write Confirm or Revise into the blank
+  verdict. **That verdict is the only thing still owed for the Phase 0 box**; no
+  agent may record it, so the box stays unchecked until it exists. The blocker is
+  gone: the runner aborted on a benign notification-severity OpenGL message
+  before reaching its first capture, and
+  [QA-009](docs/qa/closed/QA-009-windows-evidence-runners-abort-on-benign-opengl-notification-stderr.md)
+  fixed that on 2026-08-22 by grading each native invocation on its exit code
+  instead of letting `$ErrorActionPreference = "Stop"` act on merged stderr, in
+  all five `tools/**.ps1` runners. Observed result, 2026-08-22, native Windows
+  11 Home `10.0.26200`, NVIDIA GeForce RTX 5070 Ti, OpenGL `4.6.0 NVIDIA 591.86`:
+  the runner completed at 2560×1440@60 with `visual_feasibility_baseline_result=pass`,
+  manifest `"result": "pass"` and `"failure": null`, all 13 stages `pass`
+  including `ctest-release` 47/47, `gl_debug_high_severity_messages=0`,
+  `within_performance_budget=yes`, and both same-state repeats `yes` — while its
+  19,741-line `run.log` still retains all 71 `gl_debug_message` lines (63
+  notification, 8 medium) as diagnostic evidence. The other four runners were
+  each rerun alone on the same host and all completed `pass`; `ctest --preset
+  release` is 47/47 and `ctest --preset dev` 45/45. The superseded failure packet
+  is `artifacts/phase3/2026-08-22/visual-feasibility-baseline-180412745/`. QA-005
   and QA-007 are closed (QA-007 in commit `8fa1658`) and QA-008 is a filed S3
-  that competes with nothing. The objective loop and visual tuning remain
-  paused, and no visual or performance result is claimed until that packet
-  exists.
+  that competes with nothing. The objective loop and visual tuning remain paused,
+  and **no visual or performance quality result is claimed by that packet** — it
+  is unchanged pre-visual-implementation comparison evidence, not an accepted
+  look, a promoted golden, or an RTX visual baseline.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
@@ -2527,8 +2544,11 @@ mix Vulkan migration, final art, world streaming, and maximum flock scale.
 - [ ] Complete Phase 0: lock the named scene/cameras/viewport/profile/manifest
   seam, visual rubric, recorded desktop inventory, and unchanged RTX 5070 Ti
   reference baseline without tuning presentation. The machine is available and
-  verified as of 2026-08-22 and the inventory is recorded; the baseline packet
-  itself has not been produced, which is why this box stays unchecked.
+  verified as of 2026-08-22, the inventory is recorded, and the baseline packet
+  was produced on 2026-08-22 with `result=pass` at
+  `artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/`. This box
+  stays unchecked because the remaining half of the gate is the owner's
+  camera/rubric confirmation, and that packet's verdict boxes are still blank.
 - [ ] Complete the plan's bounded five-sheep scene, shadow, colour/material,
   environment-detail, atmosphere, animal-presentation, and edge/focal outcomes,
   retaining their per-outcome stop conditions and evidence instead of merging

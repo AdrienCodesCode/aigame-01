@@ -1,12 +1,13 @@
 ---
 id: QA-009
 title: Every native Windows evidence runner aborts on a benign OpenGL notification message, because Windows PowerShell 5.1 turns any engine stderr into a terminating error
-status: open
+status: fixed
 severity: S1
 confidence: confirmed
 area: tools
 reporter: agent
 reported: 2026-08-22
+closed: 2026-08-22
 phase: 3
 platform: windows
 rule: docs/DEVELOPMENT_WORKFLOW.md
@@ -294,3 +295,138 @@ Roadmap obligation, for the owner rather than the fixer:
 [`docs/qa/README.md`](../README.md) requires an S1 to be named in the
 `ROADMAP.md` Current checkpoint when found. That edit was deliberately not made
 while filing this issue, because another change to `ROADMAP.md` was in flight.
+
+## Resolution
+
+Fixed on 2026-08-22 in the working tree (uncommitted at the time of writing, so
+no `fix:` sha is recorded yet). Scope was `tools/**.ps1` only: no engine source,
+no test, no golden, no CMake, no preset, and no budget, threshold, tolerance,
+scene, profile, camera, viewport, or tick was touched.
+
+**What changed.** Each of the five runners gained one byte-identical helper,
+`Invoke-NativeMerged`, and every native invocation that merges stderr now goes
+through it:
+
+```powershell
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try { $merged = & $FilePath @Arguments 2>&1 }
+finally { $ErrorActionPreference = $previousPreference }
+$exitCode = $LASTEXITCODE
+```
+
+The helper returns `ExitCode` plus the stringified merged `Lines`, so the caller
+still writes every line to the retained log, still parses `key=value` state from
+it, and now grades the stage on the exit code rather than on the presence of
+stderr. The `Continue` window covers exactly the one invocation statement and is
+restored in `finally`. Call sites converted: `run-context-smoke.ps1` 2,
+`run-window-smoke.ps1` 1, `run-tracer1-review.ps1` 2,
+`run-tracer2-presentation-review.ps1` 2, `run-visual-feasibility-baseline.ps1` 3
+(including the manifest-validator call, which would otherwise have thrown on a
+CMake `FATAL_ERROR` before reaching its own `$LASTEXITCODE` check).
+
+**Sibling sites fixed in the same pass, stated rather than absorbed silently.**
+`2>$null` does not exempt a native command from `Stop` either — measured on this
+host, `& wide_eye.exe --voxel-cube-smoke 2>$null` under `Stop` threw
+`NativeCommandError`. The three `2>$null` sites in `run-window-smoke.ps1`
+(`Get-SourceState` x2, `Get-ToolVersion` x1) are the same mechanism with a
+different symptom: they sit inside `try/catch`, so instead of aborting they would
+have silently blanked the `commit` and `worktree_state` fields that
+[`docs/DEVELOPMENT_WORKFLOW.md`](../../DEVELOPMENT_WORKFLOW.md) requires in an
+artifact manifest. They now lower the preference the same way and keep their
+`2>$null` intent. Observed result: the phase 1 packet written after the fix
+records `"commit": "beda795a61a69e5700a4a60e871a193ef8025f37"`.
+
+**Reproduction, before the change.** Native Windows 11 Home `10.0.26200`,
+Windows PowerShell `5.1.26100.9168` (`PSEdition=Desktop`), against
+`build/Windows/release/wide_eye.exe --voxel-cube-smoke`: both runner call forms
+threw `FullyQualifiedErrorId=NativeCommandError` with exactly the text the
+retained failure packet recorded as `failure_message`
+(`gl_debug_message severity=notification ... id=131185`). The unredirected form
+did not throw and returned `exit=0`, confirming the redirection plus preference
+as the mechanism rather than the executable.
+
+**Evidence, all native Windows 11 Home `10.0.26200`, MSVC `19.44.35228.0`,
+NVIDIA GeForce RTX 5070 Ti driver `32.0.15.9186`, OpenGL `4.6.0 NVIDIA 591.86`,
+SDL 3.4.10, 2026-08-22. Each runner was run alone, one at a time.**
+
+| Check | Result |
+| --- | --- |
+| `tools/phase0/run-context-smoke.ps1` | exit 0, `result=pass`, `smoke_exit_code=0`; log `artifacts/phase0/2026-08-22/windows-context-smoke-183829362.log` |
+| `tools/phase3/run-visual-feasibility-baseline.ps1 -Width 2560 -Height 1440 -RefreshHz 60` | exit 0, `visual_feasibility_baseline_result=pass`, `visual_feasibility_manifest_result=pass`; packet `artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/` |
+| `tools/phase1/run-window-smoke.ps1` | exit 0, `result=pass`; packet `artifacts/phase1/2026-08-22/windows-cube-smoke-184032719/` |
+| `tools/phase2/run-tracer1-review.ps1` | exit 0, `tracer1_review_result=pass`; packet `artifacts/phase2/2026-08-22/tracer1-review-windows-184123257/` |
+| `tools/phase3/run-tracer2-presentation-review.ps1` | exit 0, `tracer2_presentation_result=pass`; packet `artifacts/phase3/2026-08-22/tracer2-presentation-windows-184201432/` |
+| `ctest --preset release` | 47/47 |
+| `ctest --preset release -R "wide_eye.opengl_debug_high_severity\|wide_eye.opengl_voxel_cube_smoke"` | 2/2 |
+| `ctest --preset dev` | 45/45 |
+| `cmake -DMODE=check -P tools/qa/qa-tracker.cmake` | pass |
+| `git diff --check` | clean |
+
+`target:format-check` and `target:clang-tidy-check` did not run: the CMake
+configure output on this host reports both unavailable (clang-format 18 and
+clang-tidy 18 are not installed), and the change contains no C++.
+
+**The Phase 0 baseline packet.**
+`artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/` records
+`"result": "pass"` with `"failure": null` and all 13 command stages `pass`,
+including `ctest-release` at `100% tests passed, 0 tests failed out of 47`.
+`measurements.json` records `gl_renderer=NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2`,
+`gl_version=4.6.0 NVIDIA 591.86`, `actual_gl=4.6`,
+`gl_debug_high_severity_messages=0`, `within_performance_budget=yes`,
+`same_state_capture_repeat=yes`, `same_state_dump_repeat=yes`,
+`startup_to_first_capture_ms=392.116`, and `compressed_package_bytes=956271`.
+The owner verdict boxes in `review.md` and `visual-rubric.md` are blank, and the
+Phase 0 roadmap box stays unchecked: that gate still needs the owner's
+camera/rubric confirmation, which no agent may record.
+
+**The stderr is still evidence, not discarded.** That packet's 19,741-line
+`run.log` retains 71 `gl_debug_message` lines — 63 `severity=notification` and 8
+`severity=medium` — beside nine separate `gl_debug_high_severity_messages=0`
+readings, one per GL-context stage. The phase 2 packet retains 63 and the phase 1
+packet 20.
+
+**The failure paths still fire.** Proven at three levels, all against code
+extracted verbatim from the shipped files rather than reimplemented — the five
+copies of `Invoke-NativeMerged` were compared through each file's AST and are
+byte-identical.
+
+*Whole runner, unmodified.*
+`run-visual-feasibility-baseline.ps1 -Width 1234 -Height 567 -RefreshHz 60`
+exited `1` with `visual_feasibility_baseline_result=fail`,
+`failure_stage=visual_feasibility_baseline_runner`, and
+`failure_message=The requested 1234x567@60 mode was not reported by the display.`
+The failure packet is retained at
+`artifacts/phase3/2026-08-22/visual-feasibility-baseline-184801357/`, so the
+catch, packet-writing, and non-zero-exit paths are all intact.
+
+*The runner's own `Invoke-Checked`, extracted from the file and driven directly.*
+`--no-such-mode` and `--context-smoke-inject-high-severity` each threw
+`"<stage> failed with exit code 1."` and recorded `exit_code=1`,
+`result=fail` in the command record; `--voxel-cube-smoke` did not throw,
+recorded `exit_code=0`, and still logged 37 lines including all four
+`severity=notification` ones.
+
+*`Invoke-NativeMerged` alone.*
+
+- `--no-such-mode` returns `exit=1`;
+- `--context-smoke-inject-high-severity` returns `exit=1` with
+  `gl_debug_high_severity_messages=1`, so the injected-failure path is not
+  blunted;
+- a nonexistent executable still raises a terminating `CommandNotFoundException`
+  inside the `Continue` window — measured, not assumed — so a stale
+  `$LASTEXITCODE` can never be read as a pass;
+- the runner's high-severity/budget gate, evaluated verbatim on a synthetic
+  exit-0 state carrying `gl_debug_high_severity_messages=3`, still fires;
+- the active-renderer gate, evaluated verbatim, fires for
+  `Intel(R) UHD Graphics 630` and `llvmpipe` and does not fire for the observed
+  `NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2`.
+
+**One `verify:` entry is not literally satisfiable, by design rather than by
+this fix.** The first entry asks for a packet "whose run.log ends result=pass".
+The baseline runner has always written its three closing result lines with
+`[Console]::Out.WriteLine`, not `Write-Logged`, so they reach stdout and the
+manifest but never `run.log`; its log ends with the last stage's
+`visual_tracer_performance_result=pass`. The substance is met —
+`manifest.json` records `"result": "pass"` and the process exited 0 — and the
+runner was deliberately not changed to match the wording of a check.

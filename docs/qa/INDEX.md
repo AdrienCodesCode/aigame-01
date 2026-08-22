@@ -4,15 +4,11 @@
      in open/ and closed/ are the source of truth. Regenerate with the
      qa-index target, or `cmake -DMODE=index -P tools/qa/qa-tracker.cmake`. -->
 
-**2 open** · 7 closed · convention in [README.md](README.md)
+**1 open** · 8 closed · convention in [README.md](README.md)
 
-> **1 tracer-gate blocker open.** QA-009
+> No tracer-gate blockers open.
 
 ## Open
-
-### S1 — blocks the tracer gate
-
-- [ ] [QA-009](open/QA-009-windows-evidence-runners-abort-on-benign-opengl-notification-stderr.md) Every native Windows evidence runner aborts on a benign OpenGL notification message, because Windows PowerShell 5.1 turns any engine stderr into a terminating error — _tools · confirmed_
 
 ### S3 — minor
 
@@ -25,11 +21,12 @@
 | game | 0 | 3 |
 | tests | 0 | 1 |
 | build | 1 | 1 |
-| tools | 1 | 0 |
+| tools | 0 | 1 |
 | docs | 0 | 2 |
 
 ## Closed
 
+- [x] [QA-009](closed/QA-009-windows-evidence-runners-abort-on-benign-opengl-notification-stderr.md) Every native Windows evidence runner aborts on a benign OpenGL notification message, because Windows PowerShell 5.1 turns any engine stderr into a terminating error — _fixed 2026-08-22_
 - [x] [QA-007](closed/QA-007-root-readme-still-says-implemented-sheep-rules-are-unimplemented.md) Root README still says implemented avoidance and behavior-transition rules are unimplemented — _fixed 2026-08-22_
 - [x] [QA-006](closed/QA-006-source-readme-still-denies-qa-001-depenetration.md) Source ownership guide still says an obstacle-overlapping sheep is not pushed out after QA-001 added depenetration — _fixed 2026-08-22_
 - [x] [QA-005](closed/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md) Obstacle avoidance answers a grazing approach and a drop with a near-maximum push, so a sheep alternates between most of the maximum and zero — _fixed 2026-08-22_
