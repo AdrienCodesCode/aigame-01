@@ -1,7 +1,7 @@
 ---
 id: QA-008
 title: Generated influence-debug evidence is committed at the repository root, outside the ignored artifacts tree, and no longer describes HEAD
-status: open
+status: fixed
 severity: S3
 confidence: confirmed
 area: build
@@ -10,6 +10,7 @@ reported: 2026-08-22
 phase: 3
 platform: windows
 rule: docs/DEVELOPMENT_WORKFLOW.md
+closed: 2026-08-22
 verify:
   - target:qa-check
   - wide_eye.influence_debug_frame_dump
@@ -119,7 +120,7 @@ with `reference_speed = sqrt(maximum_acceleration * look_ahead_distance)`
 ([lines 437, 473, and 492](../../../src/game/sheep_rules.cpp#L437)), and the
 point `ground_height` drop probe became `approaching_ground_boundary`. That is
 the
-[QA-005](../closed/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md)
+[QA-005](QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md)
 fix. The diagnostic scenario sets `.sheep_avoidance = {.enabled = true}`
 ([`gameplay_scenario.cpp:870`](../../../src/game/gameplay_scenario.cpp#L870)),
 so it runs the changed rule.
@@ -229,3 +230,169 @@ misplaced evidence is untouched and still reports
 `influence_debug_dump_result=pass`. No full-suite run is implicated. Also run
 `git diff --check`, and confirm on a clean tree that `git status --short`
 reports nothing after a capture is written into the working directory.
+
+## Resolution
+
+Fixed on 2026-08-22. Both halves of `## Fix notes` were taken and nothing else:
+no engine source, test, scenario definition, oracle, golden, preset, budget,
+threshold, or roadmap checkbox changed, and `.gitignore` is the only
+configuration file touched.
+
+**1. The misplaced evidence is gone.** `influence-tick-120.png` and
+`influence-tick-120.txt` are out of the index and out of the working tree. That
+half is already committed: `git log --oneline --all -- influence-tick-120.png`
+returns exactly two commits, `ee92cd3 before main pc` (which added the pair) and
+`6906770 File QA-013 and QA-014, two test-integrity gaps` (which deleted it),
+and `git show --stat 6906770` lists `influence-tick-120.png | Bin 8296178 -> 0
+bytes` beside `influence-tick-120.txt | 256 ------`. No evidence was lost: the
+correctly placed regeneration still holds all three views under
+`artifacts/phase3/2026-08-22/debug-influence-views-native/` — ticks 30, 60, and
+120 as PNG plus frame dump, with `review.md`.
+
+**2. The ignore gap is closed.** `.gitignore` gained three root-anchored
+patterns, `/*.png`, `/*.txt`, `/*.json`, with a comment recording why the
+leading slash must stay. This half is uncommitted in the working tree at the
+time of writing, so no `fix:` sha is recorded here.
+
+### Two things `## Fix notes` did not anticipate
+
+**The anchored patterns capture three *tracked* root files.** `## Fix notes`
+reasoned about what an *unanchored* rule would reach — `ref/`, `assets/`,
+`tests/goldens/`, golden manifests — and concluded that anchoring to the root is
+therefore safe. Anchoring is necessary but not sufficient, because three tracked
+files live at the repository root and match:
+`git ls-tree --name-only HEAD | grep -Ei '\.(png|txt|json)$'` returns exactly
+`.mcp.json`, `CMakeLists.txt`, `CMakePresets.json`. `/*.txt` matches
+`CMakeLists.txt`, and `/*.json` matches both `CMakePresets.json` **and**
+`.mcp.json` — gitignore patterns have no shell-style leading-dot exemption, so a
+dotfile is matched like any other name. Measured in a throwaway repository
+holding only the three patterns, with untracked files of those names so nothing
+was skipped:
+
+```text
+.gitignore:2:/*.txt     CMakeLists.txt
+.gitignore:3:/*.json    CMakePresets.json
+.gitignore:3:/*.json    .mcp.json
+.gitignore:1:/*.png     influence-tick-120.png
+```
+
+The fix therefore carries three negations — `!/CMakeLists.txt`,
+`!/CMakePresets.json`, `!/.mcp.json` — and a comment telling the next person to
+add a negation when a new tracked root file of these types lands. Without them
+the three files would stay tracked, because an ignore rule untracks nothing, but
+a later `git add` of a modification to any of them would be silently skipped.
+That is the failure mode the comment exists to prevent.
+
+**`git check-ignore` skips tracked paths, so the obvious verification reports
+all clear while the patterns genuinely match.** By default `git check-ignore`
+filters paths that are in the index out before matching. The natural way to
+check this fix — point the command at the files you are worried about — is
+therefore blind to exactly the files the new patterns reach. Observed on git
+`2.55.0.windows.3`:
+
+```text
+$ git check-ignore -v CMakeLists.txt CMakePresets.json .mcp.json
+exit=1            # no output at all: all three are tracked, so all three were skipped
+
+$ git check-ignore -v --no-index CMakeLists.txt CMakePresets.json .mcp.json
+.gitignore:34:!/CMakeLists.txt          CMakeLists.txt
+.gitignore:35:!/CMakePresets.json       CMakePresets.json
+.gitignore:36:!/.mcp.json               .mcp.json
+exit=0
+```
+
+The first form is the one a reader reaches for, and it is worthless here. Every
+ignore check recorded below uses `--no-index`; anyone editing these patterns
+again should do the same, because the default form cannot see the mistake it
+would need to catch. With `-v --no-index` the printed line is the *last*
+matching pattern, so a negation line means "matched, and therefore **not**
+ignored" — the exit code is 0 because a pattern matched, not because the path is
+excluded.
+
+### Deliberately not done
+
+The stronger alternative named in `## Fix notes` — making the `--capture` and
+`--frame-dump` smoke shapes reject a path that resolves inside the repository
+but outside `artifacts/`, so a misplaced capture fails the run instead of
+landing silently — was **not** implemented. `## Fix notes` assigns it to the
+owner because it changes a CLI contract rather than only ignore state, and
+prefers the ignore rule alone unless the owner asks for the guard. That is a
+recorded decision, not an oversight: if the owner wants the guard it is a
+separate change with its own argv shape.
+
+### Evidence
+
+All observed 2026-08-22 on native Windows 11 Home `10.0.26200`, git
+`2.55.0.windows.3`, `core.autocrlf=true`, against the existing
+`build/Windows/dev` tree configured by the MSVC 2022 Build Tools CMake. No
+compile was needed: the change is `.gitignore` plus two deletions.
+
+- **`target:qa-check`** — `cmake --build --preset dev --target qa-check` printed
+  `QA tracker check passed: 4 open, 10 closed.` before this closure, and
+  `QA tracker check passed: 3 open, 11 closed.` after the status flip, the
+  `git mv` into `closed/`, and
+  `cmake -DMODE=index -P tools/qa/qa-tracker.cmake`
+  (`Wrote docs/qa/INDEX.md — 3 open, 11 closed.`). `docs/qa/INDEX.md` was
+  regenerated by the tool and never hand-edited.
+- **`wide_eye.influence_debug_frame_dump`** —
+  `ctest --preset dev -R wide_eye.influence_debug_frame_dump` reported
+  `1/1 Test #21: wide_eye.influence_debug_frame_dump ... Passed 0.02 sec` and
+  `100% tests passed, 0 tests failed out of 1`. The generator that produced the
+  misplaced evidence is untouched.
+- **`manual:git ls-files reports no influence-tick-120.* at the repository
+  root`** — `git ls-files | grep -c influence-tick` printed `0`.
+  `git ls-files --error-unmatch influence-tick-120.png`, and the same for the
+  `.txt`, each exited `1` with
+  `error: pathspec '...' did not match any file(s) known to git`. Both are also
+  absent from the working tree; `ls` reports `No such file or directory` for
+  each.
+- **`manual:git check-ignore leaves the four tracked ref/ PNGs and the three
+  tracked tests/goldens/ PNGs unignored`** —
+  `git ls-files -z '*.png' | git check-ignore --stdin -z --no-index` produced no
+  output and exited `1`: nothing matched. Nine tracked PNGs remain, the issue's
+  ten minus the removed root file — the two under `assets/readme/`, the four
+  under `ref/`, and the three byte-preserved baselines under `tests/goldens/`.
+  Naming those seven `ref/` and `tests/goldens/` paths explicitly to
+  `git check-ignore -v --no-index` also produced no output and exit `1`.
+  Broadened to the whole index,
+  `git ls-files | git check-ignore --stdin --no-index` over all 237 tracked
+  paths produced no output and exited `1`: **no tracked file anywhere in the
+  repository is ignored.**
+- **`manual:a capture written to the repository working directory is ignored,
+  and git status stays clean after one`** — with `git status --short` reporting
+  only ` M .gitignore`, three probes were written at the root:
+
+  ```text
+  $ git check-ignore -v influence-tick-999.png state-dump.json frame.txt
+  .gitignore:27:/*.png    influence-tick-999.png
+  .gitignore:29:/*.json   state-dump.json
+  .gitignore:28:/*.txt    frame.txt
+  exit=0
+  ```
+
+  `git status --short` printed the same single ` M .gitignore` line with the
+  three probes present as without them, so a stray capture can no longer be
+  swept in by `git add -A`. All three probes were deleted afterwards, and the
+  root holds no leftover of those types.
+- **`git diff --check`** and **`git diff --cached --check`** — both silent,
+  exit `0`. The working-tree copy of this file was converted from LF to
+  CRLF during closure so that it matches the checked-out state of its
+  siblings on this host, which is what removes the residual
+  `LF will be replaced by CRLF` advisory from the `--check` output. With
+  `core.autocrlf=true` the stored blob is LF either way, so the committed
+  bytes are unaffected and the content diff remains the three
+  frontmatter and link edits plus this section.
+
+**One relative link was repaired by the move.** `## Investigation` linked QA-005
+as `../closed/QA-005-...`, correct from `open/` and wrong once this file sits in
+`closed/`; it is now a same-directory link. Every other relative link in the
+file points at `../../` or `../../../` and is unaffected by the move.
+
+**No existing suite would have caught this, and none was added.** Nothing in
+CTest asserts that the repository root is free of generated captures, and
+`qa-check` is deliberately outside `ctest` so that a docs-schema slip cannot
+fail the engine suite. The `--no-index` sweeps above are manual commands, not a
+registered test. At S3, with the recurrence path closed by the ignore rule,
+extending the suite was judged out of proportion rather than overlooked; the
+owner-side capture-path guard described under "Deliberately not done" is the
+change that would make this machine-checkable.

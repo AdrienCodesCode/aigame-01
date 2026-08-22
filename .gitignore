@@ -17,3 +17,20 @@ profiles/
 *.profraw
 *.profdata
 *.dmp
+
+# A capture or frame dump written to the working directory instead of a packet
+# under artifacts/. The leading slash anchors each pattern to the repository
+# root, so tracked images under ref/ and assets/readme/ and the byte-preserved
+# baselines under tests/goldens/ are unaffected. Do not unanchor these: nine of
+# the ten tracked PNGs are legitimate, and an unanchored *.txt or *.json rule
+# would reach golden manifests and CMakePresets.json.
+/*.png
+/*.txt
+/*.json
+
+# The tracked root files those three patterns would otherwise capture. Add a
+# negation here when a new tracked file of these types lands at the root, or
+# `git add` will silently skip it.
+!/CMakeLists.txt
+!/CMakePresets.json
+!/.mcp.json

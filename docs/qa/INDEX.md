@@ -4,7 +4,7 @@
      in open/ and closed/ are the source of truth. Regenerate with the
      qa-index target, or `cmake -DMODE=index -P tools/qa/qa-tracker.cmake`. -->
 
-**4 open** · 10 closed · convention in [README.md](README.md)
+**3 open** · 11 closed · convention in [README.md](README.md)
 
 > No tracer-gate blockers open.
 
@@ -12,7 +12,6 @@
 
 ### S3 — minor
 
-- [ ] [QA-008](open/QA-008-generated-influence-evidence-committed-at-the-repository-root.md) Generated influence-debug evidence is committed at the repository root, outside the ignored artifacts tree, and no longer describes HEAD — _build · confirmed_
 - [ ] [QA-010](open/QA-010-reference-frame-budget-is-graded-on-a-display-pinned-metric.md) The reference performance gate grades a swap-inclusive frame metric that the display pins, so `within_performance_budget=yes` reports the refresh rate rather than renderer cost — _platform · confirmed_
 - [ ] [QA-013](open/QA-013-influence-sweep-digest-is-printed-and-never-compared.md) The influence debug view's sweep digest asserts nothing: 7,200 frames are hashed into `influence_debug_sweep_digest`, printed, and never compared, so a geometry regression moves the number and the test still exits 0 — _tests · confirmed_
 - [ ] [QA-014](open/QA-014-two-registered-ctests-are-outside-the-shared-sanitizer-failure-guard.md) Two registered CTests are outside the shared sanitizer failure guard, so `wide_eye.visual_tracer_configuration` can print a LeakSanitizer report, exit nonzero, and still pass on its pass marker — _build · confirmed_
@@ -25,7 +24,7 @@
 | render | 0 | 1 |
 | game | 0 | 3 |
 | tests | 1 | 1 |
-| build | 2 | 1 |
+| build | 1 | 2 |
 | tools | 0 | 1 |
 | docs | 0 | 2 |
 
@@ -34,6 +33,7 @@
 - [x] [QA-012](closed/QA-012-influence-debug-view-is-unjudgeable-at-its-fixed-review-camera.md) The influence debug view ships with one camera, and it is the visual tracer's distant holdout pose, so the overlay is 0.055% of the frame and cannot be read at the framing it captures — _fixed 2026-08-22_
 - [x] [QA-011](closed/QA-011-influence-applied-lane-is-unreadable-against-dark-geometry.md) The influence debug view's `applied` lane is near-black, so the one arrow that carries the result disappears against the paddock wall's shadow, the gate, and the sheep's own legs — _fixed 2026-08-22_
 - [x] [QA-009](closed/QA-009-windows-evidence-runners-abort-on-benign-opengl-notification-stderr.md) Every native Windows evidence runner aborts on a benign OpenGL notification message, because Windows PowerShell 5.1 turns any engine stderr into a terminating error — _fixed 2026-08-22_
+- [x] [QA-008](closed/QA-008-generated-influence-evidence-committed-at-the-repository-root.md) Generated influence-debug evidence is committed at the repository root, outside the ignored artifacts tree, and no longer describes HEAD — _fixed 2026-08-22_
 - [x] [QA-007](closed/QA-007-root-readme-still-says-implemented-sheep-rules-are-unimplemented.md) Root README still says implemented avoidance and behavior-transition rules are unimplemented — _fixed 2026-08-22_
 - [x] [QA-006](closed/QA-006-source-readme-still-denies-qa-001-depenetration.md) Source ownership guide still says an obstacle-overlapping sheep is not pushed out after QA-001 added depenetration — _fixed 2026-08-22_
 - [x] [QA-005](closed/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md) Obstacle avoidance answers a grazing approach and a drop with a near-maximum push, so a sheep alternates between most of the maximum and zero — _fixed 2026-08-22_
