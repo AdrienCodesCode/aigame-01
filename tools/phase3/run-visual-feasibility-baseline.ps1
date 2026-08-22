@@ -9,7 +9,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $scene = "visual-feasibility-five-sheep-v1"
 $profile = "visual-feasibility-reference-high-v1"
-$requiredRenderer = "NVIDIA GeForce RTX 4070 Ti"
+$requiredRenderer = "NVIDIA GeForce RTX 5070 Ti"
 $script:LogPath = ""
 $script:Observed = [ordered]@{}
 $script:Commands = [System.Collections.Generic.List[object]]::new()

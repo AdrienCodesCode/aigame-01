@@ -220,13 +220,14 @@ independent manifest/file/hash validator.
 
 The command exits nonzero rather than relabeling evidence when the requested
 display mode is not reported, the active `gl_renderer` is not the NVIDIA
-GeForce RTX 4070 Ti, OpenGL 4.6 is unavailable, repeat state/captures differ,
+GeForce RTX 5070 Ti, OpenGL 4.6 is unavailable, repeat state/captures differ,
 graphics diagnostics fail, or a provisional High budget is exceeded. Inventory
-alone never proves which GPU rendered. A laptop or WSL smoke can verify the
-configuration seam, but cannot satisfy this reference-baseline gate. The packet
-is unchanged comparison evidence, not a promoted golden or an accepted
-candidate look; Phase 0 remains open until the owner confirms that both cameras
-ask the intended visual question.
+alone never proves which GPU rendered, and the reference desktop is a hybrid
+two-adapter machine, so that pin does real work. A laptop or WSL smoke can
+verify the configuration seam, but cannot satisfy this reference-baseline gate.
+The packet is unchanged comparison evidence, not a promoted golden or an
+accepted candidate look; Phase 0 remains open until the owner confirms that both
+cameras ask the intended visual question.
 
 For the interactive owner check, run `wide_eye.exe --play-scenario
 paddock-start` from the build tree. In gameplay mode, the mouse orbits the
@@ -237,7 +238,50 @@ buttons. Automated tests validate translation and control math. The owner
 accepted the keyboard/mouse baseline on 2026-08-16; physical-controller behavior
 still requires a manual run when hardware is available.
 
+## Observed reference desktop — 2026-08-22
+
+This is the machine the reference visual-development role points at. The owner
+confirmed on 2026-08-22 that it is the reference desktop and that the earlier
+RTX 4070 Ti report is superseded by the observed host below.
+
+**Observed result** (method: Windows CIM inventory queries plus the Phase 0
+context smoke `tools/phase0/run-context-smoke.ps1`; ignored evidence log
+`artifacts/phase0/2026-08-22/windows-context-smoke-155925531.log`):
+
+- CPU: AMD Ryzen 9 9950X 16-Core Processor, 16 cores / 32 threads.
+- RAM: 61.6 GiB reported by `Win32_ComputerSystem.TotalPhysicalMemory`.
+- Board: ASRock X870 Pro RS WiFi.
+- OS: Microsoft Windows 11 Home, version `10.0.26200`, build `26200`, 64-bit.
+- Display adapters reported by Windows: NVIDIA GeForce RTX 5070 Ti, driver
+  `32.0.15.9186`; AMD Radeon(TM) Graphics (Ryzen integrated), driver
+  `32.0.21036.18`. This is a hybrid two-adapter host, so the per-application
+  graphics preference described under
+  [OpenGL context diagnostic](#opengl-context-diagnostic) applies here too, and
+  the baseline runner's active-renderer pin is a real gate rather than a
+  formality.
+- Primary display: 2560×1440; reported supported modes include
+  2560×1440@144 Hz, 1920×1080@60 Hz, and 1024×768@60 Hz.
+- Active OpenGL: `gl_vendor=NVIDIA Corporation`,
+  `gl_renderer=NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2`,
+  `gl_version=4.6.0 NVIDIA 591.86`, `glsl_version=4.60 NVIDIA`,
+  `core_profile=yes`, `debug_context=yes`, SDL 3.4.10, `video_driver=windows`,
+  `result=pass`.
+- Toolchain: MSVC `19.44.35228.0` from Visual Studio 2022 Build Tools (MSVC
+  toolset `14.44.35207`), bundled CMake `3.31.6-msvc6`, bundled Ninja `1.12.1`.
+- The native Windows `dev` preset configured, built, and passed 45/45 CTests,
+  including every display-backed OpenGL test from `opengl_context_smoke`
+  through `opengl_debug_high_severity` and `opengl_influence_debug_overlay`.
+
+**Not claimed:** no Phase 0 visual-feasibility baseline packet, capture,
+timing, memory, startup, or package measurement has been produced on this host.
+The RTX 5070 Ti is a newer GPU than the RTX 4070 Ti the approved plan assumed,
+so the provisional High budgets remain reasoned about untested hardware until
+[`run-visual-feasibility-baseline.ps1`](../../tools/phase3/run-visual-feasibility-baseline.ps1)
+actually runs here.
+
 ## Observed Windows host — 2026-08-15
+
+This is the development **laptop**, not the reference desktop above.
 
 **Observed result:**
 

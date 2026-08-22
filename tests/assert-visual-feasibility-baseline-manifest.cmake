@@ -50,7 +50,7 @@ string(JSON high_severity GET "${measurements_json}" gl_debug_high_severity_mess
 string(JSON within_budget GET "${measurements_json}" within_performance_budget)
 string(JSON capture_repeat GET "${measurements_json}" same_state_capture_repeat)
 string(JSON state_repeat GET "${measurements_json}" same_state_dump_repeat)
-if(NOT gl_renderer MATCHES "NVIDIA GeForce RTX 4070 Ti" OR
+if(NOT gl_renderer MATCHES "NVIDIA GeForce RTX 5070 Ti" OR
    NOT actual_gl STREQUAL "4.6" OR NOT high_severity STREQUAL "0" OR
    NOT within_budget STREQUAL "yes" OR NOT capture_repeat STREQUAL "yes" OR
    NOT state_repeat STREQUAL "yes")

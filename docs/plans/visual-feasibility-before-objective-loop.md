@@ -6,6 +6,21 @@
 
 **Owner approval:** 2026-08-22
 
+**Owner decision, 2026-08-22 — reference machine superseded:** the owner
+confirmed that the machine this repository is checked out on *is* the reference
+desktop, and that the earlier RTX 4070 Ti report is superseded by the observed
+RTX 5070 Ti host recorded under
+[Verified current state](#verified-current-state). This amendment retargets the
+reference-GPU identity and the two hard gate constants
+([`run-visual-feasibility-baseline.ps1`](../../tools/phase3/run-visual-feasibility-baseline.ps1)
+and
+[`assert-visual-feasibility-baseline-manifest.cmake`](../../tests/assert-visual-feasibility-baseline-manifest.cmake)).
+It changes no budget, threshold, tolerance, scene, profile, camera, viewport, or
+tick. **Inference:** the RTX 5070 Ti is a different and newer GPU than the one
+this plan originally assumed, so every provisional budget and headroom
+expectation that was reasoned about a 4070 Ti is now reasoned about untested
+hardware until the Phase 0 baseline actually runs.
+
 **Source research:**
 [Visual feasibility before the objective loop](../research/visual-feasibility-before-objective-loop.md)
 
@@ -38,7 +53,7 @@ The experiment succeeds only when all of the following are true:
   technique is enabled;
 - the same scenario, seed, tick, camera route, viewport, exposure, and profile
   reproduce comparable captures and motion evidence;
-- the reference Windows PC reports the owner-stated RTX 4070 Ti as the active
+- the reference Windows PC reports the observed RTX 5070 Ti as the active
   OpenGL adapter and meets the selected 60 Hz frame, memory, and startup budgets
   at the Phase 0 reference resolution;
 - no high-severity OpenGL diagnostics, unexplained temporal instability, new
@@ -72,7 +87,7 @@ by starting the objective loop or by indefinitely adding effects.
   evaluated as separate effects.
 - Feature-owned debug views, same-state captures, motion evidence, per-pass
   timings where useful, and an explicit owner visual verdict.
-- RTX 4070 Ti reference evidence and optional GTX 1050 Ti Max-Q very-low-spec
+- RTX 5070 Ti reference evidence and optional GTX 1050 Ti Max-Q very-low-spec
   degradation evidence under clearly different graphics profiles.
 
 ### Non-goals
@@ -122,9 +137,42 @@ by starting the objective loop or by indefinitely adding effects.
   be relabeled as the new reference packet.
 - The current WSL host exposes only OpenGL 4.5 and can run headless/build suites,
   but cannot provide accepted visual evidence for this OpenGL 4.6 tracer.
-- The owner reports that the later reference desktop has an RTX 4070 Ti. Its
-  CPU, RAM, display, active driver, and native OpenGL observation are unrecorded.
-  The laptop's GTX 1050 Ti Max-Q is a very-low-spec proxy, not the target visual
+- **Reference desktop — observed result, 2026-08-22, this repository's
+  checked-out native Windows host.** Method: Windows CIM inventory queries plus
+  the Phase 0 context smoke
+  ([`tools/phase0/run-context-smoke.ps1`](../../tools/phase0/run-context-smoke.ps1)),
+  ignored evidence log
+  `artifacts/phase0/2026-08-22/windows-context-smoke-155925531.log`.
+  - CPU: AMD Ryzen 9 9950X 16-Core Processor, 16 cores / 32 threads.
+  - RAM: 61.6 GiB reported by `Win32_ComputerSystem.TotalPhysicalMemory`.
+  - Board: ASRock X870 Pro RS WiFi.
+  - OS: Microsoft Windows 11 Home, version `10.0.26200`, build `26200`, 64-bit.
+  - Display adapters reported by Windows: NVIDIA GeForce RTX 5070 Ti, driver
+    `32.0.15.9186`; AMD Radeon(TM) Graphics (Ryzen integrated), driver
+    `32.0.21036.18`.
+  - Primary display: 2560×1440; reported supported modes include
+    2560×1440@144 Hz, 1920×1080@60 Hz, and 1024×768@60 Hz.
+  - Active OpenGL: `gl_vendor=NVIDIA Corporation`,
+    `gl_renderer=NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2`,
+    `gl_version=4.6.0 NVIDIA 591.86`, `glsl_version=4.60 NVIDIA`,
+    `core_profile=yes`, `debug_context=yes`, SDL 3.4.10,
+    `video_driver=windows`, `result=pass`.
+  - Toolchain: MSVC `19.44.35228.0` from Visual Studio 2022 Build Tools (MSVC
+    toolset `14.44.35207`), bundled CMake `3.31.6-msvc6`, bundled Ninja
+    `1.12.1`.
+  - The native Windows `dev` preset configured, built, and passed 45/45 CTests,
+    including every display-backed OpenGL test from `opengl_context_smoke`
+    through `opengl_debug_high_severity` and `opengl_influence_debug_overlay`.
+- This reference desktop is a **hybrid two-adapter machine** (discrete NVIDIA
+  plus Ryzen-integrated AMD), so the runner's active-renderer pin still does
+  real work: Windows can hand the process the integrated adapter, and inventory
+  alone never proves which GPU rendered.
+- **Inference:** the observed RTX 5070 Ti is a different and newer GPU than the
+  RTX 4070 Ti this plan originally assumed. Every provisional budget and
+  headroom expectation below was reasoned about a 4070 Ti and is therefore now
+  reasoned about untested hardware until the Phase 0 baseline actually runs on
+  this host.
+- The laptop's GTX 1050 Ti Max-Q is a very-low-spec proxy, not the target visual
   machine or an accepted shipping minimum.
 - ADR 0001 still contains provisional Iris Xe 1080p/60 Low and RX 6600
   1440p/60 High profiles. This plan does not silently supersede that decision.
@@ -143,7 +191,7 @@ by starting the objective loop or by indefinitely adding effects.
 | The traversable world must expand with the visible vista | **Qualified** | Near-field traversable geometry must agree with authoritative collision. Distant scenery may be non-authoritative only when unreachable and explicitly labeled. Stop if the tracer requires a larger playable world. |
 | “Volumetric” should be implemented before simpler atmosphere | **Rejected** | Try a bounded height/distance/directional-scattering solution first. Add volumetric integration only if named reference gaps remain. |
 | Depth of field is equivalent to the desired softness | **Rejected** | Audit anti-aliasing, filtering, atmosphere, exposure, and focal separation independently. DOF is optional and fails if gameplay cues blur. |
-| The RTX 4070 Ti justifies ray tracing or vendor features | **Rejected** | The experiment asks whether the visual target works, not whether the newest GPU path can be exercised. Preserve cross-vendor OpenGL. |
+| The RTX 5070 Ti justifies ray tracing or vendor features | **Rejected** | The experiment asks whether the visual target works, not whether the newest GPU path can be exercised. Preserve cross-vendor OpenGL. |
 | The current capture runner can serve unchanged | **Rejected** | Add only the configuration needed for a named scene, reference/holdout views, viewport/profile, and current budgets; do not build a generic automation platform. |
 | A broad render graph is a prerequisite | **Rejected** | Add explicit pass/resource ownership only as each accepted effect requires it. |
 | Finer geometry requires imported art | **Rejected as a prerequisite** | First test code-generated, moderately detailed forms. Stop for an asset-policy decision only if that route cannot approach the target. |
@@ -152,9 +200,11 @@ by starting the objective loop or by indefinitely adding effects.
 
 The adversarial pass narrows rather than overturns the research recommendation.
 The architecture is ready after localized scene/evidence configuration. The
-unknown desktop CPU/display does not block writing this plan; it blocks accepting
-a reference-machine baseline and is therefore Phase 0 evidence, not an invented
-assumption.
+desktop CPU, RAM, display modes, driver, and active OpenGL renderer are now
+observed (2026-08-22, above), so they are no longer an open planning unknown.
+Observing them still does not accept a reference-machine baseline: that requires
+the Phase 0 packet produced by the runner on this host, not an inventory
+listing.
 
 ## Decisions and assumptions
 
@@ -169,8 +219,9 @@ assumption.
   separation; it does not mean globally blurred gameplay.
 - The first visual gate contains five authoritative sheep. Only an explicit
   positive owner verdict may unlock planning for 25 and then 100.
-- The RTX 4070 Ti desktop is the intended reference visual GPU once the complete
-  machine and active OpenGL adapter are observed.
+- The RTX 5070 Ti desktop is the intended reference visual GPU. Its complete
+  machine inventory and active OpenGL adapter were observed on 2026-08-22; the
+  reference role still requires the Phase 0 packet, not the inventory alone.
 - The GTX 1050 Ti Max-Q laptop is optional very-low-spec compatibility evidence.
 - Runtime visual content remains code-generated or provenance-approved under the
   existing procedural-first policy.
@@ -179,11 +230,16 @@ assumption.
 
 - Use ADR 0001's existing High display target, 2560×1440 at 60 Hz, as the
   provisional reference capture configuration only if the desktop/display
-  supports it. Record the actual native display and select a reproducible
-  viewport before implementation tuning begins.
+  supports it. **Observed result, 2026-08-22:** the reference desktop's primary
+  display runs 2560×1440 and reports 2560×1440@144 Hz among its supported modes,
+  so the provisional target is reachable on this host. The Phase 0 packet must
+  still record the actual selected viewport; this observation does not itself
+  select one, and no viewport default changes here.
 - Use the existing High p95/p99 frame, memory, startup, and package budgets until
-  an explicit decision retains or supersedes them. Passing on an RTX 4070 Ti
-  does not establish a minimum specification.
+  an explicit decision retains or supersedes them. Those budgets were reasoned
+  about ADR 0001's RX 6600 High class and, in this plan, about a 4070 Ti that is
+  not the observed host; nothing about them is measured on the RTX 5070 Ti yet.
+  Passing on an RTX 5070 Ti does not establish a minimum specification.
 - The closer third-person hillside composition is the representative view and a
   short route around it supplies motion evidence. The elevated countryside view
   is the first holdout composition and must not be tuned frame-by-frame alongside
@@ -215,8 +271,12 @@ Stop before implementation scope expands if any outcome would require:
 ## Prerequisites
 
 1. **Reference-machine observation:** on the desktop, record Windows version,
-   CPU, RAM, RTX 4070 Ti identity, driver, active OpenGL renderer/version, display
-   modes, and chosen viewport. Do not infer the active GPU from inventory alone.
+   CPU, RAM, RTX 5070 Ti identity, driver, active OpenGL renderer/version, display
+   modes, and chosen viewport. Do not infer the active GPU from inventory
+   alone — this host also exposes a Ryzen-integrated AMD adapter. The
+   2026-08-22 observation above satisfies the inventory and active-renderer
+   half; the Phase 0 packet must still carry the same fields with the chosen
+   viewport.
 2. **Baseline packet:** build the unchanged Release tree on that machine and
    capture the current five-sheep scene, motion, diagnostics, timings, memory,
    and source hashes at the selected viewport. This is comparison evidence, not
@@ -273,7 +333,7 @@ views ask the intended visual question.
 configuration, commands, hashes, captures, motion, metrics, diagnostics, rubric,
 and review metadata.
 
-**Stopping condition:** stop if the RTX 4070 Ti is not the active OpenGL renderer,
+**Stopping condition:** stop if the RTX 5070 Ti is not the active OpenGL renderer,
 the selected viewport cannot be reproduced, or the baseline state/cameras do not
 expose both close readability and landscape-depth questions.
 
@@ -604,7 +664,7 @@ observability, not a shipping presentation path.
 | Animals | Stable ID/pose mapping, mesh/pose bounds, interpolation, allocations | Five-animal silhouette and motion review |
 | Edge/focal softness | Candidate off/on, focus/debug output, motion artifacts | Active-subject readability in both views |
 | Graphics correctness | Focused framebuffer/resource tests and GL diagnostics | Zero high-severity OpenGL messages |
-| Performance | Per-pass time when decision-relevant, total GPU/frame, CPU submission/preparation, memory | p50/p95/p99 and budget verdict on recorded RTX 4070 Ti configuration |
+| Performance | Per-pass time when decision-relevant, total GPU/frame, CPU submission/preparation, memory | p50/p95/p99 and budget verdict on recorded RTX 5070 Ti configuration |
 | Reproducibility | Scenario/seed/tick/route/profile/viewport/exposure/source hashes | Repeat packet and manifest verification |
 | Human acceptance | Narrow owner question after each meaningful visual outcome | Explicit continue/revise/pivot/stop verdict |
 
@@ -617,7 +677,7 @@ The gate runs the proportional broader suites defined in
 
 | Platform/profile | Role in this plan | Required evidence | Claim boundary |
 | --- | --- | --- | --- |
-| Windows desktop, owner-reported RTX 4070 Ti, remaining hardware TBD | Reference visual-development machine | Active OpenGL adapter/version, selected viewport, full captures/motion, GL diagnostics, total/per-pass timing, memory, startup, package | Establishes only this recorded machine/configuration |
+| Windows desktop, observed RTX 5070 Ti (Ryzen 9 9950X, 61.6 GiB, Windows 11 Home 10.0.26200, 2560×1440 display; hybrid with a Ryzen-integrated AMD adapter) | Reference visual-development machine | Active OpenGL adapter/version, selected viewport, full captures/motion, GL diagnostics, total/per-pass timing, memory, startup, package | Establishes only this recorded machine/configuration; no budget is measured on it yet |
 | Windows laptop, GTX 1050 Ti Max-Q | Optional very-low-spec degradation/compatibility proxy | Named reduced profile, active adapter, visible degradation, stability and timing if run | Not the visual target or shipping minimum |
 | Windows laptop, Intel UHD 630 | Legacy observation only unless owner retains it | No new visual gate required by this plan | Existing evidence does not create future support |
 | WSL Ubuntu 24.04 | Build/headless/sanitizer host | Development, Release, sanitizer and relevant headless tests | OpenGL 4.5 host cannot provide accepted visual evidence |
@@ -631,9 +691,10 @@ and compressed package at or below 64 MiB. These are whole-program gates, not
 preallocated pass budgets. Record each new pass cost before deciding whether a
 separate pass limit would change an implementation decision.
 
-Passing these budgets on an RTX 4070 Ti proves headroom on that machine only. It
+Passing these budgets on an RTX 5070 Ti proves headroom on that machine only. It
 does not validate ADR 0001's RX 6600 High class, select a shipping minimum, or
-justify unbounded visual cost.
+justify unbounded visual cost. The budget values themselves are unchanged by the
+reference-machine supersession and remain unmeasured on this GPU.
 
 ## Risks, rollback, and deferred work
 
@@ -695,7 +756,7 @@ This plan is implemented only when:
 - the owner records a continue/revise/pivot/stop verdict against the selected
   visual rubric;
 - documentation records observed results without calling five sheep a density
-  proof, candidate art final, or the RTX 4070 Ti a shipping minimum; and
+  proof, candidate art final, or the RTX 5070 Ti a shipping minimum; and
 - no objective-loop, 25/100-sheep, Vulkan, streaming, imported-asset, or release
   promise was silently implemented.
 
@@ -704,8 +765,10 @@ This plan is implemented only when:
 Run Phase 0 on the desktop before visual implementation: record the complete
 machine and active OpenGL renderer, select the reproducible viewport (provisional
 2560×1440/60 when supported), build the unchanged Release tree, and generate the
-reference/holdout baseline packet. If desktop access is temporarily unavailable,
-the only safe preparatory code outcome is the narrowly configurable named-scene,
-camera, viewport, and manifest seam with byte/semantic-equivalent current
-captures; do not tune visuals against the laptop and later call them the RTX
-4070 Ti baseline.
+reference/holdout baseline packet. As of 2026-08-22 the owner has access to that
+desktop and it is this repository's checked-out host, so the run is unblocked;
+the preparatory seam is already in place and the packet has not yet been
+produced. Should desktop access lapse again, the only safe preparatory code
+outcome remains the narrowly configurable named-scene, camera, viewport, and
+manifest seam with byte/semantic-equivalent current captures; do not tune
+visuals against the laptop and later call them the RTX 5070 Ti baseline.

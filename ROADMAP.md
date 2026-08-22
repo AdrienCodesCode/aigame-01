@@ -5,10 +5,14 @@
 - **Current milestone:** Phase 3 — Tracer 2: five sheep and one gate. Phases 0–2
   and their exit gates are complete. Phase 3 has not yet implemented the
   playable herding loop. The reference-desktop half of Phase 0 in the
-  owner-approved bounded OpenGL visual-feasibility tracer is explicitly
-  postponed until the owner has access to that machine; independent QA and
-  documentation work may continue without treating that unavailable hardware as
-  a general project blocker.
+  owner-approved bounded OpenGL visual-feasibility tracer is **no longer
+  postponed for lack of hardware access**: on 2026-08-22 the owner confirmed
+  that this repository's checked-out native Windows host *is* the reference
+  desktop, and that host is verified (AMD Ryzen 9 9950X, 61.6 GiB, NVIDIA
+  GeForce RTX 5070 Ti on a 2560×1440 display, active OpenGL 4.6, native `dev`
+  preset 45/45 CTests — see the reference-machine supersession entry below).
+  The Phase 0 baseline packet has still not been produced, so its roadmap box
+  stays unchecked.
 - **Verified completed state:**
   - the accepted native C++23/SDL3/OpenGL foundation, bounded voxel paddock,
     and fixed 60 Hz gameplay;
@@ -838,8 +842,10 @@
   600-tick diagnostic to
   avoidance `100`/`6` and applied-sum `95`/`6`; it was fully reverted and the
   original gameplay test passes. The sweep also filed confirmed S3
-  [QA-007](docs/qa/open/QA-007-root-readme-still-says-implemented-sheep-rules-are-unimplemented.md)
-  without folding that sibling documentation fix into this batch.
+  [QA-007](docs/qa/closed/QA-007-root-readme-still-says-implemented-sheep-rules-are-unimplemented.md)
+  without folding that sibling documentation fix into this batch. QA-007 has
+  since been closed in commit `8fa1658`; this path follows the file to
+  `docs/qa/closed/`.
 - **QA-005 correction (observed result, 2026-08-22):**
   [QA-005](docs/qa/closed/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md)
   is closed after an owner-approved ADR correction. `PaddockCollisionField` now
@@ -870,14 +876,50 @@
   verdict unlocks separate 25- and 100-sheep scale/behavior gates. The laptop's
   GTX 1050 Ti Max-Q is a very-low-spec development/compatibility proxy, not the
   visual-quality reference or an accepted shipping minimum. The desktop's RTX
-  4070 Ti is the intended reference GPU, not a minimum specification; its CPU,
-  RAM, display, driver, active OpenGL adapter, and the eventual measured
-  minimum/recommended profiles remain unrecorded. This decision does not accept
-  an in-engine visual result, approve
-  Vulkan migration, cancel the objective loop, or grant redistribution rights
-  for third-party references.
+  5070 Ti is the intended reference GPU, not a minimum specification; the
+  eventual measured minimum/recommended profiles remain unrecorded. This
+  decision does not accept an in-engine visual result, approve Vulkan migration,
+  cancel the objective loop, or grant redistribution rights for third-party
+  references. The reference-GPU identity in this entry was superseded the same
+  day; see the next entry.
   Evidence: [visual-feasibility research](docs/research/visual-feasibility-before-objective-loop.md)
   and the [visual-reference boundary](docs/game-design/HERDING_GAMEPLAY.md#camera-and-visual-reference-boundary).
+- **Owner decision (2026-08-22, reference-machine supersession):** the owner
+  confirmed that the machine this repository is checked out on *is* the
+  reference desktop, and that the earlier RTX 4070 Ti report is superseded by
+  the observed RTX 5070 Ti host. **Observed result, 2026-08-22, native Windows**
+  (method: Windows CIM inventory queries plus the Phase 0 context smoke
+  [`run-context-smoke.ps1`](tools/phase0/run-context-smoke.ps1), ignored evidence
+  log `artifacts/phase0/2026-08-22/windows-context-smoke-155925531.log`): AMD
+  Ryzen 9 9950X 16-Core Processor, 16 cores / 32 threads; 61.6 GiB reported by
+  `Win32_ComputerSystem.TotalPhysicalMemory`; ASRock X870 Pro RS WiFi board;
+  Microsoft Windows 11 Home version `10.0.26200` build `26200`, 64-bit; NVIDIA
+  GeForce RTX 5070 Ti driver `32.0.15.9186` alongside a Ryzen-integrated AMD
+  Radeon(TM) Graphics adapter driver `32.0.21036.18`; a 2560×1440 primary
+  display reporting 2560×1440@144 Hz, 1920×1080@60 Hz, and 1024×768@60 Hz among
+  its supported modes; active OpenGL `gl_vendor=NVIDIA Corporation`,
+  `gl_renderer=NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2`,
+  `gl_version=4.6.0 NVIDIA 591.86`, `glsl_version=4.60 NVIDIA`,
+  `core_profile=yes`, `debug_context=yes`, SDL 3.4.10, `video_driver=windows`,
+  `result=pass`; MSVC `19.44.35228.0` from Visual Studio 2022 Build Tools (MSVC
+  toolset `14.44.35207`), CMake `3.31.6-msvc6`, Ninja `1.12.1`; and a native
+  Windows `dev` preset configure, build, and 45/45 CTests including every
+  display-backed OpenGL test from `opengl_context_smoke` through
+  `opengl_debug_high_severity` and `opengl_influence_debug_overlay`. Because the
+  host is a hybrid two-adapter machine, the baseline runner's active-renderer
+  pin remains a real gate: inventory alone never proves which GPU rendered.
+  **Inference:** the RTX 5070 Ti is a different and newer GPU than the RTX 4070
+  Ti the approved plan assumed, so every provisional budget and headroom
+  expectation reasoned about a 4070 Ti is now reasoned about untested hardware
+  until the Phase 0 baseline actually runs. This decision retargets the plan's
+  reference-GPU identity and the two hard gate constants only; it changes no
+  budget, threshold, tolerance, scene, profile, camera, viewport, or tick, and
+  it claims no visual or performance result. Evidence:
+  [approved visual-feasibility plan](docs/plans/visual-feasibility-before-objective-loop.md),
+  [native Windows setup](docs/setup/WINDOWS.md),
+  [`run-visual-feasibility-baseline.ps1`](tools/phase3/run-visual-feasibility-baseline.ps1),
+  and
+  [`assert-visual-feasibility-baseline-manifest.cmake`](tests/assert-visual-feasibility-baseline-manifest.cmake).
 - **Verification run (observed result, 2026-08-22, Phase 0 preparatory seam):**
   the named visual-tracer configuration and its extracted route built under WSL
   `dev` with Clang 18.1.3 and native Windows Release with MSVC 19.44.35228.0;
@@ -894,17 +936,24 @@
   verifies the seam only: it is neither reference visual evidence nor a
   High-profile performance result. The reference runner will fail unless the
   requested display mode is observed and the active OpenGL renderer contains
-  `NVIDIA GeForce RTX 4070 Ti`; it retains inventory, configuration, source
-  hashes, representative/holdout normal and debug frames, motion/state samples,
+  `NVIDIA GeForce RTX 5070 Ti` (retargeted from the superseded 4070 Ti string on
+  2026-08-22); it retains inventory, configuration, source hashes,
+  representative/holdout normal and debug frames, motion/state samples,
   timings, memory, startup-to-first-capture, compressed package size, rubric,
   and review metadata under ignored `artifacts/phase3/`. Evidence:
   [`visual_tracer_configuration.hpp`](src/platform/visual_tracer_configuration.hpp),
   [`visual_tracer_configuration_tests.cpp`](tests/visual_tracer_configuration_tests.cpp),
   and
   [`run-visual-feasibility-baseline.ps1`](tools/phase3/run-visual-feasibility-baseline.ps1).
-- **Next action:** keep the reference-desktop Phase 0 run postponed. QA-005 is
-  closed; the first independent unblocked correction is the narrow QA-007
-  root-README fix. The objective loop and visual tuning remain paused.
+- **Next action:** the reference-desktop Phase 0 run is unblocked — this host is
+  the reference desktop and is verified — so run
+  [`run-visual-feasibility-baseline.ps1`](tools/phase3/run-visual-feasibility-baseline.ps1)
+  against the now-retargeted RTX 5070 Ti gate and produce the unchanged Phase 0
+  baseline packet, then take the owner's camera/rubric confirmation. QA-005 and
+  QA-007 are both closed (QA-007 in commit `8fa1658`), so the QA tracker has no
+  open issue competing for this slot. The objective loop and visual tuning
+  remain paused, and no visual or performance result is claimed until that
+  packet exists.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
@@ -2376,13 +2425,21 @@ mix Vulkan migration, final art, world streaming, and maximum flock scale.
 
 - [x] Challenge and approve the incremental
   [OpenGL visual-feasibility plan](docs/plans/visual-feasibility-before-objective-loop.md).
-  Owner approval, 2026-08-22: the plan keeps the desktop RTX 4070 Ti in the
-  reference-GPU role, not the minimum-spec role; treats its remaining inventory,
-  viewport, and unchanged native baseline as Phase 0 evidence; and preserves the
-  human verdict before any 25/100-sheep work.
+  Owner approval, 2026-08-22: the plan keeps the desktop GPU in the
+  reference-GPU role, not the minimum-spec role; treats its inventory, viewport,
+  and unchanged native baseline as Phase 0 evidence; and preserves the human
+  verdict before any 25/100-sheep work. Amended the same day by the
+  reference-machine supersession in the current checkpoint: the reference GPU is
+  the observed RTX 5070 Ti, not the earlier-reported RTX 4070 Ti, and the
+  desktop inventory is now recorded rather than pending. The amendment changed
+  the reference-GPU identity and the two hard gate constants only; no budget,
+  threshold, tolerance, scene, profile, camera, viewport, or tick moved, so this
+  approval still stands.
 - [ ] Complete Phase 0: lock the named scene/cameras/viewport/profile/manifest
-  seam, visual rubric, complete desktop inventory, and unchanged RTX 4070 Ti
-  reference baseline without tuning presentation.
+  seam, visual rubric, recorded desktop inventory, and unchanged RTX 5070 Ti
+  reference baseline without tuning presentation. The machine is available and
+  verified as of 2026-08-22 and the inventory is recorded; the baseline packet
+  itself has not been produced, which is why this box stays unchecked.
 - [ ] Complete the plan's bounded five-sheep scene, shadow, colour/material,
   environment-detail, atmosphere, animal-presentation, and edge/focal outcomes,
   retaining their per-outcome stop conditions and evidence instead of merging
