@@ -232,6 +232,102 @@ selected the third-person camera family, but its movement relationship, orbit,
 alignment, and tuning are not final. The deferred overhead command mode would
 require its own camera and control experiment.
 
+## Owner-stated long-term direction — 2026-08-22
+
+**Status: owner-stated direction, not approved scope.** Recorded here because
+this file is where broader unapproved directions belong. Nothing below is a
+commitment, a plan, or a roadmap item, and none of it changes the current
+five-sheep experiment in [`WIDE_EYE.md`](WIDE_EYE.md) or the approved
+[visual-feasibility plan](../plans/visual-feasibility-before-objective-loop.md).
+Each item is written with the constraint or ruling it currently runs into, so a
+later decision to adopt one is made knowingly rather than by drift.
+
+### World extent
+
+**The game is explicitly not an open world.** The playable area is bounded, but
+the owner wants those bounds far apart, and wants the world to remain *visible*
+beyond them — "not all discoverable/accessible, but still present to fill in the
+environment". Scales named in conversation: 1, 10, and 20 km² of visible
+environment, against today's handcrafted 32×32 m paddock (about 0.001 km²).
+
+This is the cheapest large-world shape available, and it aligns with a ruling
+the approved plan already made: near-field traversable geometry must agree with
+authoritative collision, while distant scenery may be non-authoritative **only**
+when unreachable and explicitly labelled. Because a bounded surround is never
+edited, collided against, simulated, or serialized, it avoids most of what makes
+open-world voxel engines expensive — infinite generation, eviction policy,
+per-chunk edit persistence, and prop identity across detail bands. A finite
+extent is also knowable up front, so a low-resolution surround may be able to
+stay resident rather than stream.
+
+**Live constraint:** the plan's stop condition — stop if the tracer requires a
+larger *playable* world — is satisfied by this framing only while the distant
+surround stays genuinely unreachable and never becomes authoritative collision.
+
+**The one time-sensitive consequence.** Phase 5 writes procedural generation
+from scratch, and none exists today. If those generation functions take a
+resolution divisor from the first line — the "sieve" recorded in
+[the external render-distance note](../research/external-voxel-render-distance-input.md)
+— a low-resolution surround is nearly free and no second downsampling path can
+disagree with the full-resolution one. Retrofitting it means rewriting terrain
+generation. This is the only item here with a deadline, and the deadline is
+"before Phase 5 begins".
+
+### Flock size
+
+The owner restated 1,000 sheep as the eventual target. The number is already in
+the repository, but in a narrower role than that: Phase 6 benchmarks 250, 500,
+and 1,000 as **capacity evidence**, `SheepSpatialGrid` already carries a
+1,000-member ceiling, and the 2026-08-15 decision records that no large count is
+a product promise until performance, behavior, camera readability, and playtests
+support it. "Up to 1,000 authoritative sheep as an actual gameplay requirement
+rather than a capacity benchmark" is currently listed under **Deferred
+ideas — not current scope**. Moving it out of that list is an owner decision that
+has not been taken.
+
+Note the interaction with world extent: 1,000 sheep and a large bounded world
+are mutually reinforcing goals — a flock that size needs room — so they are
+better decided together than separately.
+
+### Rendering ambitions
+
+The owner named global illumination and ray-traced volumetric clouds. Both run
+into rulings in the plan the owner approved on 2026-08-22, which is why they are
+recorded rather than quietly queued:
+
+- The plan's adversarial review **rejected** "the RTX 5070 Ti justifies ray
+  tracing or vendor features", on the grounds that the experiment asks whether
+  the visual target works rather than whether the newest GPU path can be
+  exercised, and that cross-vendor OpenGL should be preserved.
+- It also **rejected** implementing volumetrics before simpler atmosphere,
+  directing a bounded height/distance/directional-scattering solution first and
+  volumetric integration only if named reference gaps remain.
+- Its non-goals name Vulkan, a permanent dual backend, ray tracing, mesh
+  shaders, DLSS, and FSR outright.
+
+**A hard technical fact, independent of any ruling:** OpenGL 4.6 has no ray
+tracing. Hardware ray tracing means a Vulkan backend, and
+[`opengl-to-vulkan-feasibility.md`](../research/opengl-to-vulkan-feasibility.md)
+already recommends against migrating now.
+
+**A useful distinction:** global illumination is not the same ask as ray
+tracing. Probe or irradiance-volume GI, and voxel cone tracing, are feasible on
+the current backend — and voxel cone tracing is a natural fit for a world that
+is already a voxel grid. Volumetric clouds likewise have a raymarched
+fragment-shader form that needs no RT hardware path. If these are pursued, the
+OpenGL-feasible routes should be evaluated before a backend migration is
+considered.
+
+### An unresolved tension worth stating
+
+If the real target is 1,000 sheep across several km² with global illumination,
+then a visual direction judged at **five** sheep in a 32×32 m paddock may not
+survive contact with it: densities, silhouette scales, and lighting budgets all
+differ. The approved plan half-anticipates this by labelling the five-sheep
+verdict as visual-direction evidence rather than proof of the flock density in
+the references. Whether the current visual gate is aimed at the right target is
+therefore a real question, not a settled one.
+
 ## Evidence gates for expanding this document
 
 ### After deterministic simulation
