@@ -144,6 +144,14 @@ constexpr DogState kApproachDogState{.position = {.x = 12.0, .y = 1.0, .z = 20.0
 // is exactly abeam, sheep 3 is directly behind, sheep 4 sits on an exact 3-4-5
 // diagonal ahead of the dog, and sheep 5 is straight ahead but outside the
 // pressure radius.
+//
+// Sheep 4's `(15, 16)` is deliberately left standing on the closed gate's north
+// face, and this pair is the only named fixture that starts a body inside an
+// obstacle. It is kept because it is the QA-001 witness: with the defect
+// present that sheep walked through the closed gate, so any return of it changes
+// these two scenarios by name. It cannot be moved without also moving the
+// accepted first-tick `0.8` facing cosine it carries — every 3-4-5 offset from
+// this dog that produces that cosine lies on the paddock's own wall line.
 constexpr SheepStateBuffer kDogFacingSheepStates{{
     {.id = 1,
      .position = {.x = 12.0, .y = 1.0, .z = 18.0},

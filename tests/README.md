@@ -141,6 +141,14 @@ five per hundred ticks, the closed wall line stops every sheep at exactly the
 face plus one body radius, and the run allocates nothing — with obstacle
 avoidance and the applied sum held to a deliberately looser recorded allowance
 that names QA-003;
+a QA-001 radius-band regression that asks the collision field, at both the sheep
+and the dog body radius, what it does with a body starting exactly on a face,
+inside the band, at exactly one radius, fully inside a shape, at a corner where
+two ways out are equally shallow, and wedged between two shapes, pins the fixed
+obstacle-then-face tie break by its exact resolved coordinate, requires every
+corrected position to be a fixed point, and drives the two `sheep-dog-facing-*`
+fixtures 400 ticks each to prove no published sheep ever occupies a paddock
+shape;
 influence debug-view coverage that builds every debug primitive from published
 evidence across 30 scenarios and 240 ticks each, checking arrow geometry and the
 stated scale against the published vectors, chosen-neighbor link endpoints against
@@ -181,9 +189,9 @@ per-stage timings are the `--benchmark` half and are deliberately not a CTest,
 because no accepted performance budget exists above five sheep and a timing gate
 needs one. The fixture is a fixed-spacing lattice placed `2.0` clear of the
 nearest obstacle face, re-checked against the collision field itself rather than
-against quoted constants, which is the clearance QA-001 requires. On a
-capable OpenGL 4.6 target it also covers context validation, triangle and depth-
-tested cube framebuffer oracles, byte-identical repeated normal and wireframe
+against quoted constants, which is the clearance QA-001 asked a fixture to keep.
+On a capable OpenGL 4.6 target it also covers context validation, triangle and
+depth-tested cube framebuffer oracles, byte-identical repeated normal and wireframe
 cube captures, the paddock center/depth oracle, byte-identical repeated 960×540
 paddock captures, broad framebuffer oracles for same-camera chunk bounds,
 face-normal vectors, indexed wireframe, and mesh-statistics views, and injected

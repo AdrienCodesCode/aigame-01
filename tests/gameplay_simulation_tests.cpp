@@ -1955,6 +1955,221 @@ AvoidanceContactOracle run_avoidance_contact_oracle() {
     return result;
 }
 
+// What the QA-001 depenetration regression observed, returned so the run report
+// can name the numbers without keeping the fixtures alive in `main`.
+struct BandPassthroughOracle {
+    bool passed = false;
+    double on_the_face_z = 0.0;
+    double inside_the_band_z = 0.0;
+    double at_one_radius_z = 0.0;
+    double a_radius_clear_z = 0.0;
+    wide_eye::game::Vec3 fully_inside{};
+    wide_eye::game::Vec3 axis_tie{};
+    wide_eye::game::Vec3 shape_tie{};
+    wide_eye::game::Vec3 two_shape_wedge{};
+    double dog_on_the_face_z = 0.0;
+    double dog_at_one_radius_z = 0.0;
+    std::uint64_t witness_ticks = 0;
+    std::uint64_t witness_overlap_ticks = 0;
+    double witness_minimum_z = 0.0;
+};
+
+// Whether one upright cylinder overlaps one analytic paddock rectangle, written
+// out here rather than borrowed from the field so the regression measures the
+// geometry itself instead of re-asking the code under test.
+bool body_overlaps_rectangle(double x, double z, double radius, double minimum_x, double maximum_x,
+                             double minimum_z, double maximum_z) {
+    return x + radius > minimum_x && x - radius < maximum_x && z + radius > minimum_z &&
+           z - radius < maximum_z;
+}
+
+bool body_overlaps_closed_paddock(double x, double z, double radius) {
+    return body_overlaps_rectangle(x, z, radius, 1.0, 14.0, 14.0, 16.0) ||
+           body_overlaps_rectangle(x, z, radius, 18.0, 31.0, 14.0, 16.0) ||
+           body_overlaps_rectangle(x, z, radius, 14.0, 18.0, 15.0, 16.0);
+}
+
+BandPassthroughOracle run_band_passthrough_oracle() {
+    BandPassthroughOracle result;
+    // QA-001. `move_axis` refuses a displacement by asking whether the body was
+    // clear of the face *before* the move, so it only answers correctly for a
+    // body that starts clear. A body that starts inside an obstacle's radius
+    // band matched no refusal, walked into the shape, through it, and out the
+    // far side, and nothing pushed it back out. The fix restores the
+    // precondition instead of changing the refusal: an overlapping body is
+    // pushed out along the shallowest single-axis move that clears every shape
+    // at once, and the displacement is then resolved exactly as before.
+    //
+    // No suite covered a body starting inside the band, which is why the defect
+    // survived the whole sheep-collision outcome. This one covers the five cases
+    // that matter — on a face, inside the band, at exactly one radius, fully
+    // inside a shape, and at a corner where two ways out are equally shallow —
+    // at both body radii the field is asked about, plus the named scenario the
+    // defect was reproduced in.
+    using wide_eye::game::CylinderMoveResult;
+    using wide_eye::game::PaddockCollisionField;
+    using wide_eye::game::PaddockObstacle;
+    using wide_eye::game::Vec3;
+    constexpr double kSheepRadius = wide_eye::game::kSheepCollisionRadius;
+    constexpr double kDogRadius = wide_eye::game::DogController::kRadius;
+    // The closed gate spans `x[14, 18]`, `z[15, 16]`, so its north face is at
+    // `z = 16` and a body of radius `r` rests against it at `16 + r`.
+    constexpr double kGateFaceZ = 16.0;
+    constexpr double kStep = -0.05;
+    const PaddockCollisionField closed_field{false};
+
+    const CylinderMoveResult on_the_face = closed_field.resolve_cylinder_move(
+        {.x = 15.0, .z = kGateFaceZ}, {.z = kStep}, kSheepRadius);
+    const CylinderMoveResult inside_the_band =
+        closed_field.resolve_cylinder_move({.x = 15.0, .z = 16.4}, {.z = kStep}, kSheepRadius);
+    const CylinderMoveResult at_one_radius = closed_field.resolve_cylinder_move(
+        {.x = 15.0, .z = kGateFaceZ + kSheepRadius}, {.z = kStep}, kSheepRadius);
+    const CylinderMoveResult a_radius_clear =
+        closed_field.resolve_cylinder_move({.x = 15.0, .z = 17.0}, {.z = kStep}, kSheepRadius);
+    result.on_the_face_z = on_the_face.position.z;
+    result.inside_the_band_z = inside_the_band.position.z;
+    result.at_one_radius_z = at_one_radius.position.z;
+    result.a_radius_clear_z = a_radius_clear.position.z;
+
+    if (!check(on_the_face.position.z == kGateFaceZ + kSheepRadius && on_the_face.clipped_z &&
+                   on_the_face.obstacle == PaddockObstacle::gate,
+               "a_body_on_a_face_is_put_back_on_it_rather_than_let_through") ||
+        !check(inside_the_band.position.z == kGateFaceZ + kSheepRadius &&
+                   inside_the_band.clipped_z && inside_the_band.obstacle == PaddockObstacle::gate,
+               "a_body_inside_the_radius_band_is_put_back_on_the_face") ||
+        // The accepted case. A body at exactly one radius was already refused
+        // before this correction and has to answer identically after it.
+        !check(at_one_radius.position.z == kGateFaceZ + kSheepRadius && at_one_radius.clipped_z &&
+                   at_one_radius.obstacle == PaddockObstacle::gate,
+               "a_body_at_exactly_one_radius_is_still_refused") ||
+        !check(a_radius_clear.position.z == 17.0 + kStep && !a_radius_clear.clipped_z &&
+                   a_radius_clear.obstacle == PaddockObstacle::none,
+               "a_body_a_full_radius_clear_still_moves_freely")) {
+        return result;
+    }
+
+    // Fully inside the gate, at the exact centre of its expanded rectangle in
+    // `x`. Both `x` escapes are `2.5` deep and both `z` escapes are `1.0`, so
+    // the shallowest pair is the `z` one and the fixed `-x`, `+x`, `-z`, `+z`
+    // face order takes `-z`. The body leaves through the south face and the gate
+    // then refuses the rest of its displacement.
+    const CylinderMoveResult fully_inside =
+        closed_field.resolve_cylinder_move({.x = 16.0, .z = 15.5}, {.z = kStep}, kSheepRadius);
+    result.fully_inside = fully_inside.position;
+    // An exact tie between one `x` face and one `z` face of the *same* shape.
+    // Inside the left wall at `(1.5, 14.5)`, `-x` and `-z` are both `1.0` deep
+    // and both land clear, so the face order decides it and X wins, exactly as
+    // the X-first resolve pass and the look-ahead's corner tie already do.
+    const CylinderMoveResult axis_tie =
+        closed_field.resolve_cylinder_move({.x = 1.5, .z = 14.5}, {}, kSheepRadius);
+    result.axis_tie = axis_tie.position;
+    // An exact tie between two *different* shapes. At `(18.25, 16.25)` the
+    // gate's `+x` face and the right wall's `+z` face are both `0.25` deep, so
+    // the field's own obstacle order decides it and the right wall wins.
+    const CylinderMoveResult shape_tie =
+        closed_field.resolve_cylinder_move({.x = 18.25, .z = 16.25}, {}, kSheepRadius);
+    result.shape_tie = shape_tie.position;
+    // Wedged in the overlap of two shapes, where the shallowest way out of each
+    // one is a way into the other. Taking only escapes that clear *every* shape
+    // is what makes this one step instead of a body handed back and forth.
+    const CylinderMoveResult two_shape_wedge =
+        closed_field.resolve_cylinder_move({.x = 18.0, .z = 15.0}, {}, kSheepRadius);
+    result.two_shape_wedge = two_shape_wedge.position;
+
+    if (!check(fully_inside.position.x == 16.0 && fully_inside.position.z == 15.0 - kSheepRadius &&
+                   fully_inside.clipped_z && fully_inside.obstacle == PaddockObstacle::gate,
+               "a_body_fully_inside_a_shape_leaves_through_its_shallowest_face") ||
+        !check(axis_tie.position.x == 1.0 - kSheepRadius && axis_tie.position.z == 14.5 &&
+                   axis_tie.clipped_x && !axis_tie.clipped_z &&
+                   axis_tie.obstacle == PaddockObstacle::left_wall,
+               "two_equally_shallow_faces_of_one_shape_resolve_to_the_x_face") ||
+        !check(shape_tie.position.x == 18.25 && shape_tie.position.z == 16.0 + kSheepRadius &&
+                   shape_tie.clipped_z && shape_tie.obstacle == PaddockObstacle::right_wall,
+               "two_equally_shallow_shapes_resolve_to_the_earlier_shape") ||
+        !check(two_shape_wedge.position.x == 18.0 &&
+                   two_shape_wedge.position.z == 14.0 - kSheepRadius &&
+                   !body_overlaps_closed_paddock(two_shape_wedge.position.x,
+                                                 two_shape_wedge.position.z, kSheepRadius),
+               "a_body_wedged_between_two_shapes_leaves_both_in_one_step")) {
+        return result;
+    }
+
+    // Every one of those corrected positions has to be a fixed point: a body the
+    // field has already put on a face must not be pushed again on the next tick,
+    // or a resting body would jitter for as long as it rested.
+    bool every_correction_is_a_fixed_point = true;
+    for (const Vec3& corrected :
+         {on_the_face.position, inside_the_band.position, at_one_radius.position,
+          fully_inside.position, axis_tie.position, shape_tie.position, two_shape_wedge.position}) {
+        const CylinderMoveResult settled = closed_field.resolve_cylinder_move(
+            {.x = corrected.x, .z = corrected.z}, {}, kSheepRadius);
+        every_correction_is_a_fixed_point = every_correction_is_a_fixed_point &&
+                                            settled.position.x == corrected.x &&
+                                            settled.position.z == corrected.z;
+    }
+
+    // The dog motor asks the same field at its own radius. It is the older
+    // caller and the one whose behavior is accepted, so both ends of the rule
+    // are pinned here: a dog on a face is pushed off it, and a dog at exactly
+    // one radius answers exactly as it always did.
+    const CylinderMoveResult dog_on_the_face =
+        closed_field.resolve_cylinder_move({.x = 15.0, .z = kGateFaceZ}, {.z = kStep}, kDogRadius);
+    const CylinderMoveResult dog_at_one_radius = closed_field.resolve_cylinder_move(
+        {.x = 15.0, .z = kGateFaceZ + kDogRadius}, {.z = kStep}, kDogRadius);
+    result.dog_on_the_face_z = dog_on_the_face.position.z;
+    result.dog_at_one_radius_z = dog_at_one_radius.position.z;
+
+    if (!check(every_correction_is_a_fixed_point,
+               "a_body_the_field_has_already_corrected_is_not_corrected_again") ||
+        !check(dog_on_the_face.position.z == kGateFaceZ + kDogRadius && dog_on_the_face.clipped_z &&
+                   dog_on_the_face.obstacle == PaddockObstacle::gate,
+               "the_dog_radius_answers_the_band_the_same_way") ||
+        !check(dog_at_one_radius.position.z == kGateFaceZ + kDogRadius &&
+                   dog_at_one_radius.clipped_z &&
+                   dog_at_one_radius.obstacle == PaddockObstacle::gate,
+               "the_accepted_dog_refusal_at_one_radius_is_unchanged")) {
+        return result;
+    }
+
+    // The named-scenario witness. `sheep-dog-facing-off` and `-on` place sheep 4
+    // at exactly `(15, 16)`, on the closed gate's north face, and that placement
+    // is kept deliberately: it is the only fixture in the game that reproduces
+    // this defect, and moving it would also move the accepted first-tick 3-4-5
+    // facing measurement it carries. Driven with no dog input, that sheep used
+    // to end `400` ticks south of the wall line having crossed the closed gate.
+    constexpr std::uint64_t kWitnessTicks = 400;
+    result.witness_ticks = kWitnessTicks;
+    result.witness_minimum_z = std::numeric_limits<double>::infinity();
+    for (const std::string_view name : {"sheep-dog-facing-off", "sheep-dog-facing-on"}) {
+        const auto scenario = wide_eye::game::find_gameplay_scenario(name);
+        if (!check(scenario.has_value(), "the_band_witness_fixtures_exist")) {
+            return result;
+        }
+        const SimulationHandle simulation = make_simulation(*scenario);
+        for (std::uint64_t tick = 0; tick < kWitnessTicks; ++tick) {
+            simulation->fixed_update({});
+            const auto& sheep = simulation->current_snapshot().sheep;
+            for (const auto& member : sheep) {
+                if (body_overlaps_closed_paddock(member.position.x, member.position.z,
+                                                 kSheepRadius)) {
+                    ++result.witness_overlap_ticks;
+                }
+            }
+            result.witness_minimum_z = std::min(result.witness_minimum_z, sheep[3].position.z);
+        }
+    }
+
+    if (!check(result.witness_overlap_ticks == 0,
+               "no_published_sheep_ever_occupies_a_paddock_shape") ||
+        !check(result.witness_minimum_z == kGateFaceZ + kSheepRadius,
+               "the_witness_sheep_never_gets_south_of_the_gate_face")) {
+        return result;
+    }
+
+    result.passed = true;
+    return result;
+}
+
 // What the behavior-transition oracle observed, returned so the run report can
 // name the numbers without keeping the fixtures alive in `main`.
 struct BehaviorTransitionOracle {
@@ -4595,6 +4810,22 @@ int main() {
              .z = on_evidence.pressure_acceleration.z + on_evidence.facing_acceleration.z},
             evidence_with_id(facing_on_after_one.sheep_combined_influence_evidence,
                              on_evidence.subject_id));
+        // Integration is not the last authority: the paddock is. Sheep 4 of this
+        // fixture stands on the closed gate's face, so from the first tick the
+        // field pushes it off and clears the refused axis under the accepted
+        // contact rule (QA-001). An axis the field refused therefore has to
+        // publish exactly that instead of the integrated acceleration, and every
+        // axis it did not refuse still has to match the published terms exactly.
+        const auto& contact =
+            evidence_with_id(facing_on_after_one.sheep_collision_evidence, on_evidence.subject_id);
+        const double applied_x = (current_member.velocity.x - prior_member.velocity.x) /
+                                 wide_eye::game::GameplaySimulation::kFixedDeltaSeconds;
+        const double applied_z = (current_member.velocity.z - prior_member.velocity.z) /
+                                 wide_eye::game::GameplaySimulation::kFixedDeltaSeconds;
+        const bool x_matches = contact.clipped_x ? current_member.velocity.x == 0.0
+                                                 : std::abs(applied_x - expected.x) < 1.0e-12;
+        const bool z_matches = contact.clipped_z ? current_member.velocity.z == 0.0
+                                                 : std::abs(applied_z - expected.z) < 1.0e-12;
         if (!check(off_evidence.stimulus_evaluated == on_evidence.stimulus_evaluated &&
                        off_evidence.dog_distance == on_evidence.dog_distance &&
                        off_evidence.dog_relative_bearing_radians ==
@@ -4604,12 +4835,7 @@ int main() {
                        off_evidence.pressure_acceleration == on_evidence.pressure_acceleration &&
                        off_evidence.facing_acceleration == wide_eye::game::Vec3{},
                    "facing_control_preserves_accepted_distance_only_pressure") ||
-            !check(std::abs((current_member.velocity.x - prior_member.velocity.x) /
-                                wide_eye::game::GameplaySimulation::kFixedDeltaSeconds -
-                            expected.x) < 1.0e-12 &&
-                       std::abs((current_member.velocity.z - prior_member.velocity.z) /
-                                    wide_eye::game::GameplaySimulation::kFixedDeltaSeconds -
-                                expected.z) < 1.0e-12,
+            !check(x_matches && z_matches,
                    "published_facing_term_matches_bounded_applied_acceleration")) {
             return EXIT_FAILURE;
         }
@@ -5708,6 +5934,12 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // The QA-001 radius-band regression owns its own frame for the same reason.
+    const BandPassthroughOracle band_passthrough = run_band_passthrough_oracle();
+    if (!band_passthrough.passed) {
+        return EXIT_FAILURE;
+    }
+
     // The behavior-transition oracle owns its own frame for the same reason.
     const BehaviorTransitionOracle behavior = run_behavior_transition_oracle();
     if (!behavior.passed) {
@@ -6101,6 +6333,26 @@ int main() {
         << (avoidance_contact.drop_at_bound.drop_ahead ? "yes" : "no") << '\n'
         << "sheep_avoidance_contact_face_drop_past_bound="
         << (avoidance_contact.drop_past_bound.drop_ahead ? "yes" : "no") << '\n'
+        << "paddock_band_passthrough_on_face_z=" << band_passthrough.on_the_face_z << '\n'
+        << "paddock_band_passthrough_inside_band_z=" << band_passthrough.inside_the_band_z << '\n'
+        << "paddock_band_passthrough_at_one_radius_z=" << band_passthrough.at_one_radius_z << '\n'
+        << "paddock_band_passthrough_a_radius_clear_z=" << band_passthrough.a_radius_clear_z << '\n'
+        << "paddock_band_passthrough_fully_inside=" << band_passthrough.fully_inside.x << ','
+        << band_passthrough.fully_inside.z << '\n'
+        << "paddock_band_passthrough_axis_tie=" << band_passthrough.axis_tie.x << ','
+        << band_passthrough.axis_tie.z << '\n'
+        << "paddock_band_passthrough_shape_tie=" << band_passthrough.shape_tie.x << ','
+        << band_passthrough.shape_tie.z << '\n'
+        << "paddock_band_passthrough_two_shape_wedge=" << band_passthrough.two_shape_wedge.x << ','
+        << band_passthrough.two_shape_wedge.z << '\n'
+        << "paddock_band_passthrough_dog_on_face_z=" << band_passthrough.dog_on_the_face_z << '\n'
+        << "paddock_band_passthrough_dog_at_one_radius_z=" << band_passthrough.dog_at_one_radius_z
+        << '\n'
+        << "paddock_band_passthrough_witness_ticks=" << band_passthrough.witness_ticks << '\n'
+        << "paddock_band_passthrough_witness_overlap_ticks="
+        << band_passthrough.witness_overlap_ticks << '\n'
+        << "paddock_band_passthrough_witness_minimum_z=" << band_passthrough.witness_minimum_z
+        << '\n'
         << "sheep_behavior_fixture=exact_stimulus_curve_paired_control\n"
         << "sheep_behavior_arousal_is_physiological=no\n"
         << "sheep_behavior_arousal_range=[" << wide_eye::game::kSheepMinimumArousal << ','

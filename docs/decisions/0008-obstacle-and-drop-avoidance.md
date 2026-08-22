@@ -124,10 +124,14 @@ procedural terrain is when this half gets a real test.
   where it is. That is intended: it is not moving into anything. It does mean a
   sheep can come to rest very close to an edge.
 - **This does not fix, and must not be read as fixing,
-  [QA-001](../qa/open/QA-001-paddock-collision-radius-band-passthrough.md).** A
+  [QA-001](../qa/closed/QA-001-paddock-collision-radius-band-passthrough.md).** A
   body that starts inside an obstacle's radius band still passes through it; the
   fixtures that reproduce that defect do not enable avoidance and still
-  reproduce it.
+  reproduce it. (QA-001 was corrected separately on 2026-08-22 in the hard
+  boundary, not here — see
+  [ADR 0005](0005-paddock-collision-ownership.md#correction--a-body-that-starts-inside-a-shape-2026-08-22-qa-001).
+  This decision's limit is unchanged: avoidance is still a steering nudge and
+  still does not answer for a body that is already inside a shape.)
 
 ### Alternatives considered and rejected for now
 
@@ -204,9 +208,9 @@ collision authority:
 
 - A reported contact now always lies **at or ahead of the body**. A body already
   inside an expanded rectangle has no face ahead of it and reports no obstacle;
-  pushing such a body out belongs to the collision authority, and
-  [QA-001](../qa/open/QA-001-paddock-collision-radius-band-passthrough.md) is
-  where what the authority does with it is tracked.
+  pushing such a body out belongs to the collision authority, which
+  [QA-001](../qa/closed/QA-001-paddock-collision-radius-band-passthrough.md) made
+  it do on 2026-08-22.
 - Touching a rectangle's boundary while travelling along it is **not** being
   inside it. `overlaps`, the test the hard clip applies to the axis a body is not
   moving along, is strict for exactly this reason — it is what lets a body parked

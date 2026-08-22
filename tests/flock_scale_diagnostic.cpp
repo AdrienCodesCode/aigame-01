@@ -115,7 +115,7 @@ constexpr double kLatticeSpacing = 1.25;
 // obstacle ends at `z = 16.0` (`kLeftWall`, `kRightWall`, and `kClosedGate` in
 // `src/game/paddock_collision.cpp`), so an origin at `z = 18.0` places every
 // member at least `2.0` from the nearest obstacle face — four times the
-// `kSheepCollisionRadius` clearance QA-001 requires a fixture to keep.
+// `kSheepCollisionRadius` clearance QA-001 asked a fixture to keep.
 constexpr double kLatticeOriginX = 8.0;
 constexpr double kLatticeOriginZ = 18.0;
 constexpr double kLatticeGroundHeight = PaddockCollisionField::kGroundHeight;

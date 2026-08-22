@@ -38,10 +38,20 @@ struct AnalyticObstacle {
 
 // Records what one analytic move actually did, so a body that stops can be
 // explained instead of halting mysteriously. `clipped_x` and `clipped_z` name
-// the axes whose requested displacement the field refused this tick, and
+// the axes whose requested coordinate the field refused this tick, and
 // `obstacle` names the shape that refused it. A clipped axis with `none` was
 // refused by the paddock's outer bounds, which are limits rather than obstacle
 // shapes.
+//
+// Being pushed out of a shape the body started inside is reported through those
+// same two flags rather than through a signal of its own, because it is the same
+// event they already describe: the requested coordinate was inside an obstacle
+// and the field refused it. The shape the body was inside is the shape that
+// names itself in `obstacle`, and a caller that clears a clipped axis' velocity
+// wants to clear it here too — a body being pushed out of a wall should not keep
+// the speed it had into the wall. A separate flag would also be a contract
+// member carried forever for an event only a badly placed fixture can produce:
+// the field never leaves a body that started clear overlapping anything.
 struct CylinderMoveResult {
     Vec3 position{};
     bool clipped_x = false;
@@ -87,6 +97,14 @@ class PaddockCollisionField {
     // Resolves one planar displacement of an upright cylinder and reports the
     // contact that produced the result. Callers that only need the position use
     // `move_cylinder`; callers that must publish why a body stopped use this.
+    //
+    // A body that starts overlapping an obstacle is pushed out first, along the
+    // shallowest single-axis move that clears every shape at once and stays
+    // inside the paddock, before its displacement is resolved. Two equally
+    // shallow ways out resolve to the earlier one in the field's fixed obstacle
+    // order and a fixed `-x`, `+x`, `-z`, `+z` face order, so an exact tie
+    // answers the same way in every run; a body with no clear way out is left
+    // where it is rather than given an invented one.
     [[nodiscard]] CylinderMoveResult resolve_cylinder_move(Vec3 start, Vec3 displacement,
                                                            double radius) const noexcept;
     [[nodiscard]] Vec3 move_cylinder(Vec3 start, Vec3 displacement, double radius) const noexcept;

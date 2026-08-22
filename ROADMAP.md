@@ -229,6 +229,49 @@
   [stack headroom measurement](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/stack-headroom.txt),
   and
   [verification gates](artifacts/phase3/2026-08-22/randomness-and-steering-stability-headless/verification-gates.txt).
+- **QA session (2026-08-22, one issue closed):**
+  [QA-001](docs/qa/closed/QA-001-paddock-collision-radius-band-passthrough.md)
+  is fixed in the hard boundary, and it is the roadmap-visible one because the
+  Phase 3 exit gate's central claim is that the closed gate is the only thing
+  stopping the flock. `resolve_cylinder_move` now restores the precondition its
+  refusal arithmetic was written against instead of changing that arithmetic: a
+  body that starts overlapping a shape is pushed out along the shallowest
+  single-axis move that clears every shape at once and stays inside the paddock,
+  and the displacement is then resolved exactly as before. Blocking on the *end*
+  state was rejected on measurement — an exhaustive sweep showed the start test
+  is not wrong, only fed a state it was never meant to answer for — and would
+  have made an overlapping body's correction depend on which way it asked to
+  move. The tie between two equally shallow ways out is the field's own fixed
+  obstacle order, then a fixed `-x`, `+x`, `-z`, `+z` face order, so X wins
+  within a shape and the earlier shape wins between two; a body no candidate can
+  free is left where it is rather than given an invented direction.
+  [ADR 0005](docs/decisions/0005-paddock-collision-ownership.md) carries the
+  reasoning as a dated correction section. On WSL Ubuntu 24.04.4 the `dev` and
+  `dev-sanitized` (Clang 18.1.3) and `release` (GNU 13.3.0) configurations each
+  built and passed 28/28 CTests; formatting, bounded clang-tidy, the QA tracker
+  check, `git diff --check`, and `wide_eye.gameplay_simulation_stack_budget` all
+  passed. Against a `git worktree` at `HEAD` (`5e0a6fa`), 28 of the 30 named
+  scenarios are byte-identical over 240 scripted ticks; the two that differ are
+  `sheep-dog-facing-off` and `sheep-dog-facing-on` from tick `0`, and in both the
+  only fields that ever differ belong to sheep 4, the one fixture body in the
+  game that starts inside a shape. **No accepted measurement had to be
+  re-derived**: the first-tick dog-facing observations are read from immutable
+  prior state before the collision stage runs and are unchanged, including the
+  exact `0.8` cosine and the `(0.12, -0.16)` vector; the 60-tick alignment
+  polarization is still `0.824621` off versus `0.924042` on; and the avoidance
+  clip counts (0 on, 4 off) and closest approach of `0.758357` are unchanged,
+  because those four scenarios are byte-identical. One stale *record* was
+  corrected rather than a measurement: the sheep-collision item's account of
+  sheep 4 meeting the right wall in those two fixtures described a sheep that had
+  crossed the closed gate, so that sentence now says so. `wide_eye.dog_controller`
+  and every dog scenario are byte-identical, so accepted dog collision behavior is
+  unchanged in fact rather than by assertion. The `sheep-dog-facing-*` sheep on
+  the gate face is deliberately kept as the named regression witness; it also
+  cannot move without moving the accepted facing cosine it carries. Evidence:
+  [`paddock_collision.cpp`](src/game/paddock_collision.cpp),
+  [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp), and the
+  ignored
+  [QA-001 evidence set](artifacts/phase3/2026-08-22/qa-001-collision-passthrough/).
 - **QA session (2026-08-22, one issue closed, one filed):**
   [QA-003](docs/qa/closed/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md)
   is fixed in the obstacle query rather than in the steering caller: a reported
@@ -675,11 +718,16 @@
   a sight line that exactly grazes an obstacle edge counts as blocked. A terrain
   factor is deferred to Phase 5 because the handcrafted paddock has one constant
   ground height and there is nothing for it to read yet. Sheep collision uses the
-  dog's accepted clipping rule, so a body that starts within its own radius of an
-  obstacle face is not stopped by that face and passes through it — filed as
-  [QA-001](docs/qa/open/QA-001-paddock-collision-radius-band-passthrough.md),
-  reproduced in the `sheep-dog-facing-off/on` fixtures, and required before the
-  Phase 3 exit-gate replay can claim the closed gate is the only way through.
+  dog's accepted clipping rule, and that rule used to let a body that started
+  within its own radius of an obstacle face walk through the face — filed as
+  [QA-001](docs/qa/closed/QA-001-paddock-collision-radius-band-passthrough.md)
+  and now closed. The field pushes a body that starts inside a shape out along
+  the shallowest single-axis move that clears every shape at once before it
+  resolves the displacement, so a closed gate now stops a body from every start
+  position rather than only from clear space. What remains unmeasured is the
+  correction's *feel*: a badly placed body is moved up to one body radius in one
+  tick, which no player or reviewer has seen, and the fix has been exercised only
+  against the three handcrafted paddock rectangles.
   Sheep-versus-sheep and sheep-versus-dog body collision do not exist: only the
   paddock boundary is authoritative. The gameplay-simulation oracle's stack
   headroom is no longer a live constraint: every fixture in
@@ -770,14 +818,13 @@
   [QA-004](docs/qa/open/QA-004-presets-do-not-pin-the-compiler.md); whether to
   pin every preset to Clang or to make the GCC build a stated second preset is an
   owner decision.
-- **Next action:** fix
-  [QA-001](docs/qa/open/QA-001-paddock-collision-radius-band-passthrough.md),
-  then implement the Phase 3 objective loop. QA-001 comes first because the
-  exit-gate replay's central claim is that the open gate is the only way
-  through, and a body that starts within its own radius of a face still walks
-  through it. The objective loop then spawns the dog, farmer placeholder, five
-  sheep, gate, and destination pen, adds one gather-and-drive whistle, explicit
-  success and recoverable failure with restart, and a minimal HUD. The influence
+- **Next action:** implement the Phase 3 objective loop — spawn the dog, farmer
+  placeholder, five sheep, gate and destination pen, add one gather-and-drive
+  whistle, explicit success and recoverable failure with restart, and a minimal
+  HUD. The exit-gate replay's central claim that the open gate is the only way
+  through now holds from every start position:
+  [QA-001](docs/qa/closed/QA-001-paddock-collision-radius-band-passthrough.md)
+  is closed. The influence
   debug views landed but are **unaccepted**: they need the owner's readability
   verdict and a capture from native hardware, neither of which this OpenGL 4.5
   host can produce.
@@ -1297,37 +1344,72 @@ scope. Evidence: the archived
   and its sheep 3 changes without contacting anything because alignment reads a
   neighbor's velocity and that neighbor was stopped by the wall;
   `sheep-dog-facing-off` sheep 1 walked from the wall line down to `z = 9.87` and
-  now stops at `16.5` from tick `78`, while its sheep 4 stops at `x = 17.5`
-  against the right wall on tick `185`; `sheep-dog-facing-on` shows the same two
-  contacts from ticks `61` and `160`. No accepted measurement was invalidated:
-  the accepted alignment pair is measured at 60 ticks, before any contact, and
-  still reports `0.824621` off versus `0.924042` on, and the accepted facing
-  evidence is a first-tick stationary-dog observation. WSL development, Release,
+  now stops at `16.5` from tick `78`; `sheep-dog-facing-on` shows the same
+  contact from tick `61`. (That comparison also recorded a later right-wall
+  contact for sheep 4 of both fixtures. Those two records were an artifact of the
+  defect named below — that sheep had crossed the closed gate and met the right
+  wall from the south — and they were superseded when it was corrected on
+  2026-08-22; see the QA-001 paragraph below.) No accepted measurement was
+  invalidated: the accepted alignment pair is measured at 60 ticks, before any
+  contact, and still reports `0.824621` off versus `0.924042` on, and the
+  accepted facing evidence is a first-tick stationary-dog observation. WSL development, Release,
   and ASan/UBSan configurations each passed 24/24 CTests; project formatting and
   bounded clang-tidy passed and `git diff --check` reported nothing. Native
   Windows/Linux graphics, the presentation performance scenarios, and human
   visual review were not rerun because this outcome changes authoritative
   headless sheep behavior rather than pixels, and this host exposes only OpenGL
-  4.5. The parity this item asked for is delivered, but the shared rule it
-  inherits is defective: a body that starts within its own radius of an obstacle
-  face is not stopped by that face and passes clean through it, and nothing
-  pushes an overlapping body back out. That is reproduced in the
+  4.5. The parity this item asked for was delivered, but the shared rule it
+  inherited was defective: a body that started within its own radius of an
+  obstacle face was not stopped by that face and passed clean through it, and
+  nothing pushed an overlapping body back out. That was reproduced in the
   `sheep-dog-facing-off/on` fixtures, whose sheep 4 starts exactly on the closed
-  gate's face and traverses it, and is filed as
-  [QA-001](docs/qa/open/QA-001-paddock-collision-radius-band-passthrough.md). So
-  a closed gate stops a sheep that approaches it from clear space, which is what
-  the new fixtures observe, but "the open gate is the only way through" does not
-  hold for every start position until QA-001 is resolved. The dog motor has the
-  same defect at its own `0.42` radius; no current dog fixture starts inside the
-  band. Sheep-versus-sheep and sheep-versus-dog body collision are out of scope
-  here. Evidence:
+  gate's face, and was filed as
+  [QA-001](docs/qa/closed/QA-001-paddock-collision-radius-band-passthrough.md).
+  **Correction (observed result, 2026-08-22, WSL Ubuntu 24.04.4, Clang 18.1.3):**
+  `resolve_cylinder_move` now restores the precondition its refusal arithmetic
+  was written against instead of changing that arithmetic — a body that starts
+  overlapping a shape is pushed out along the shallowest single-axis move that
+  clears every shape at once and stays inside the paddock, and the displacement
+  is then resolved exactly as before. The tie between two equally shallow ways
+  out is the field's own fixed obstacle order, then a fixed `-x`, `+x`, `-z`,
+  `+z` face order, so X wins within one shape and the earlier shape wins between
+  two; nothing in it depends on storage order, iteration order, or an address.
+  Over a `641 × 641` grid of starts and 16 per-tick displacements at both body
+  radii and both gate states — 5,960,704 clear-start pairs and 613,392
+  overlapping-start pairs in the closed-gate sheep configuration alone — no clear
+  start is ever left overlapping, no overlapping start is left overlapping, every
+  clipped axis is still explained by a named obstacle or the outer bounds, no
+  position is wedged with no way out, and every corrected position is a fixed
+  point, so a resting body cannot jitter. Against a `git worktree` at `5e0a6fa`,
+  28 of the 30 named scenarios are byte-identical over 240 scripted ticks; the
+  two that differ are `sheep-dog-facing-off` and `sheep-dog-facing-on` from tick
+  `0`, and in both the only fields that ever differ belong to sheep 4. Its
+  accepted first-tick facing evidence is unchanged — the exact `0.8` cosine and
+  the `(0.12, -0.16)` vector — because that evidence is read from immutable prior
+  state before the collision stage runs. Every dog scenario is byte-identical, so
+  accepted dog collision behavior is unchanged in fact rather than by assertion.
+  Sheep 4 of both fixtures now leaves the closed gate on tick `0` at exactly
+  `z = 16.5`, slides along the gate face until tick `62`, and reaches a minimum
+  published `z` of exactly `16.5` over 240 ticks, against `11.66` and `10.47`
+  before; driven 400 ticks with no dog input it ends at `(20.3843, 16.5)` and
+  `(21.4561, 16.5)` with zero ticks occupying the gate, against
+  `(17.4895, 12.6807)` and `(18.0084, 11.9888)` before. That placement is kept
+  deliberately as the named witness. "The open gate is the only way through" now
+  holds for every start position. Sheep-versus-sheep and sheep-versus-dog body
+  collision remain out of scope here. Evidence:
   [`paddock_collision.hpp`](src/game/paddock_collision.hpp),
   [`sheep_state.hpp`](src/game/sheep_state.hpp),
   [`gameplay_scenario.cpp`](src/game/gameplay_scenario.cpp),
   [`gameplay_simulation.cpp`](src/game/gameplay_simulation.cpp),
   [`gameplay_replay.cpp`](src/game/gameplay_replay.cpp),
   [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp),
-  [ADR 0005](docs/decisions/0005-paddock-collision-ownership.md), and the ignored
+  [ADR 0005](docs/decisions/0005-paddock-collision-ownership.md) with its
+  2026-08-22 correction, the QA-001
+  [probe table](artifacts/phase3/2026-08-22/qa-001-collision-passthrough/probe-table.txt),
+  [analytic sweep](artifacts/phase3/2026-08-22/qa-001-collision-passthrough/analytic-sweep.txt),
+  and
+  [per-scenario comparison](artifacts/phase3/2026-08-22/qa-001-collision-passthrough/scenario-state-diff.txt),
+  and the ignored
   [oracle output](artifacts/phase3/2026-08-21/sheep-collision-authority-headless/gameplay-simulation-oracle.txt),
   [accepted-scenario comparison](artifacts/phase3/2026-08-21/sheep-collision-authority-headless/accepted-scenario-state-diff.txt),
   and
@@ -1637,8 +1719,9 @@ scope. Evidence: the archived
   The rule also considers one obstacle at a time, so a lateral escape can point at
   another shape — steering around the closed gate's `+x` end aims at ground the
   right wall occupies — and it does not fix
-  [QA-001](docs/qa/open/QA-001-paddock-collision-radius-band-passthrough.md),
-  whose reproducing fixtures do not enable avoidance and still reproduce it. This
+  [QA-001](docs/qa/closed/QA-001-paddock-collision-radius-band-passthrough.md),
+  whose reproducing fixtures do not enable avoidance and still reproduced it at
+  the time; that defect was corrected separately on 2026-08-22. This
   is synthetic causal evidence, not player-facing motion acceptance. Evidence:
   [ADR 0008](docs/decisions/0008-obstacle-and-drop-avoidance.md),
   [`paddock_collision.hpp`](src/game/paddock_collision.hpp),
@@ -2071,8 +2154,8 @@ scope. Evidence: the archived
   contract; the fixture is a `1.25`-spaced square lattice with round-robin
   temperaments whose origin sits `2.0` north of the nearest obstacle face — four
   times the clearance
-  [QA-001](docs/qa/open/QA-001-paddock-collision-radius-band-passthrough.md)
-  requires — re-checked at every member count by probing the accepted collision
+  [QA-001](docs/qa/closed/QA-001-paddock-collision-radius-band-passthrough.md)
+  required — re-checked at every member count by probing the accepted collision
   field itself rather than by trusting the constants quoted beside it. The
   oracle that makes the larger runs credible is the five-member comparison: at
   the authoritative member count the diagnostic reproduces

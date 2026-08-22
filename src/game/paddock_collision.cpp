@@ -1,6 +1,7 @@
 #include "game/paddock_collision.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <utility>
@@ -35,10 +36,118 @@ constexpr AnalyticObstacle kClosedGate{
     return maximum_a > minimum_b && minimum_a < maximum_b;
 }
 
+[[nodiscard]] bool overlaps_obstacle(const AnalyticObstacle& obstacle, double x, double z,
+                                     double radius) noexcept {
+    return overlaps(x - radius, x + radius, obstacle.minimum_x, obstacle.maximum_x) &&
+           overlaps(z - radius, z + radius, obstacle.minimum_z, obstacle.maximum_z);
+}
+
+[[nodiscard]] bool overlaps_any_obstacle(double x, double z, double radius,
+                                         const AnalyticObstacle* obstacles,
+                                         std::size_t obstacle_count) noexcept {
+    for (std::size_t index = 0; index < obstacle_count; ++index) {
+        if (overlaps_obstacle(obstacles[index], x, z, radius)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// One way out of a shape a body is already inside: which axis to move along, the
+// coordinate that puts the body exactly on that face, and how far it has to
+// travel to get there. `depth` is what makes two ways out comparable; `found`
+// distinguishes "no way out was named" from a zero-length one, which cannot
+// occur because a strict overlap has strictly positive depth on all four faces.
+struct EscapeCandidate {
+    bool found = false;
+    bool x_axis = false;
+    double coordinate = 0.0;
+    double depth = 0.0;
+};
+
+// The shallowest single-axis move that puts a body already overlapping one or
+// more obstacles back outside *all* of them.
+//
+// It has to answer for the union rather than for one rectangle at a time. The
+// walls and the closed gate touch, so the shallowest way out of one shape is
+// routinely a way into its neighbour: rejecting a candidate that lands inside
+// another shape is exactly what makes this one step instead of an iteration that
+// could hand a body back and forth between two neighbours forever. An escape
+// that leaves the paddock is rejected for the same reason — it is not an escape.
+//
+// The tie break is the enumeration order: the field's own fixed obstacle order,
+// then a fixed face order of `-x`, `+x`, `-z`, `+z`, with only a strictly
+// smaller depth replacing the standing candidate. Two equally shallow escapes
+// therefore always resolve to the earlier one — the earlier shape when they
+// belong to different shapes, and the X face when one shape offers both, which
+// is the same X-before-Z priority `resolve_cylinder_move`'s X-first pass and
+// `approaching_obstacle`'s corner tie already use. Nothing in that order depends
+// on storage order, iteration order, an address, or which body is asking, so an
+// exact tie resolves the same way in every run.
+//
+// A body no candidate can free — wedged in a shape set with no clear
+// single-axis way out — reports `found` false and is left exactly where it is.
+// The geometry names no escape, so none is invented; the ordinary axis passes
+// then resolve its displacement as they always did.
+[[nodiscard]] EscapeCandidate shallowest_escape(double x, double z, double radius,
+                                                const AnalyticObstacle* obstacles,
+                                                std::size_t obstacle_count) noexcept {
+    EscapeCandidate best;
+    for (std::size_t index = 0; index < obstacle_count; ++index) {
+        const AnalyticObstacle& obstacle = obstacles[index];
+        if (!overlaps_obstacle(obstacle, x, z, radius)) {
+            continue;
+        }
+
+        const std::array<EscapeCandidate, 4> candidates{{
+            {.found = true,
+             .x_axis = true,
+             .coordinate = obstacle.minimum_x - radius,
+             .depth = x - (obstacle.minimum_x - radius)},
+            {.found = true,
+             .x_axis = true,
+             .coordinate = obstacle.maximum_x + radius,
+             .depth = (obstacle.maximum_x + radius) - x},
+            {.found = true,
+             .x_axis = false,
+             .coordinate = obstacle.minimum_z - radius,
+             .depth = z - (obstacle.minimum_z - radius)},
+            {.found = true,
+             .x_axis = false,
+             .coordinate = obstacle.maximum_z + radius,
+             .depth = (obstacle.maximum_z + radius) - z},
+        }};
+        for (const EscapeCandidate& candidate : candidates) {
+            if (best.found && candidate.depth >= best.depth) {
+                continue;
+            }
+            const double lower = candidate.x_axis ? PaddockCollisionField::kMinimumX
+                                                  : PaddockCollisionField::kMinimumZ;
+            const double upper = candidate.x_axis ? PaddockCollisionField::kMaximumX
+                                                  : PaddockCollisionField::kMaximumZ;
+            if (candidate.coordinate < lower + radius || candidate.coordinate > upper - radius) {
+                continue;
+            }
+            const double escaped_x = candidate.x_axis ? candidate.coordinate : x;
+            const double escaped_z = candidate.x_axis ? z : candidate.coordinate;
+            if (overlaps_any_obstacle(escaped_x, escaped_z, radius, obstacles, obstacle_count)) {
+                continue;
+            }
+            best = candidate;
+        }
+    }
+    return best;
+}
+
 // `blocking` names the obstacle whose limit actually decided the returned
 // value, so a caller can publish which shape stopped the body. It is only ever
 // written when a limit tightens the resolved coordinate, which keeps the
 // arithmetic identical to the anonymous clamp it replaced.
+//
+// Both branches test the clearance the body had *before* the move, so this
+// function answers only for a body that starts clear of the face it is moving
+// toward. `resolve_cylinder_move` guarantees that precondition; see the
+// depenetration step there.
 [[nodiscard]] double move_axis(double start, double desired, double other, double radius,
                                const AnalyticObstacle* obstacles, std::size_t obstacle_count,
                                bool x_axis, PaddockObstacle& blocking) noexcept {
@@ -188,16 +297,40 @@ CylinderMoveResult PaddockCollisionField::resolve_cylinder_move(Vec3 start, Vec3
         return result;
     }
 
+    // Depenetration. `move_axis` refuses a displacement by asking whether the
+    // body was clear of the face before the move, so it only answers correctly
+    // for a body that starts clear; a body that starts inside a shape matches no
+    // refusal and walks straight through it. Restoring that precondition is the
+    // whole correction — the refusal arithmetic below is unchanged. Only a
+    // caller can create the overlap: measured over 5,960,704 (start,
+    // displacement) pairs on this paddock, no start clear of every shape is ever
+    // left overlapping one, so the passes never feed themselves a body they
+    // cannot answer for.
+    Vec3 origin = start;
+    const EscapeCandidate escape =
+        shallowest_escape(start.x, start.z, radius, obstacles_.data(), obstacle_count_);
+    if (escape.found) {
+        if (escape.x_axis) {
+            origin.x = escape.coordinate;
+        } else {
+            origin.z = escape.coordinate;
+        }
+    }
+
+    // The requested coordinates stay anchored to the caller's own start, not to
+    // the depenetrated origin: the body still wants to reach the same place, and
+    // a push out of a shape has to read as a refused displacement rather than
+    // vanish because the body was measured from where it was put.
     PaddockObstacle blocking_x = PaddockObstacle::none;
     const double requested_x = start.x + displacement.x;
     const double desired_x = std::clamp(requested_x, kMinimumX + radius, kMaximumX - radius);
-    result.position.x = move_axis(start.x, desired_x, start.z, radius, obstacles_.data(),
+    result.position.x = move_axis(origin.x, desired_x, origin.z, radius, obstacles_.data(),
                                   obstacle_count_, true, blocking_x);
 
     PaddockObstacle blocking_z = PaddockObstacle::none;
     const double requested_z = start.z + displacement.z;
     const double desired_z = std::clamp(requested_z, kMinimumZ + radius, kMaximumZ - radius);
-    result.position.z = move_axis(start.z, desired_z, result.position.x, radius, obstacles_.data(),
+    result.position.z = move_axis(origin.z, desired_z, result.position.x, radius, obstacles_.data(),
                                   obstacle_count_, false, blocking_z);
     result.position.y = ground_height(result.position.x, result.position.z);
 
@@ -268,8 +401,9 @@ ObstacleApproach PaddockCollisionField::approaching_obstacle(Vec3 start, Vec3 di
         // and reporting the slab it entered last would name a face it has
         // already passed — turning a body sliding along a shape into a body
         // braking against one it left behind. A body that is already inside is
-        // the collision authority's case, not a steering look-ahead's; QA-001
-        // tracks what the authority does with it.
+        // the collision authority's case, not a steering look-ahead's:
+        // `resolve_cylinder_move` pushes it out along the shallowest clear axis
+        // on the same tick, so the steering term never has to answer for it.
         if (entry < 0.0 || entry > exit || entry > distance) {
             continue;
         }

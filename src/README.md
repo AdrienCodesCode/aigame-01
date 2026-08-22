@@ -107,7 +107,12 @@ quietly making a scenario irreproducible. The analytic paddock shapes, their
 `PaddockObstacle` identities, and the collision/sight-line queries over them live
 in a neutral `paddock_collision` boundary, so sheep rules never depend on a
 dog-named header and dog collision, sheep collision, occlusion, and the
-steering-level look-ahead cannot describe four different walls. These boundaries are recorded in
+steering-level look-ahead cannot describe four different walls. That authority
+also answers for a body that *starts* inside a shape: it pushes it out along the
+shallowest single-axis move that clears every shape at once, under a fixed
+obstacle-then-face order that resolves an exact tie the same way in every run,
+before resolving the displacement — the QA-001 correction recorded in ADR 0005.
+These boundaries are recorded in
 [`ADR 0004`](../docs/decisions/0004-gameplay-scenario-ownership.md) and
 [`ADR 0005`](../docs/decisions/0005-paddock-collision-ownership.md).
 The core `FixedStepAccumulator` is the only
