@@ -12,6 +12,7 @@ platform: wsl-ubuntu-24.04
 rule: src/README.md
 charter: play-session
 closed: 2026-08-22
+fix: 0e9aeb0
 verify:
   - wide_eye.gameplay_simulation
   - wide_eye.dog_controller
