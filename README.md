@@ -118,6 +118,8 @@ The version 1 scenarios are `paddock-start`, `presentation-motion`,
 `sheep-paddock-collision-open-gate`, `sheep-temperament-neutral`,
 `sheep-temperament-varied`, `sheep-combined-influence-off`,
 `sheep-combined-influence-on`, `sheep-motion-limit-off`, `sheep-motion-limit-on`,
+`sheep-avoidance-off`, `sheep-avoidance-on`, `sheep-behavior-transitions-off`,
+`sheep-behavior-transitions-on`, `sheep-all-influences-diagnostic`,
 `wall-contact`, `closed-gate`, and `open-gate`. The
 `presentation-motion` path is a scripted render fixture. The headless social
 fixtures independently isolate close-range separation, bounded two-neighbor
@@ -129,8 +131,20 @@ the analytic walls, gate, and paddock bounds are the only thing that can stop a
 moving sheep. The paired temperament, combined-influence, and motion-limit
 fixtures isolate a per-sheep dog-response scale, one bound on the summed steering
 terms, and the speed and turn-rate limits that act on the result of integration.
-The terrain pressure factor, damping, obstacle and drop avoidance, behavior
-transitions, and the objective loop remain unimplemented.
+The paired avoidance and behavior-transition fixtures isolate steering-level
+obstacle and drop avoidance — one further bounded steering term, with the
+analytic paddock still the last positional authority — and the
+settled/alert/driven/recovering states that follow an explicitly
+non-physiological `arousal` parameter, which no steering term reads
+([ADR 0008](docs/decisions/0008-obstacle-and-drop-avoidance.md),
+[ADR 0009](docs/decisions/0009-behavior-transitions-and-arousal.md)). Each of
+those two rules is switched on only in its own paired fixture and in the
+deliberately maximal `sheep-all-influences-diagnostic`, which is a diagnostic
+rather than accepted tuned gameplay. The handcrafted paddock has one constant
+ground height, so drop avoidance is exercised against the paddock's own outer
+edge alone and avoidance against an interior ledge waits on Phase 5 terrain. The
+terrain pressure factor, damping, arousal causes other than the dog, any effect
+of behavior on steering, and the objective loop remain unimplemented.
 Gameplay uses mouse orbit and
 camera-relative WASD; Shift sprints, R restarts, and Tab switches the free-debug
 camera. Escape releases the captured pointer so the desktop cursor returns
