@@ -4,20 +4,28 @@
      in open/ and closed/ are the source of truth. Regenerate with the
      qa-index target, or `cmake -DMODE=index -P tools/qa/qa-tracker.cmake`. -->
 
-**1 open** · 8 closed · convention in [README.md](README.md)
+**4 open** · 8 closed · convention in [README.md](README.md)
 
 > No tracer-gate blockers open.
 
 ## Open
 
+### S2 — major
+
+- [ ] [QA-011](open/QA-011-influence-applied-lane-is-unreadable-against-dark-geometry.md) The influence debug view's `applied` lane is near-black, so the one arrow that carries the result disappears against the paddock wall's shadow, the gate, and the sheep's own legs — _render · confirmed_
+- [ ] [QA-012](open/QA-012-influence-debug-view-is-unjudgeable-at-its-fixed-review-camera.md) The influence debug view ships with one camera, and it is the visual tracer's distant holdout pose, so the overlay is 0.055% of the frame and cannot be read at the framing it captures — _platform · confirmed_
+
 ### S3 — minor
 
 - [ ] [QA-008](open/QA-008-generated-influence-evidence-committed-at-the-repository-root.md) Generated influence-debug evidence is committed at the repository root, outside the ignored artifacts tree, and no longer describes HEAD — _build · confirmed_
+- [ ] [QA-010](open/QA-010-reference-frame-budget-is-graded-on-a-display-pinned-metric.md) The reference performance gate grades a swap-inclusive frame metric that the display pins, so `within_performance_budget=yes` reports the refresh rate rather than renderer cost — _platform · confirmed_
 
 ## By area
 
 | Area | Open | Closed |
 | --- | --- | --- |
+| platform | 2 | 0 |
+| render | 1 | 0 |
 | game | 0 | 3 |
 | tests | 0 | 1 |
 | build | 1 | 1 |
