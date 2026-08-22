@@ -14,6 +14,7 @@
       "cacheVariables": {
         "BUILD_TESTING": true,
         "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+        "WIDE_EYE_LINUX_COMPILER_PROFILE": "clang-18",
         "WIDE_EYE_WARNINGS_AS_ERRORS": true
       }
     },
@@ -38,10 +39,24 @@
     {
       "name": "release",
       "displayName": "Release",
-      "description": "Optimized release build with strict project warnings.",
+      "description": "Optimized release build with strict project warnings (Clang 18 on Linux, MSVC on Windows).",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "release-gcc",
+      "displayName": "Release (GCC portability)",
+      "description": "Optimized Linux portability build pinned to GCC 13.",
+      "inherits": "release",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "WIDE_EYE_LINUX_COMPILER_PROFILE": "gcc-13"
       }
     }
   ],
@@ -57,6 +72,10 @@
     {
       "name": "release",
       "configurePreset": "release"
+    },
+    {
+      "name": "release-gcc",
+      "configurePreset": "release-gcc"
     }
   ],
   "testPresets": [
@@ -85,6 +104,17 @@
     {
       "name": "release",
       "configurePreset": "release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": true
+      }
+    },
+    {
+      "name": "release-gcc",
+      "configurePreset": "release-gcc",
       "output": {
         "outputOnFailure": true
       },

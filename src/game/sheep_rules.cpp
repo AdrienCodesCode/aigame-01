@@ -416,13 +416,11 @@ void apply_sheep_alignment(std::span<const SheepState> prior, std::size_t index,
 // edges has no nearer one; both keep the pure away-from-the-face push rather
 // than committing to a side that the geometry did not name.
 //
-// The drop half is deliberately cruder, because `ground_height` answers a point
-// question rather than a distance one: the ground under the look-ahead point
-// either exists or does not. When it does not, the term pushes straight back
-// along the sheep's own approach, which is the only direction away from a drop
-// that a point query names. Grading that response, or steering along the edge
-// instead of retreating from it, would need a boundary shape the query does not
-// expose and the flat paddock could not exercise.
+// The field also names the exact point where this path would leave finite ground
+// and the normal back into safe space. Both responses use the actual speed into
+// that normal and the same distance falloff: a slow or grazing approach gets a
+// proportionally small correction, while the configured maximum-speed approach
+// retains the full derived stopping response.
 void apply_sheep_avoidance(const SheepState& prior, const SheepAvoidanceConfiguration& avoidance,
                            const PaddockCollisionField& paddock,
                            SheepAvoidanceEvidence& evidence) noexcept {
@@ -436,6 +434,8 @@ void apply_sheep_avoidance(const SheepState& prior, const SheepAvoidanceConfigur
 
     const double travel_x = prior.velocity.x / speed;
     const double travel_z = prior.velocity.z / speed;
+    const double reference_speed =
+        std::sqrt(avoidance.maximum_acceleration * avoidance.look_ahead_distance);
     evidence.avoidance_evaluated = true;
 
     double acceleration_x = 0.0;
@@ -459,20 +459,41 @@ void apply_sheep_avoidance(const SheepState& prior, const SheepAvoidanceConfigur
         // distance therefore publishes a named obstacle and a zero vector, so
         // the boundary is continuous rather than a step.
         const double urgency = 1.0 - approach.contact_distance / avoidance.look_ahead_distance;
+        const double closing_speed = std::max(0.0, -(prior.velocity.x * approach.face_normal.x +
+                                                     prior.velocity.z * approach.face_normal.z));
         const double direction_length = std::hypot(direction_x, direction_z);
-        if (urgency > 0.0 && direction_length > 0.0) {
-            const double magnitude = avoidance.maximum_acceleration * urgency / direction_length;
+        // `sqrt(A * L)` is the maximum speed from which the accepted linear
+        // falloff was derived. The factor of two preserves that stopping
+        // integral below saturation. `direction_length` compensates for a
+        // lateral escape turning part of the vector along the face, so the
+        // component through the face retains that integral. The response is
+        // therefore proportional to real closing speed rather than to closing
+        // as a fraction of total speed, which becomes near-maximum for
+        // arbitrarily slow diagonal drift.
+        const double closing_scale =
+            reference_speed > 0.0
+                ? std::min(1.0, 2.0 * closing_speed * direction_length / reference_speed)
+                : 0.0;
+        if (urgency > 0.0 && closing_scale > 0.0 && direction_length > 0.0) {
+            const double magnitude =
+                avoidance.maximum_acceleration * urgency * closing_scale / direction_length;
             acceleration_x += direction_x * magnitude;
             acceleration_z += direction_z * magnitude;
         }
     }
 
-    const double probe_x = prior.position.x + travel_x * avoidance.look_ahead_distance;
-    const double probe_z = prior.position.z + travel_z * avoidance.look_ahead_distance;
-    if (!std::isfinite(paddock.ground_height(probe_x, probe_z))) {
+    const GroundBoundaryApproach ground = paddock.approaching_ground_boundary(
+        prior.position, {.x = travel_x, .z = travel_z}, avoidance.look_ahead_distance);
+    if (ground.boundary_ahead) {
         evidence.drop_ahead = true;
-        acceleration_x -= travel_x * avoidance.maximum_acceleration;
-        acceleration_z -= travel_z * avoidance.maximum_acceleration;
+        const double urgency = 1.0 - ground.contact_distance / avoidance.look_ahead_distance;
+        const double closing_speed = std::max(0.0, -(prior.velocity.x * ground.face_normal.x +
+                                                     prior.velocity.z * ground.face_normal.z));
+        const double closing_scale =
+            reference_speed > 0.0 ? std::min(1.0, 2.0 * closing_speed / reference_speed) : 0.0;
+        const double magnitude = avoidance.maximum_acceleration * urgency * closing_scale;
+        acceleration_x += ground.face_normal.x * magnitude;
+        acceleration_z += ground.face_normal.z * magnitude;
     }
 
     // One term, one maximum. The two halves are summed and the total is held to

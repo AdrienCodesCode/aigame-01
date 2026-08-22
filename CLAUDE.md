@@ -25,13 +25,15 @@ which is the approved primary implementation track.
 
 ## Build, test, run
 
-Toolchain: CMake ≥ 3.28, Ninja, Clang 18 (`clang-format-18` / `clang-tidy-18`
-for the developer targets). Ubuntu setup and the local fallback bootstrap are in
+Toolchain: CMake ≥ 3.28 and Ninja. The canonical Linux `dev`, `dev-sanitized`,
+and `release` presets pin Clang 18; `release-gcc` pins GCC 13 for explicit
+portability coverage. Native Windows uses MSVC. Developer checks use
+`clang-format-18` / `clang-tidy-18`. Ubuntu setup and the local fallback bootstrap are in
 [docs/setup/UBUNTU_24_04.md](docs/setup/UBUNTU_24_04.md); native Windows in
 [docs/setup/WINDOWS.md](docs/setup/WINDOWS.md).
 
 ```bash
-cmake --preset dev                 # or dev-sanitized (ASan/UBSan), release
+cmake --preset dev                 # or dev-sanitized, release, release-gcc
 cmake --build --preset dev
 ctest --preset dev                 # presets already set output-on-failure + stopOnFailure
 ```

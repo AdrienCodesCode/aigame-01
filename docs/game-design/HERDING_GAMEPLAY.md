@@ -184,15 +184,46 @@ evidence:
 
 ## Camera and visual reference boundary
 
-The two locally generated images are visual ideation only:
+On 2026-08-22 the owner selected the two locally generated images as the primary
+target for how the sheep game should ideally look:
 
 - [overhead countryside reference](<../../ref/ChatGPT Image Aug 15, 2026, 03_22_55 PM.png>)
 - [closer hillside reference](<../../ref/ChatGPT Image Aug 15, 2026, 03_23_03 PM.png>)
 
-Useful cues are the voxel/low-poly countryside, readable dog/sheep silhouettes,
-warm natural light, terrain depth, flock density, and the contrast between an
-overview camera and a closer embodied view. Even those cues still need in-engine
-readability and performance tests.
+Their approved target cues are voxel-informed stylization, layered landscape
+scale, dense vegetation and ground detail, readable dog/sheep silhouettes, warm
+directional light, long shadows, misty atmospheric depth, flock density, and the
+contrast between an overview camera and a closer embodied view. Geometry and
+surface detail must be sufficient to avoid a conspicuously chunky or
+aggressively low-poly result; the exact balance remains an owner-reviewed
+iteration variable. This is a **Goal**, not an observed engine result: every cue
+still needs same-state in-engine motion, readability, and performance evidence.
+
+The files [visual-ref-1](../../ref/visual-ref-1.jpg),
+[visual-ref-2](../../ref/visual-ref-2.png),
+[visual-ref-3](../../ref/visual-ref-3.png),
+[visual-ref-4](../../ref/visual-ref-4.jpg), and
+[visual-ref-6](../../ref/visual-ref-6.webp) are secondary graphics-quality
+references only. They may support judgments about landscape scale, atmosphere,
+shadowing, surface richness, and environmental density where they agree with
+the two primary images; they do not define the literal Wide Eye environment.
+No `visual-ref-5` file was present when this boundary was recorded.
+
+The readable `visual-ref-2.png` and `visual-ref-3.png` specifically add a target
+for controlled softness, layered depth of field, dense fine vegetation, and
+finer voxel-scale or geometry resolution than a coarse block aesthetic. The
+softness is not permission for blanket gameplay blur: the dog, relevant sheep,
+route, gates, and terrain edges must stay legible in the active focal region,
+while stronger defocus can support close or presentation views. This balance is
+an owner-reviewed visual variable, not an accepted post-processing technique.
+
+[`real-photo-sheep3.jpg`](../../ref/real-photo-sheep3.jpg) is the owner's
+real-world reference **only for sheep spatial distribution**: local spacing,
+clusters, density variation, gaps, and outliers across a hillside flock. It does
+not define sheep anatomy, proportions, surface treatment, or individual animal
+appearance. It is visibly watermarked third-party Bigstock material, so it is
+reference evidence only and cannot be treated as a redistributable or shippable
+asset without documented rights.
 
 Do not infer commands, controls, score, clock, day counter, inventory, minimap,
 flock size, progression, or task structure from either image. The depicted UI

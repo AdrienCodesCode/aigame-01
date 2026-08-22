@@ -1,7 +1,7 @@
 # ADR 0008: Steering-level obstacle and drop avoidance
 
-**Status:** Accepted; near-boundary contact behavior corrected 2026-08-22 (see
-[Correction — the near boundary](#correction--the-near-boundary-2026-08-22-qa-003))
+**Status:** Accepted; near-boundary contact behavior and response continuity
+corrected 2026-08-22 (see the QA-003 and QA-005 correction sections below)
 **Date:** 2026-08-21
 **Decision owner:** Project owner
 
@@ -93,7 +93,7 @@ derived from.** Neither has been calibrated against player-facing motion, and th
 derivation is a continuous-time argument: the 60 Hz Euler integration the game
 actually runs stops a sheep short of the face rather than on it.
 
-### Why the drop response is binary
+### Why the drop response was binary (superseded by QA-005)
 
 `ground_height` answers a point question — is there ground here — not a distance
 question. Two known points (the sheep, which is standing on ground, and the
@@ -251,6 +251,62 @@ unit clear of a face with a near-parallel heading has its contact a full unit
 ahead, so the falloff answers with most of the maximum — a push hundreds of times
 larger than the closing rate justifies — and the drop half remains binary by the
 design above. Both still alternate on a two-to-four tick cycle, and both are
-filed as [QA-005](../qa/open/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md).
+filed as [QA-005](../qa/closed/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md).
 Correcting them means changing the *shape* of the response, which is a decision
 for this ADR's owner rather than a defect fix.
+
+## Correction — closing-speed and ground-boundary response (2026-08-22, QA-005)
+
+This owner-approved correction supersedes the binary-drop section and the
+distance-only magnitude above. It preserves avoidance as a bounded steering
+term, preserves the hard collision authority as the last positional authority,
+and changes no published field or format version.
+
+**What was wrong.** The obstacle falloff used distance but not actual speed into
+the named face, while the drop half used neither distance nor a boundary normal.
+A grazing or very slow diagonal drift could therefore receive nearly the same
+push as a fast head-on approach. Near the outer-wall corners, the obstacle's
+lateral suggestion could also point toward an expanded edge that coincided with
+the last legal centre position, while the drop response reversed the entire
+travel vector. Those responses repeatedly removed and recreated one another's
+input instead of settling.
+
+**Geometry ownership.** `PaddockCollisionField` now exposes the first exact
+ground-boundary distance along a planar path and the normal back into grounded
+space. The current implementation is exact for the field's rectangular finite
+ground; a future terrain implementation must keep the query at this ownership
+boundary rather than teach sheep rules terrain bounds. Obstacle lateral escape
+also requires legal centre space beyond the radius-expanded edge. An outer edge
+coincident with the paddock's cylinder limit is therefore not a route around a
+shape; a farther reachable edge may still be named, and the existing look-ahead
+test rejects it when it is out of reach.
+
+**Response shape.** Let `A` be the term maximum, `L` its look-ahead, `d` the
+reported contact distance, `c` actual prior velocity into the boundary normal,
+and `V = sqrt(A * L)` the reference speed from which the look-ahead was derived.
+Below saturation, the boundary-normal acceleration is
+`A * (1 - d / L) * 2c / V`. The factor of two retains the accepted linear
+stopping integral for a head-on approach, while using `c` rather than a
+normalized direction component makes an arbitrarily slow drift produce an
+arbitrarily small response. When an obstacle adds a lateral escape, the total
+vector is compensated before normalization so its component through the face
+keeps that same value; the term maximum still caps the result. Drop response
+uses the same distance and closing-speed shape but points only along the inward
+ground normal. If both halves act, they sum and the existing term maximum clamps
+the sum as before.
+
+**Observed result.** On WSL Ubuntu 24.04.4 with Clang 18.1.3, the focused
+gameplay oracle measures the grazing fixture at `2` flaps in 240 ticks, down from
+`36`. In the 600-tick all-influences diagnostic, worst-sheep avoidance is `4`
+flaps with a longest run of `1`, and the applied sum is `9` with a run of `2`;
+both now meet the shared five-per-hundred, four-consecutive-tick allowance. The
+paired avoidance fixture still records zero hard clips with avoidance on versus
+four with it off. Its corrected closest wall gap is `0.172705`; the corrected
+drop rest position is `x = 0.919383`. These are deterministic scenario evidence,
+not a player-facing tuning verdict.
+
+**Remaining limit.** The rule still considers one obstacle at a time. A lateral
+edge can therefore lead toward a neighbouring obstacle, and the hard collision
+authority remains the safety boundary. The new regression covers the distinct
+outer-wall/drop corner where an edge is physically unreachable, not general
+route planning or an interior terrain ledge.

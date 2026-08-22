@@ -195,6 +195,39 @@ provisional Low comparison. `review.md` deliberately leaves the owner verdict
 blank. This packet is presentation-envelope evidence, not acceptance of final
 animal art or flock behavior.
 
+## Phase 0 visual-feasibility unchanged baseline
+
+On the reference desktop, run the approved visual-feasibility baseline at the
+selected display mode before tuning presentation. The provisional invocation is:
+
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File "$(wslpath -w ./tools/phase3/run-visual-feasibility-baseline.ps1)" \
+  -Width 2560 -Height 1440 -RefreshHz 60
+```
+
+The runner uses the native Windows Release build and complete CTest suite. It
+records OS, CPU, RAM, GPU/driver inventory, reported monitor modes, the active
+OpenGL renderer/version, the selected viewport, the named
+`visual-feasibility-five-sheep-v1` configuration, source hashes, normal/repeat/
+face-normal representative frames at tick 30, an untouched elevated holdout,
+route samples at ticks 1/30/90, canonical gameplay state, synchronized timing,
+RSS, startup-to-first-capture, compressed Release size, and zero-high-severity
+OpenGL evidence. It writes the rubric and blank owner camera confirmation beside
+the packet under
+`artifacts/phase3/<date>/visual-feasibility-baseline-<time>/`, then runs the
+independent manifest/file/hash validator.
+
+The command exits nonzero rather than relabeling evidence when the requested
+display mode is not reported, the active `gl_renderer` is not the NVIDIA
+GeForce RTX 4070 Ti, OpenGL 4.6 is unavailable, repeat state/captures differ,
+graphics diagnostics fail, or a provisional High budget is exceeded. Inventory
+alone never proves which GPU rendered. A laptop or WSL smoke can verify the
+configuration seam, but cannot satisfy this reference-baseline gate. The packet
+is unchanged comparison evidence, not a promoted golden or an accepted
+candidate look; Phase 0 remains open until the owner confirms that both cameras
+ask the intended visual question.
+
 For the interactive owner check, run `wide_eye.exe --play-scenario
 paddock-start` from the build tree. In gameplay mode, the mouse orbits the
 camera and WASD moves relative to camera yaw; Shift sprints, R restarts, and Tab

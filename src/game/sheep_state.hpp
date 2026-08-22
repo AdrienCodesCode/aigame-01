@@ -247,9 +247,9 @@ using SheepCollisionEvidenceBuffer = std::array<SheepCollisionEvidence, kGamepla
 // and `obstacle_distance` is how far along that path it lies; a named obstacle
 // exactly at the look-ahead distance publishes a zero vector, because the
 // response falls off linearly to nothing there. `drop_ahead` is true when the
-// ground under the look-ahead point is not finite. Today the paddock is flat and
-// its ground is finite everywhere inside its own bounds, so the only drop that
-// exists is the paddock edge.
+// field names a ground boundary inside the look-ahead; the response uses that
+// boundary's distance and inward normal without adding either to this published
+// record. Today the paddock is flat, so the only drop that exists is its edge.
 struct SheepAvoidanceEvidence {
     std::uint32_t subject_id = 0;
     bool avoidance_evaluated = false;

@@ -4,27 +4,30 @@
      in open/ and closed/ are the source of truth. Regenerate with the
      qa-index target, or `cmake -DMODE=index -P tools/qa/qa-tracker.cmake`. -->
 
-**2 open** · 3 closed · convention in [README.md](README.md)
+**1 open** · 6 closed · convention in [README.md](README.md)
 
 > No tracer-gate blockers open.
 
 ## Open
 
-### S2 — major
+### S3 — minor
 
-- [ ] [QA-004](open/QA-004-presets-do-not-pin-the-compiler.md) Build presets do not pin the compiler, so Release is built by GCC while the docs and roadmap claim Clang 18 — _build · confirmed_
-- [ ] [QA-005](open/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md) Obstacle avoidance answers a grazing approach and a drop with a near-maximum push, so a sheep alternates between most of the maximum and zero — _game · confirmed_
+- [ ] [QA-007](open/QA-007-root-readme-still-says-implemented-sheep-rules-are-unimplemented.md) Root README still says implemented avoidance and behavior-transition rules are unimplemented — _docs · confirmed_
 
 ## By area
 
 | Area | Open | Closed |
 | --- | --- | --- |
-| game | 1 | 2 |
+| game | 0 | 3 |
 | tests | 0 | 1 |
-| build | 1 | 0 |
+| build | 0 | 1 |
+| docs | 1 | 1 |
 
 ## Closed
 
+- [x] [QA-006](closed/QA-006-source-readme-still-denies-qa-001-depenetration.md) Source ownership guide still says an obstacle-overlapping sheep is not pushed out after QA-001 added depenetration — _fixed 2026-08-22_
+- [x] [QA-005](closed/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md) Obstacle avoidance answers a grazing approach and a drop with a near-maximum push, so a sheep alternates between most of the maximum and zero — _fixed 2026-08-22_
+- [x] [QA-004](closed/QA-004-presets-do-not-pin-the-compiler.md) Build presets do not pin the compiler, so Release is built by GCC while the docs and roadmap claim Clang 18 — _fixed 2026-08-22_
 - [x] [QA-003](closed/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md) Obstacle avoidance alternates between its maximum and zero for a sheep in contact with a wall face — _fixed 2026-08-22_
 - [x] [QA-002](closed/QA-002-gameplay-simulation-tests-near-default-stack-limit.md) wide_eye.gameplay_simulation is within 800 KiB of the default 8 MiB stack and segfaults when a fixture is added — _fixed 2026-08-22_
 - [x] [QA-001](closed/QA-001-paddock-collision-radius-band-passthrough.md) Analytic paddock collision passes a body that starts within its own radius of an obstacle face — _fixed 2026-08-22_

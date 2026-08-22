@@ -5,7 +5,7 @@
 
 **Date:** 2026-08-15
 
-**Last revised:** 2026-08-16
+**Last revised:** 2026-08-22
 
 **Source research:**
 [`herding-simulation-and-scale.md`](../research/herding-simulation-and-scale.md)
@@ -86,6 +86,11 @@ scope.
 - Whether 1,000 active sheep becomes a product requirement.
 - Whether to import an external research dataset as a test fixture.
 - Exact reward, progression, campaign, camera, and other-animal design.
+- Whether hard sheep-versus-sheep collision is required. If it is approved
+  later, use the deterministic spatial grid as the candidate broad phase under
+  a limited interaction radius before exact pair resolution instead of adding
+  an all-pairs loop; profile that path before considering further optimization.
+  The collision response itself remains undesigned.
 - Whether later scale needs jobs, GPU compute, or reduced update frequency.
 
 None blocks Tracer 0, Tracer 1, or the five-sheep correctness model.

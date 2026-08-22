@@ -27,6 +27,15 @@ std::optional<std::uint64_t> parse_tick(std::string_view text) {
     return tick;
 }
 
+std::optional<int> parse_positive_int(std::string_view text) {
+    int value = 0;
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (error != std::errc{} || end != text.data() + text.size() || value <= 0) {
+        return std::nullopt;
+    }
+    return value;
+}
+
 int run_runtime_smoke() {
     wide_eye::core::log(wide_eye::core::LogLevel::info, "runtime_smoke",
                         "checking monotonic time and fixed 60 Hz accumulation");
@@ -157,6 +166,13 @@ void print_usage(std::string_view executable) {
            "--sheep-motion-render-smoke --tick <tick> --view <normal|debug> "
            "--capture <png-path> --state-dump <json-path> | "
            "--sheep-motion-performance-smoke | "
+           "--visual-tracer-configuration <scene> | "
+           "--visual-tracer-render-smoke <scene> --camera <representative|holdout> "
+           "--profile <name> --width <pixels> --height <pixels> --refresh-hz <hz> "
+           "--tick <tick> --view <normal|debug> --capture <png-path> "
+           "--state-dump <json-path> | "
+           "--visual-tracer-performance-smoke <scene> --profile <name> --width <pixels> "
+           "--height <pixels> --refresh-hz <hz> | "
            "--influence-debug-smoke <scenario> | "
            "--influence-debug-smoke <scenario> --tick <tick> --capture <png-path> "
            "--frame-dump <txt-path> | "
@@ -224,6 +240,42 @@ int main(int argc, char* argv[]) {
     }
     if (argc == 2 && std::string_view{argv[1]} == "--sheep-motion-performance-smoke") {
         return wide_eye::platform::run_sheep_motion_performance_scenario();
+    }
+    if (argc == 3 && std::string_view{argv[1]} == "--visual-tracer-configuration" &&
+        std::string_view{argv[2]}.size() > 0U) {
+        return wide_eye::platform::run_visual_tracer_configuration_scenario(argv[2]);
+    }
+    if (argc == 21 && std::string_view{argv[1]} == "--visual-tracer-render-smoke" &&
+        std::string_view{argv[2]}.size() > 0U && std::string_view{argv[3]} == "--camera" &&
+        std::string_view{argv[4]}.size() > 0U && std::string_view{argv[5]} == "--profile" &&
+        std::string_view{argv[6]}.size() > 0U && std::string_view{argv[7]} == "--width" &&
+        std::string_view{argv[9]} == "--height" && std::string_view{argv[11]} == "--refresh-hz" &&
+        std::string_view{argv[13]} == "--tick" && std::string_view{argv[15]} == "--view" &&
+        (std::string_view{argv[16]} == "normal" || std::string_view{argv[16]} == "debug") &&
+        std::string_view{argv[17]} == "--capture" && std::string_view{argv[18]}.size() > 0U &&
+        std::string_view{argv[19]} == "--state-dump" && std::string_view{argv[20]}.size() > 0U) {
+        const std::optional<int> width = parse_positive_int(argv[8]);
+        const std::optional<int> height = parse_positive_int(argv[10]);
+        const std::optional<int> refresh_hz = parse_positive_int(argv[12]);
+        const std::optional<std::uint64_t> tick = parse_tick(argv[14]);
+        if (width.has_value() && height.has_value() && refresh_hz.has_value() && tick.has_value()) {
+            return wide_eye::platform::run_visual_tracer_render_scenario(
+                argv[2], argv[4], argv[6], *width, *height, *refresh_hz, *tick,
+                std::string_view{argv[16]} == "debug", std::filesystem::path{argv[18]},
+                std::filesystem::path{argv[20]});
+        }
+    }
+    if (argc == 11 && std::string_view{argv[1]} == "--visual-tracer-performance-smoke" &&
+        std::string_view{argv[2]}.size() > 0U && std::string_view{argv[3]} == "--profile" &&
+        std::string_view{argv[4]}.size() > 0U && std::string_view{argv[5]} == "--width" &&
+        std::string_view{argv[7]} == "--height" && std::string_view{argv[9]} == "--refresh-hz") {
+        const std::optional<int> width = parse_positive_int(argv[6]);
+        const std::optional<int> height = parse_positive_int(argv[8]);
+        const std::optional<int> refresh_hz = parse_positive_int(argv[10]);
+        if (width.has_value() && height.has_value() && refresh_hz.has_value()) {
+            return wide_eye::platform::run_visual_tracer_performance_scenario(
+                argv[2], argv[4], *width, *height, *refresh_hz);
+        }
     }
     if (argc == 3 && std::string_view{argv[1]} == "--influence-debug-smoke" &&
         std::string_view{argv[2]}.size() > 0U) {

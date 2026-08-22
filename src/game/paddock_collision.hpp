@@ -67,15 +67,28 @@ struct CylinderMoveResult {
 // `lateral_escape` is the unit direction along that face toward the nearer free
 // edge, so a rule can steer around the shape instead of only braking against it.
 // `lateral_clearance` is how far that edge is, so a caller can decide whether a
-// way round is within reach. `lateral_escape` is zero when the two edges are
-// exactly equidistant, because neither is nearer and choosing a side would be a
-// hidden tie break. A clear path reports `none` and leaves every field zero.
+// way round is within reach. `lateral_escape` is zero when the two reachable
+// edges are exactly equidistant, or when neither edge can be passed while the
+// body's centre stays inside the paddock, because neither case names a usable
+// side. A clear path reports `none` and leaves every field zero.
 struct ObstacleApproach {
     PaddockObstacle obstacle = PaddockObstacle::none;
     double contact_distance = 0.0;
     Vec3 face_normal{};
     Vec3 lateral_escape{};
     double lateral_clearance = 0.0;
+};
+
+// Read-only description of the first point where a straight planar path leaves
+// the field's finite ground. `face_normal` points back into grounded space, so a
+// steering rule can remove only the component approaching that boundary instead
+// of reversing the whole path. The current handcrafted ground is one rectangle;
+// keeping that knowledge here prevents sheep rules from hard-coding its bounds.
+// A path that stays grounded for the requested distance leaves every field zero.
+struct GroundBoundaryApproach {
+    bool boundary_ahead = false;
+    double contact_distance = 0.0;
+    Vec3 face_normal{};
 };
 
 // Collision and occlusion truth for the handcrafted paddock. These analytic
@@ -94,6 +107,8 @@ class PaddockCollisionField {
     explicit PaddockCollisionField(bool gate_open = false) noexcept;
 
     [[nodiscard]] double ground_height(double x, double z) const noexcept;
+    [[nodiscard]] GroundBoundaryApproach
+    approaching_ground_boundary(Vec3 start, Vec3 direction, double distance) const noexcept;
     // Resolves one planar displacement of an upright cylinder and reports the
     // contact that produced the result. Callers that only need the position use
     // `move_cylinder`; callers that must publish why a body stopped use this.

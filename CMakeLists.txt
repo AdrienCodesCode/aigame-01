@@ -1,6 +1,71 @@
 cmake_minimum_required(VERSION 3.28)
 
+# The canonical presets name a Linux compiler profile explicitly while retaining
+# the same preset names for native Windows/MSVC. Compiler selection has to happen
+# before project() enables C and CXX; doing it here makes a preset's toolchain
+# identity deterministic without imposing Linux executable names on Windows.
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND DEFINED WIDE_EYE_LINUX_COMPILER_PROFILE)
+    if(WIDE_EYE_LINUX_COMPILER_PROFILE STREQUAL "clang-18")
+        find_program(WIDE_EYE_PINNED_C_COMPILER NAMES clang-18 REQUIRED)
+        find_program(WIDE_EYE_PINNED_CXX_COMPILER NAMES clang++-18 REQUIRED)
+    elseif(WIDE_EYE_LINUX_COMPILER_PROFILE STREQUAL "gcc-13")
+        find_program(WIDE_EYE_PINNED_C_COMPILER NAMES gcc-13 REQUIRED)
+        find_program(WIDE_EYE_PINNED_CXX_COMPILER NAMES g++-13 REQUIRED)
+    else()
+        message(
+            FATAL_ERROR
+                "Unknown WIDE_EYE_LINUX_COMPILER_PROFILE: ${WIDE_EYE_LINUX_COMPILER_PROFILE}"
+        )
+    endif()
+    if((DEFINED CMAKE_C_COMPILER AND
+        NOT "${CMAKE_C_COMPILER}" STREQUAL "${WIDE_EYE_PINNED_C_COMPILER}") OR
+       (DEFINED CMAKE_CXX_COMPILER AND
+        NOT "${CMAKE_CXX_COMPILER}" STREQUAL "${WIDE_EYE_PINNED_CXX_COMPILER}"))
+        message(
+            FATAL_ERROR
+                "The existing build cache uses C=${CMAKE_C_COMPILER} and "
+                "CXX=${CMAKE_CXX_COMPILER}, but Linux profile "
+                "${WIDE_EYE_LINUX_COMPILER_PROFILE} requires "
+                "C=${WIDE_EYE_PINNED_C_COMPILER} and "
+                "CXX=${WIDE_EYE_PINNED_CXX_COMPILER}. Reconfigure this preset "
+                "once with: cmake --fresh --preset <preset-name>"
+        )
+    endif()
+    set(CMAKE_C_COMPILER "${WIDE_EYE_PINNED_C_COMPILER}" CACHE FILEPATH "" FORCE)
+    set(CMAKE_CXX_COMPILER "${WIDE_EYE_PINNED_CXX_COMPILER}" CACHE FILEPATH "" FORCE)
+endif()
+
 project(WideEye VERSION 0.1.0 LANGUAGES C CXX)
+
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND DEFINED WIDE_EYE_LINUX_COMPILER_PROFILE)
+    if(WIDE_EYE_LINUX_COMPILER_PROFILE STREQUAL "clang-18")
+        set(wide_eye_expected_compiler_id "Clang")
+        set(wide_eye_expected_compiler_minimum "18")
+        set(wide_eye_expected_compiler_maximum "19")
+    else()
+        set(wide_eye_expected_compiler_id "GNU")
+        set(wide_eye_expected_compiler_minimum "13")
+        set(wide_eye_expected_compiler_maximum "14")
+    endif()
+    if(NOT "${CMAKE_C_COMPILER_ID}" STREQUAL "${wide_eye_expected_compiler_id}" OR
+       NOT "${CMAKE_CXX_COMPILER_ID}" STREQUAL "${wide_eye_expected_compiler_id}" OR
+       "${CMAKE_C_COMPILER_VERSION}" VERSION_LESS "${wide_eye_expected_compiler_minimum}" OR
+       NOT "${CMAKE_C_COMPILER_VERSION}" VERSION_LESS "${wide_eye_expected_compiler_maximum}" OR
+       "${CMAKE_CXX_COMPILER_VERSION}" VERSION_LESS "${wide_eye_expected_compiler_minimum}" OR
+       NOT "${CMAKE_CXX_COMPILER_VERSION}" VERSION_LESS "${wide_eye_expected_compiler_maximum}")
+        message(
+            FATAL_ERROR
+                "Linux compiler profile ${WIDE_EYE_LINUX_COMPILER_PROFILE} resolved to "
+                "C ${CMAKE_C_COMPILER_ID} ${CMAKE_C_COMPILER_VERSION} and "
+                "CXX ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
+        )
+    endif()
+    message(
+        STATUS
+            "Wide Eye Linux compiler profile: ${WIDE_EYE_LINUX_COMPILER_PROFILE}; "
+            "CXX=${CMAKE_CXX_COMPILER} (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})"
+    )
+endif()
 
 include(CTest)
 include(cmake/WideEyeDependencies.cmake)
@@ -11,6 +76,7 @@ set(
     wide_eye_sources
     "${PROJECT_SOURCE_DIR}/src/platform/main.cpp"
     "${PROJECT_SOURCE_DIR}/src/platform/scenario_runner.cpp"
+    "${PROJECT_SOURCE_DIR}/src/platform/visual_tracer_configuration.cpp"
     "${PROJECT_SOURCE_DIR}/src/platform/window_runtime.cpp"
     "${PROJECT_SOURCE_DIR}/src/platform/window_state.cpp"
     "${PROJECT_SOURCE_DIR}/src/render/influence_debug_view.cpp"
@@ -88,8 +154,13 @@ set(
     "${PROJECT_SOURCE_DIR}/tests/influence_debug_view_tests.cpp"
 )
 set(
+    wide_eye_visual_tracer_configuration_test_sources
+    "${PROJECT_SOURCE_DIR}/tests/visual_tracer_configuration_tests.cpp"
+)
+set(
     wide_eye_headers
     "${PROJECT_SOURCE_DIR}/src/platform/scenario_runner.hpp"
+    "${PROJECT_SOURCE_DIR}/src/platform/visual_tracer_configuration.hpp"
     "${PROJECT_SOURCE_DIR}/src/platform/window_runtime.hpp"
     "${PROJECT_SOURCE_DIR}/src/platform/window_state.hpp"
     "${PROJECT_SOURCE_DIR}/src/render/influence_debug_view.hpp"
@@ -216,6 +287,7 @@ wide_eye_add_developer_checks(
             ${wide_eye_performance_test_sources}
             ${wide_eye_sheep_proxy_test_sources}
             ${wide_eye_influence_debug_view_test_sources}
+            ${wide_eye_visual_tracer_configuration_test_sources}
     HEADERS ${wide_eye_headers} ${wide_eye_capture_headers} ${wide_eye_voxel_headers}
             ${wide_eye_core_runtime_headers} ${wide_eye_core_performance_headers}
             ${wide_eye_game_headers}
@@ -456,7 +528,35 @@ if(BUILD_TESTING)
     wide_eye_set_project_options(wide_eye_influence_debug_view_tests)
     target_link_libraries(wide_eye_influence_debug_view_tests PRIVATE wide_eye_game)
 
+    add_executable(
+        wide_eye_visual_tracer_configuration_tests
+        ${wide_eye_visual_tracer_configuration_test_sources}
+        "${PROJECT_SOURCE_DIR}/src/platform/visual_tracer_configuration.cpp"
+    )
+    target_compile_features(wide_eye_visual_tracer_configuration_tests PRIVATE cxx_std_23)
+    set_target_properties(
+        wide_eye_visual_tracer_configuration_tests
+        PROPERTIES CXX_EXTENSIONS OFF
+                   CXX_SCAN_FOR_MODULES OFF
+                   CXX_STANDARD_REQUIRED ON
+    )
+    wide_eye_set_project_options(wide_eye_visual_tracer_configuration_tests)
+    target_link_libraries(wide_eye_visual_tracer_configuration_tests PRIVATE wide_eye_game)
+
     add_test(NAME wide_eye.scaffold_version COMMAND wide_eye --version)
+    add_test(
+        NAME wide_eye.compiler_profile
+        COMMAND
+            ${CMAKE_COMMAND}
+            "-DPRESETS=${PROJECT_SOURCE_DIR}/CMakePresets.json"
+            "-DHOST_SYSTEM=${CMAKE_HOST_SYSTEM_NAME}"
+            "-DPROFILE=${WIDE_EYE_LINUX_COMPILER_PROFILE}"
+            "-DCXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID}"
+            "-DCXX_COMPILER_VERSION=${CMAKE_CXX_COMPILER_VERSION}"
+            -P
+            "${PROJECT_SOURCE_DIR}/tests/assert-compiler-profile.cmake"
+    )
+    set_tests_properties(wide_eye.compiler_profile PROPERTIES LABELS "headless;unit")
     add_test(
         NAME wide_eye.png_writer
         COMMAND wide_eye_png_writer_tests "${CMAKE_CURRENT_BINARY_DIR}/png-writer-test.png"
@@ -507,6 +607,10 @@ if(BUILD_TESTING)
     add_test(
         NAME wide_eye.influence_debug_view
         COMMAND wide_eye_influence_debug_view_tests
+    )
+    add_test(
+        NAME wide_eye.visual_tracer_configuration
+        COMMAND wide_eye_visual_tracer_configuration_tests
     )
     add_test(
         NAME wide_eye.influence_debug_frame_dump
@@ -671,6 +775,7 @@ if(BUILD_TESTING)
     set(wide_eye_performance_utilities_labels unit performance headless)
     set(wide_eye_sheep_proxy_labels unit scenario headless)
     set(wide_eye_influence_debug_view_labels unit scenario headless)
+    set(wide_eye_visual_tracer_configuration_labels unit scenario headless)
     set(wide_eye_influence_debug_frame_dump_labels scenario headless)
     set(wide_eye_dog_scenario_labels scenario headless)
     set(wide_eye_ctest_failure_regex_labels unit headless)
@@ -709,6 +814,7 @@ if(BUILD_TESTING)
         list(APPEND wide_eye_performance_utilities_labels sanitizer)
         list(APPEND wide_eye_sheep_proxy_labels sanitizer)
         list(APPEND wide_eye_influence_debug_view_labels sanitizer)
+        list(APPEND wide_eye_visual_tracer_configuration_labels sanitizer)
         list(APPEND wide_eye_influence_debug_frame_dump_labels sanitizer)
         list(APPEND wide_eye_dog_scenario_labels sanitizer)
         list(APPEND wide_eye_core_assertion_labels sanitizer)
@@ -841,6 +947,12 @@ if(BUILD_TESTING)
         PROPERTIES LABELS "${wide_eye_influence_debug_view_labels}"
                    PASS_REGULAR_EXPRESSION "influence_debug_view_result=pass"
                    TIMEOUT 60
+    )
+    set_tests_properties(
+        wide_eye.visual_tracer_configuration
+        PROPERTIES LABELS "${wide_eye_visual_tracer_configuration_labels}"
+                   PASS_REGULAR_EXPRESSION "visual_tracer_configuration_result=pass"
+                   TIMEOUT 10
     )
     set_tests_properties(
         wide_eye.influence_debug_frame_dump

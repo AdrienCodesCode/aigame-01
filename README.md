@@ -43,6 +43,15 @@ project facts.
   workflow](docs/research/opengl-to-vulkan-feasibility.md)
   — evidence-backed migration timing, current hardware capability observations,
   and a bounded parity direction
+- [Visual feasibility before the objective
+  loop](docs/research/visual-feasibility-before-objective-loop.md) — the
+  owner-selected reference boundary, OpenGL-first visual tracer recommendation,
+  and staged five/25/100-sheep evidence gates, with its approved
+  [incremental implementation
+  plan](docs/plans/visual-feasibility-before-objective-loop.md)
+- [Runtime tuning interface research](docs/research/runtime-tuning-interface.md)
+  — whether and how a developer-only GUI can apply gameplay and graphics values
+  without recompiling while preserving deterministic scenario evidence
 - [Repository workflow skills](.agents/skills/) — deep research, planning from
   research, documentation sync, and end-of-session handoff
 - [Glitch Analytics evaluation note](docs/ANALYTICS_NOTE.md)
@@ -82,9 +91,10 @@ cmake --build --preset dev
 ctest --preset dev --output-on-failure
 ```
 
-Use `dev-sanitized` for Clang ASan/UBSan coverage and `release` for optimized
-measurement builds. Project-owned formatting and bounded static analysis run
-through:
+On Linux, `dev`, `dev-sanitized`, and `release` pin Clang 18;
+`release-gcc` is the explicit GCC 13 portability build. Native Windows keeps
+MSVC under the existing preset names. Project-owned formatting and bounded
+static analysis run through:
 
 ```bash
 cmake --build --preset dev --target format-check

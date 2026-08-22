@@ -290,7 +290,7 @@ Evidence — all on WSL Ubuntu 24.04.4, `dev` and `dev-sanitized` Clang 18.1.3,
 for avoidance and the applied sum is tightened from `20` per hundred ticks with a
 run of `25` to `8` with a run of `20`, but it does not reach the continuous-term
 `5`/`4`. The remainder is a different mechanism, filed as
-[QA-005](../open/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md):
+[QA-005](QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md):
 the response is decided by distance alone rather than by the closing it corrects,
 so a sheep a hundredth clear of a face with a near-parallel heading, and the
 binary drop half, still alternate. The attribution experiment above is what

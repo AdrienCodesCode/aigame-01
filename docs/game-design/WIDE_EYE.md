@@ -56,11 +56,21 @@ The visual identity does not need to copy FarmRise or any other example linked b
 the playbook. Blender is an optional authoring, rigging, and export tool—not an
 art style.
 
-Recommended direction: a stylized voxel/low-poly hybrid. Use a voxel hillside,
-dry-stone walls, gate, barn, trees, and distant landscape, then use articulated
-voxel-built or low-poly animals where extra joints improve communication. A
-restricted natural palette, chunky forms, stable sun/shadows, and carefully
-staged silhouettes can make it feel cohesive without photorealism.
+Recommended direction: a stylized, voxel-informed 3D hybrid. Use voxel-built or
+voxel-derived structure for the hillside, dry-stone walls, gate, barn, trees,
+and distant landscape, then use sufficiently detailed articulated animals where
+extra geometry and joints improve communication. A restricted natural palette,
+moderately faceted forms, stable sun/shadows, and carefully staged silhouettes
+can make it feel cohesive without photorealism. The exact geometry density is an
+iteration variable: the result should not look conspicuously chunky or
+aggressively low-poly merely to preserve a voxel label.
+
+Controlled softness is also part of the target. Atmospheric depth, gentle
+highlight rolloff, anti-aliased edges, and selective depth of field may soften
+the image without reducing the underlying geometry detail. Depth of field must
+preserve the active dog, sheep, route, gates, and terrain edges in a readable
+focal region; stronger foreground/background defocus is better suited to close
+or presentation views than indiscriminate gameplay blur.
 
 Readability outranks voxel purity. The dog must clearly communicate facing,
 crouch, acceleration, stopping, gaze, ears, and tail. Sheep must communicate
@@ -69,8 +79,9 @@ signals, use a small rig and curved or beveled pieces.
 
 Pixel-art sprites remain a valid alternative, especially for a fixed or
 isometric camera, but freely rotating billboards would require many authored
-directions and make spatial pressure harder to read. Full low-poly 3D is the
-safest animation pipeline; the hybrid keeps the stronger voxel-world identity.
+directions and make spatial pressure harder to read. Moderately detailed
+stylized 3D is the safest animation pipeline; the hybrid keeps the stronger
+voxel-world identity without forcing visibly coarse animal forms.
 
 ## Core simulation
 

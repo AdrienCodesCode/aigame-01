@@ -147,12 +147,11 @@ struct SheepTemperamentConfiguration {
 // a steering nudge that can be overwhelmed is not a boundary.
 //
 // `look_ahead_distance` is `6.25` world units. It is derived rather than picked:
-// under the linear falloff below, a term of maximum `A` acting over a look-ahead
-// `L` can remove `A * L / 2` of kinetic energy per unit mass, so a sheep
-// travelling straight at a face at speed `v` is brought to rest exactly at that
-// face when `L = v^2 / A`. With the accepted `5.0` maximum sheep speed and the
-// `4.0` maximum below, that is exactly `25 / 4`. The term therefore has just
-// enough room to stop the fastest sheep the game allows, and no more.
+// under the distance falloff and closing-speed response below, a term of maximum
+// `A` acting over a look-ahead `L` can stop the reference speed
+// `sqrt(A * L)`. With the accepted `5.0` maximum sheep speed and the `4.0`
+// maximum below, `L` is exactly `25 / 4`. The term therefore has just enough
+// room to stop the fastest sheep the game allows, and no more.
 //
 // `maximum_acceleration` is `4.0` world units/s^2, the same value as close-range
 // separation's maximum and the combined bound: no avoidance push is stronger
@@ -161,10 +160,10 @@ struct SheepTemperamentConfiguration {
 // at most this, exactly as separation's per-neighbour pushes do.
 //
 // Both magnitudes inherit the provisional status of the accepted values they are
-// derived from; neither is measured or tuned. The response is direction-aware
-// rather than proximity-aware: it probes along the sheep's own direction of
-// travel, so a sheep standing beside a wall or running parallel to one feels
-// nothing at all.
+// derived from; neither is measured or tuned. Response magnitude falls with
+// boundary distance and actual speed into the boundary, while direction comes
+// from the analytic face or ground normal. A sheep standing beside a wall or
+// running parallel to one still feels nothing at all.
 struct SheepAvoidanceConfiguration {
     bool enabled = false;
     double look_ahead_distance = 6.25;

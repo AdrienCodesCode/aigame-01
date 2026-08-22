@@ -23,6 +23,14 @@ while regaining focus restores only a capture the player still wants.
 framebuffer-oracle decisions, and the caller-supplied capture path without
 receiving the raw SDL window. After making a context current, `window_runtime`
 initializes the checksum-verified generated OpenGL 4.6 Core loader through SDL.
+`visual_tracer_configuration` is the bounded Phase 0 orchestration seam between
+tooling, the existing named gameplay scenario, and immutable renderer inputs. It
+owns no gameplay or OpenGL state: it selects one existing deterministic route,
+reference/motion ticks, representative and holdout camera records, an explicit
+profile, provisional viewport, and whole-program budget. The scenario runner
+can describe those inputs headlessly or apply them to native capture and
+performance paths; the Windows evidence runner owns machine inventory and the
+artifact manifest.
 The platform-owned `NamedInputState` combines keyboard and gamepad sources,
 accumulates relative mouse look separately from held look rates, preserves
 rising presses and mouse deltas until one fixed tick consumes them, applies a
@@ -217,8 +225,9 @@ acceleration vector. Paired `sheep-paddock-collision-closed-gate` and
 `sheep-paddock-collision-open-gate` fixtures disable every steering term and
 differ only by the world gate state, so the analytic paddock is the only thing
 that can change a sheep's straight-line motion. A sheep whose cylinder already
-overlaps an obstacle is not pushed out, and sheep-versus-sheep and
-sheep-versus-dog body collision are absent. Each sheep also carries an
+overlaps an obstacle is pushed out by the game-owned collision field before its
+requested displacement is resolved; sheep-versus-sheep and sheep-versus-dog
+body collision remain absent. Each sheep also carries an
 `ordinary`, `nervous`, or `stubborn` temperament in the authoritative buffer,
 because the accepted design makes the dog's effective pressure depend on it. Like
 line of sight it adds no vector of its own: it is the last factor of every dog
@@ -263,11 +272,13 @@ thing that can change their motion. One further steering term looks at where a
 sheep is going rather than at how hard it is pushed: obstacle and drop avoidance
 probes along the sheep's own prior direction of travel, asks the same analytic
 field which shape its swept body reaches first, and pushes away from the face it
-would enter — turned exactly halfway toward the nearer free edge of that same
-shape when such an edge lies within the look-ahead, so the sheep is steered aside
-as well as slowed — while a look-ahead point whose `ground_height` is not finite
-pushes it straight back from the drop. The response falls off linearly over the
-look-ahead, both halves are held to one named maximum, and the whole thing is a
+would enter — turned exactly halfway toward the nearer body-reachable free edge
+of that same shape when such an edge lies within the look-ahead, so the sheep is
+steered aside as well as slowed. The same field names the exact distance to the
+first ground boundary and its inward normal, so drop response points back into
+safe space rather than reversing the whole path. Both responses fall off over
+the look-ahead and scale with actual speed into their boundary, both halves are
+held to one named maximum, and the whole thing is a
 term like every other: it publishes its own vector, that vector joins the same
 sum, the combined bound scales it identically, and it replaces nothing. The
 paddock still resolves every displacement last, and avoidance is deliberately not
@@ -277,8 +288,9 @@ values — the maximum is the strongest single accepted influence and the look-a
 is exactly the room that maximum needs to stop a sheep travelling at the accepted
 maximum speed — and inherit their provisional status;
 [`ADR 0008`](../docs/decisions/0008-obstacle-and-drop-avoidance.md) records the
-rule, why the drop response is binary, the near-boundary correction that closed
-QA-003, and the limits left standing. The term is direction-aware rather than
+rule, the superseded binary-drop rationale, the near-boundary correction that
+closed QA-003, the continuous-response correction that closed QA-005, and the
+limits left standing. The term is direction-aware rather than
 proximity-aware, so a sheep standing beside a wall or running parallel to one
 feels nothing — including at zero clearance, because a reported contact always
 lies at or ahead of the body and touching a shape's boundary while travelling

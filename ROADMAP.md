@@ -4,7 +4,11 @@
 
 - **Current milestone:** Phase 3 — Tracer 2: five sheep and one gate. Phases 0–2
   and their exit gates are complete. Phase 3 has not yet implemented the
-  playable herding loop.
+  playable herding loop. The reference-desktop half of Phase 0 in the
+  owner-approved bounded OpenGL visual-feasibility tracer is explicitly
+  postponed until the owner has access to that machine; independent QA and
+  documentation work may continue without treating that unavailable hardware as
+  a general project blocker.
 - **Verified completed state:**
   - the accepted native C++23/SDL3/OpenGL foundation, bounded voxel paddock,
     and fixed 60 Hz gameplay;
@@ -51,10 +55,11 @@
     bearing still taken from the prior heading; and
   - paired, independently switchable steering-level obstacle and drop avoidance
     that probes ahead along a sheep's own direction of travel, pushes away from
-    the analytic paddock face it would reach and halfway toward a reachable free
-    edge of that same shape, pushes back from a look-ahead point whose ground is
-    not finite, and is summed and bounded with every other term while the hard
-    paddock authority stays exactly where it was; and
+    the analytic paddock face it would reach and halfway toward a body-reachable
+    free edge of that same shape, uses exact field-owned distance and inward
+    normal at the finite-ground boundary, scales both halves by distance and
+    actual closing speed, and is summed and bounded with every other term while
+    the hard paddock authority stays exactly where it was; and
   - authoritative, paired, independently switchable settled/alert/driven/
     recovering behavior states driven by an explicitly non-physiological arousal
     parameter that follows the published dog stimulus at named rise and recovery
@@ -80,7 +85,15 @@
     both terrain queries, snapshot publication, allocation, and total cost
     separately — **without any published contract, buffer, or format version
     growing a member**, and with the authoritative five-sheep path reproduced
-    exactly by the diagnostic on every tick of its registered check.
+    exactly by the diagnostic on every tick of its registered check; and
+  - the Phase 0 visual-tracer configuration/evidence seam: one named
+    `sheep-all-influences-diagnostic` scene, the existing deterministic dog
+    route, tick 30 as the five-silhouette reference state, route samples at
+    ticks 1/30/90, a dog-following representative camera, an elevated fixed
+    holdout camera, an explicit viewport/profile contract, the provisional High
+    budgets, native normal/debug/state/performance entry points, and a Windows
+    reference-baseline packet runner with an independent manifest validator.
+    This is preparatory tooling, not an RTX baseline or a visual change.
 
   Detailed evidence remains with the checked Phase 3 items and their owning
   source, decision, format, test, and artifact records; completed Phase 0–2
@@ -301,7 +314,7 @@
   tick in any fixture where a sheep is held on a contact face, and where the term
   now publishes nothing and lets the clip refuse the axis. The remaining
   oscillation is a different mechanism, filed as
-  [QA-005](docs/qa/open/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md)
+  [QA-005](docs/qa/closed/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md)
   (S2, confirmed): the response is decided by distance alone rather than by the
   closing it corrects, so a sheep a hundredth of a unit clear of a face with a
   near-parallel heading, and the binary drop half, still alternate. Switching the
@@ -616,19 +629,12 @@
   24/24 CTests after these changes; project formatting and bounded clang-tidy
   passed. Native graphics and measurements were not rerun because no
   presentation path changed.
-- **Decisions waiting on the owner (2026-08-22):** four, none of which an agent
+- **Decisions waiting on the owner (2026-08-22):** two, neither of which an agent
   should make. (1) The influence debug views need a readability verdict and a
   capture from native hardware; the candidate packet is in
   `artifacts/phase3/2026-08-22/debug-influence-views/`, and the roadmap item
-  stays unticked until then. (2)
-  [QA-004](docs/qa/open/QA-004-presets-do-not-pin-the-compiler.md): pin every
-  preset to Clang 18, or make the accidental GCC 13.3 Release build a stated
-  second preset — it has already caught a real portability defect, so it has
-  value worth keeping deliberately. (3)
-  [QA-005](docs/qa/open/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md):
-  fixing it means overturning the ADR 0008 section that considered and rejected
-  a graded proximity response, and two candidate corrections were measured and
-  reverted. (4) The dog-pressure item stays unticked on terrain alone; it is
+  stays unticked until then. (2) The dog-pressure item stays unticked on terrain
+  alone; it is
   deferred to Phase 5 because the paddock has one constant ground height, and
   splitting the item instead is an owner call. No S1 issue is open.
 - **Unaccepted work awaiting the owner (2026-08-22):** the influence debug views
@@ -676,13 +682,12 @@
   provisional status of the accepted values they come from. **Drop avoidance is
   verified against the paddock edge and against nothing else:** the handcrafted
   paddock has one constant ground height, so `ground_height` is finite everywhere
-  inside its own bounds, there is no interior drop for the term to meet, and the
-  binary "is there ground under the look-ahead point" response has not been
-  exercised against terrain — Phase 5 is when that half gets a real test. The
-  rule also considers one obstacle at a time, so a lateral escape can point at
-  another shape rather than at open ground, and a sheep it has brought to rest
-  stops being avoided for at all because the term reads travel direction rather
-  than proximity.
+  inside its own bounds and there is no interior drop for the exact boundary
+  query to meet — Phase 5 is when that half gets a real terrain test. The rule
+  also considers one obstacle at a time, so a lateral escape can point at another
+  shape rather than at open ground, and a sheep it has brought to rest stops
+  being avoided for at all because the term reads travel direction rather than
+  proximity.
   The four behavior states are now driven, so the earlier limit that `arousal`
   and `behavior` existed unwritten is resolved — but narrowly, and the narrowness
   matters. **Behavior is observational: no steering term reads the arousal or the
@@ -787,19 +792,16 @@
   `sheep-all-influences-diagnostic` fixture is **a diagnostic rather than
   accepted tuned gameplay**: it is synthetic causal evidence, no owner has seen
   the motion it produces, and it never occludes the dog, so line of sight remains
-  evidenced only by its own paired fixture. And the stability measure it stands
-  on still *accepts* a real oscillation rather than forbidding it. The half of it
-  that was
+  evidenced only by its own paired fixture. The contact-face defect that was
   [QA-003](docs/qa/closed/QA-003-avoidance-flaps-between-maximum-and-zero-at-a-contact-face.md)
   — a sheep held in contact with a wall face alternating between the full `4.0`
-  maximum and exactly zero — is fixed. What remains is
-  [QA-005](docs/qa/open/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md):
-  the response is decided by distance alone rather than by the closing it
-  corrects, so a sheep a hundredth of a unit clear of a face with a near-parallel
-  heading, and the binary drop half, still alternate. The flap allowance for
-  avoidance and for the applied sum is therefore still above the one every
-  continuous term is held to — `8` flaps per hundred ticks with a run of `20`
-  against `5` and `4` — and now names QA-005 as its reason until that closes.
+  maximum and exactly zero — is fixed. The remaining grazing/drop-boundary
+  defect is also fixed as
+  [QA-005](docs/qa/closed/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md):
+  avoidance now measures `4` flaps with a run of `1` and the applied sum `9` with
+  a run of `2` over 600 ticks, both inside the common `5`-per-100 / `4`-run
+  allowance. This is stability evidence for a synthetic fixture, not acceptance
+  of its motion or tuning.
   The flock now has a **cost** diagnostic, and its limits are as narrow as its
   numbers. It measures the *rules* and not the shipping path: no scheduler, no
   render interpolation, no replay or state-dump writer, and no presentation are
@@ -819,40 +821,104 @@
   14/25/100-member fixtures are **diagnostics, not content**: no owner has
   watched them, none of them is tuned, they never occlude the dog, and the first
   playable still owes an audience exactly five sheep.
-- **Toolchain correction (observed result, 2026-08-22):** the checked-in presets
-  do not pin a compiler. On this host `dev` and `dev-sanitized` are configured
-  with Clang 18.1.3 while `release` is configured with the default `c++`, GNU
-  13.3.0, and CI pins Clang only through workflow environment variables and only
-  for `dev`. Verification paragraphs recorded from 2026-08-21 onward now name the
-  compiler each configuration actually used; earlier paragraphs say "Clang
-  18.1.3" for all three and have not been rewritten, because which compiler built
-  those Release trees was not observed and cannot now be established. Building
-  Release under a second compiler has caught at least one real portability
-  problem, so the defect is that the divergence is accidental and unstated rather
-  than that it exists. Filed as
-  [QA-004](docs/qa/open/QA-004-presets-do-not-pin-the-compiler.md); whether to
-  pin every preset to Clang or to make the GCC build a stated second preset is an
-  owner decision.
-- **Next action:** implement the Phase 3 objective loop — spawn the dog, farmer
-  placeholder, five sheep, gate and destination pen, add one gather-and-drive
-  whistle, explicit success and recoverable failure with restart, and a minimal
-  HUD. The exit-gate replay's central claim that the open gate is the only way
-  through now holds from every start position:
-  [QA-001](docs/qa/closed/QA-001-paddock-collision-radius-band-passthrough.md)
-  is closed. The influence
-  debug views landed but are **unaccepted**: they need the owner's readability
-  verdict and a capture from native hardware, neither of which this OpenGL 4.5
-  host can produce.
+- **Toolchain correction (observed result, 2026-08-22):**
+  [QA-004](docs/qa/closed/QA-004-presets-do-not-pin-the-compiler.md) is closed.
+  Linux `dev`, `dev-sanitized`, and `release` now pin and verify Clang 18, while
+  the explicit Linux-only `release-gcc` preset pins and verifies GCC 13. A stale
+  or mixed compiler cache fails with a one-time `--fresh` migration instruction;
+  native Windows retains MSVC. On WSL Ubuntu 24.04.4, all four configurations
+  built and passed 30/30 CTests, including the compiler-sensitive stack budget;
+  format and bounded clang-tidy also passed. Native Windows was not rerun.
+- **QA correction batch (observed result, 2026-08-22):**
+  [QA-006](docs/qa/closed/QA-006-source-readme-still-denies-qa-001-depenetration.md)
+  is closed after `src/README.md` was aligned with QA-001 depenetration while
+  retaining the separate absence of sheep/sheep and sheep/dog hard collision.
+  At that checkpoint QA-005 remained open: the approved combined candidate
+  reduced the focused grazing result from `36` to `2` flaps but worsened the
+  600-tick diagnostic to
+  avoidance `100`/`6` and applied-sum `95`/`6`; it was fully reverted and the
+  original gameplay test passes. The sweep also filed confirmed S3
+  [QA-007](docs/qa/open/QA-007-root-readme-still-says-implemented-sheep-rules-are-unimplemented.md)
+  without folding that sibling documentation fix into this batch.
+- **QA-005 correction (observed result, 2026-08-22):**
+  [QA-005](docs/qa/closed/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md)
+  is closed after an owner-approved ADR correction. `PaddockCollisionField` now
+  owns exact finite-ground boundary distance/normal and excludes obstacle edges
+  a sheep body cannot pass inside the paddock; obstacle and drop response share
+  a distance falloff scaled by actual speed into the boundary, with drop pointing
+  along the inward normal. The focused grazing result is `2` flaps in 240 ticks;
+  the 600-tick diagnostic measures avoidance `4`/`1` and applied sum `9`/`2`, so
+  both use the common `5`-per-100 / `4`-run allowance. The paired fixture retains
+  zero avoidance-on clips against four off, with corrected closest wall gap
+  `0.172705` and drop rest `x = 0.919383`. On WSL Ubuntu 24.04.4 with Clang
+  18.1.3, `dev` and `dev-sanitized` each built and passed 30/30 CTests, including
+  the compiler-sensitive stack budget and 28 sanitizer-labeled tests; formatting
+  and bounded clang-tidy passed. No published field or format version changed,
+  and no native graphics or human visual result is claimed.
+- **Owner decision (Goal, 2026-08-22):** visual quality is a project continuation
+  gate. Pause the objective/HUD/farmer-cue work, retain OpenGL for a bounded
+  visual tracer, use the two locally generated sheep-game images as the primary
+  idealized target, and use the numbered visual references plus
+  `real-photo-sheep3.jpg` only in their documented secondary/reference roles;
+  the photo informs spatial flock distribution only. The target is
+  voxel-informed but must not become conspicuously chunky or aggressively
+  low-poly, with the exact detail balance left to owner-reviewed iteration. The
+  readable secondary refs 2 and 3 also establish controlled softness, layered
+  depth of field, dense fine vegetation, and finer voxel-scale detail as target
+  cues, provided active gameplay subjects and routes remain legible.
+  The first visual gate keeps five authoritative sheep; a positive owner visual
+  verdict unlocks separate 25- and 100-sheep scale/behavior gates. The laptop's
+  GTX 1050 Ti Max-Q is a very-low-spec development/compatibility proxy, not the
+  visual-quality reference or an accepted shipping minimum. The desktop's RTX
+  4070 Ti is the intended reference GPU, not a minimum specification; its CPU,
+  RAM, display, driver, active OpenGL adapter, and the eventual measured
+  minimum/recommended profiles remain unrecorded. This decision does not accept
+  an in-engine visual result, approve
+  Vulkan migration, cancel the objective loop, or grant redistribution rights
+  for third-party references.
+  Evidence: [visual-feasibility research](docs/research/visual-feasibility-before-objective-loop.md)
+  and the [visual-reference boundary](docs/game-design/HERDING_GAMEPLAY.md#camera-and-visual-reference-boundary).
+- **Verification run (observed result, 2026-08-22, Phase 0 preparatory seam):**
+  the named visual-tracer configuration and its extracted route built under WSL
+  `dev` with Clang 18.1.3 and native Windows Release with MSVC 19.44.35228.0;
+  the WSL development, Release, and ASan/UBSan presets each passed 29/29 CTests,
+  native Windows Release passed 46/46 CTests, and format, bounded clang-tidy,
+  and QA-index checks passed. Five final native 960×540 smoke paths on the
+  documented laptop — representative normal/repeat/debug and holdout
+  normal/debug — all used OpenGL 4.6 on Intel UHD 630, wrote byte-identical
+  canonical tick-30 gameplay state, passed their framebuffer/debug oracles, and
+  reported zero high-severity messages. The repeated representative PNG was
+  byte-identical. Agent inspection rejected tick 120 because overlapping
+  silhouettes hid two sheep in both views, then observed all five
+  distinguishable at tick 30 without changing simulation. The laptop result
+  verifies the seam only: it is neither reference visual evidence nor a
+  High-profile performance result. The reference runner will fail unless the
+  requested display mode is observed and the active OpenGL renderer contains
+  `NVIDIA GeForce RTX 4070 Ti`; it retains inventory, configuration, source
+  hashes, representative/holdout normal and debug frames, motion/state samples,
+  timings, memory, startup-to-first-capture, compressed package size, rubric,
+  and review metadata under ignored `artifacts/phase3/`. Evidence:
+  [`visual_tracer_configuration.hpp`](src/platform/visual_tracer_configuration.hpp),
+  [`visual_tracer_configuration_tests.cpp`](tests/visual_tracer_configuration_tests.cpp),
+  and
+  [`run-visual-feasibility-baseline.ps1`](tools/phase3/run-visual-feasibility-baseline.ps1).
+- **Next action:** keep the reference-desktop Phase 0 run postponed. QA-005 is
+  closed; the first independent unblocked correction is the narrow QA-007
+  root-README fix. The objective loop and visual tuning remain paused.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
   [first-playable design](docs/game-design/WIDE_EYE.md),
+  [approved visual-feasibility plan](docs/plans/visual-feasibility-before-objective-loop.md),
+  [visual-feasibility research](docs/research/visual-feasibility-before-objective-loop.md),
+  [visual-reference boundary](docs/game-design/HERDING_GAMEPLAY.md#camera-and-visual-reference-boundary),
   [herding plan](docs/plans/herding-simulation-and-scale.md),
   [ADR 0004](docs/decisions/0004-gameplay-scenario-ownership.md),
   [ADR 0005](docs/decisions/0005-paddock-collision-ownership.md),
   [ADR 0006](docs/decisions/0006-combined-influence-acceleration-bound.md),
   [ADR 0007](docs/decisions/0007-bounded-sheep-speed-and-turning.md),
   [ADR 0008](docs/decisions/0008-obstacle-and-drop-avoidance.md),
+  [QA-005](docs/qa/closed/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md),
   [ADR 0009](docs/decisions/0009-behavior-transitions-and-arousal.md),
   [ADR 0010](docs/decisions/0010-diagnostic-flock-scale-over-shared-sheep-rules.md),
   [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
@@ -1995,10 +2061,11 @@ scope. Evidence: the archived
   a **deliberately looser recorded allowance**. That allowance was `20` per
   hundred with a run of `25` when this item was recorded; QA-003 was fixed on
   2026-08-22, the same run now measures `27`/`10` for avoidance and `44`/`17` for
-  the applied sum, and the allowance is `8` per hundred with a run of `20`,
-  naming [QA-005](docs/qa/open/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md)
-  — the bang-bang response that remains — as its reason. One new fixture was
-  added:
+  the applied sum, and the allowance became `8` per hundred with a run of `20`,
+  naming [QA-005](docs/qa/closed/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md)
+  as its reason. QA-005 later closed with avoidance at `4`/`1` and the applied
+  sum at `9`/`2`, both under the shared `5`-per-100 / `4`-run allowance. One new
+  fixture was added:
   `sheep-all-influences-diagnostic`, version 1, seed 0, the only fixture that
   enables every rule at once. **It is a diagnostic, not accepted tuned
   gameplay** — no owner has reviewed the motion it produces, its numbers are not
@@ -2014,9 +2081,7 @@ scope. Evidence: the archived
   *replaced* by a statistical check, not deleted; the diagnostic fixture is
   synthetic causal evidence rather than player-facing motion acceptance; the dog
   is never occluded in it (`0` occluded sheep-ticks), so line of sight is still
-  evidenced only by its own paired fixture; the flap allowance for avoidance and
-  the applied sum still *accepts* an oscillation rather than forbidding it —
-  QA-003's half of it is fixed and QA-005's half is not; and determinism is
+  evidenced only by its own paired fixture; and determinism is
   proven on one host and one architecture —
   WSL Ubuntu 24.04.4 on x86-64, Clang 18.1.3 and GNU 13 — which is not a
   cross-platform determinism claim. Evidence:
@@ -2302,7 +2367,33 @@ scope. Evidence: the archived
   provisional retention until player-facing dog-response evidence can confirm
   or reject its usefulness.
 
-### Objective loop
+### Owner-authorized visual-feasibility pause
+
+The objective loop below remains required and unchecked, but it is paused behind
+an owner-selected visual continuation gate. This is a bounded exception to the
+later Phase 4/6 ordering, not permission to start a general renderer rewrite or
+mix Vulkan migration, final art, world streaming, and maximum flock scale.
+
+- [x] Challenge and approve the incremental
+  [OpenGL visual-feasibility plan](docs/plans/visual-feasibility-before-objective-loop.md).
+  Owner approval, 2026-08-22: the plan keeps the desktop RTX 4070 Ti in the
+  reference-GPU role, not the minimum-spec role; treats its remaining inventory,
+  viewport, and unchanged native baseline as Phase 0 evidence; and preserves the
+  human verdict before any 25/100-sheep work.
+- [ ] Complete Phase 0: lock the named scene/cameras/viewport/profile/manifest
+  seam, visual rubric, complete desktop inventory, and unchanged RTX 4070 Ti
+  reference baseline without tuning presentation.
+- [ ] Complete the plan's bounded five-sheep scene, shadow, colour/material,
+  environment-detail, atmosphere, animal-presentation, and edge/focal outcomes,
+  retaining their per-outcome stop conditions and evidence instead of merging
+  them into one polish pass.
+- [ ] Obtain the Phase 8 owner continue/revise/pivot/stop verdict from matching
+  representative, holdout, motion, debug, performance, and platform evidence.
+- [ ] Only after an explicit positive five-sheep verdict, create and approve the
+  separate 25-sheep ownership/scale plan; a successful 25-sheep gate is required
+  before planning 100 sheep.
+
+### Objective loop — paused until the visual gate verdict
 
 - [ ] Spawn one dog, farmer placeholder, five sheep, one gate, and destination
   pen.
@@ -2326,13 +2417,15 @@ scope. Evidence: the archived
 - [ ] A short motion/contact-sheet packet plus matching debug/state evidence
   receives an explicit owner verdict on flock readability and causality.
 
-### Post-Phase 3 graphics-backend decision
+### Graphics-backend decision
 
-This is a decision checkpoint after the playable-loop gate, not a Phase 3 exit
-condition and not authorization to begin a renderer migration.
+This checkpoint was originally placed after the playable loop. The owner brought
+it forward on 2026-08-22 because material visual exploration is now a continuation
+gate. It is not a Phase 3 exit condition or authorization to begin a renderer
+migration.
 
-- [ ] Record one owner verdict before material renderer growth: either retain
-  OpenGL through the currently justified work and revisit only on a measured
+- [x] Record one owner verdict before material renderer growth: retain OpenGL
+  through the bounded visual-feasibility tracer and revisit only on a measured
   capability/bottleneck, or authorize Vulkan parity planning. A Vulkan-planning
   verdict requires a native Windows/Linux capability inventory on the actual
   target classes, adversarial planning from
@@ -2340,13 +2433,16 @@ condition and not authorization to begin a renderer migration.
   an accepted superseding ADR, preservation of OpenGL as a temporary known-good
   reference, and explicit parity/cancellation/retirement gates before backend
   implementation. Mesh shaders, ray tracing, Brixelizer GI, async compute, and
-  permanent dual-backend support remain separate unapproved decisions.
+  permanent dual-backend support remain separate unapproved decisions. Owner
+  verdict, 2026-08-22: retain OpenGL for the tracer; Vulkan remains unapproved.
 
 ## Phase 4 — Tracer 3: readable procedural art and feedback
 
-Phase 4 refines or replaces the deliberately simple Phase 3 animal proxies only
-after the five-sheep loop and representative render envelope have earned deeper
-presentation investment.
+Phase 4 ordinarily refines or replaces the deliberately simple Phase 3 animal
+proxies only after the five-sheep loop and representative render envelope have
+earned deeper presentation investment. The owner-authorized visual-feasibility
+pause may bring forward only the work approved by its eventual incremental plan;
+it does not complete or broadly activate this phase.
 
 ### Art bible in code
 

@@ -136,11 +136,12 @@ acceleration equals its published per-term vectors summed and scaled exactly,
 every published velocity and unrefused position follows from that acceleration
 exactly, the combined bound, each term's own maximum, the speed limit, the turn
 budget, and the arousal range hold on all 3,000 sheep-ticks, no behavior label
-returns inside its hysteresis dwell, no continuous steering term flaps beyond
-five per hundred ticks, the closed wall line stops every sheep at exactly the
-face plus one body radius, and the run allocates nothing — with obstacle
-avoidance and the applied sum held to a deliberately looser recorded allowance
-that names QA-003;
+returns inside its hysteresis dwell, no steering term flaps beyond five per
+hundred ticks or for more than four consecutive ticks, the closed wall line
+stops every sheep at exactly the face plus one body radius, and the run allocates
+nothing; the avoidance coverage also pins the exact inclusive ground-boundary
+transition and a simultaneous right-wall/drop corner whose response must point
+only into reachable safe space;
 a QA-001 radius-band regression that asks the collision field, at both the sheep
 and the dog body radius, what it does with a body starting exactly on a face,
 inside the band, at exactly one radius, fully inside a shape, at a corner where
@@ -155,6 +156,10 @@ stated scale against the published vectors, chosen-neighbor link endpoints again
 the published IDs, bounded segment capacity, zero allocations, and a stable sweep
 digest, plus a frame-dump oracle that pins the text serialization of one frame;
 neither can produce a capture on a host without an OpenGL 4.6 Core context;
+the bounded Phase 0 visual-tracer configuration, including exact scene/profile/
+budget inputs, camera-name rejection, the extracted dog-route boundaries,
+repeated tick-30 gameplay state, five stable sheep IDs, a dog-following
+representative camera, and an immutable elevated holdout camera;
 repeated scripted `presentation-motion` state, all-five
 translation, midpoint turn interpolation, immutable-prior publication, exact
 restart, and one-to-one moving proxy poses without claiming flock behavior;

@@ -530,6 +530,11 @@ int run_window(const WindowRunConfiguration& configuration, WindowScenarioRunner
         write_duration_statistics("synchronized_frame", *synchronized_statistics);
         std::cout << "process_rss_bytes=" << memory->current_rss_bytes << '\n'
                   << "process_peak_rss_bytes=" << memory->peak_rss_bytes << '\n'
+                  << "performance_p95_budget_ns=" << budget.synchronized_frame_p95_ns << '\n'
+                  << "performance_p99_budget_ns=" << budget.synchronized_frame_p99_ns << '\n'
+                  << "performance_memory_budget_bytes=" << budget.peak_rss_bytes << '\n'
+                  << "within_performance_budget=" << (within_provisional_low_budget ? "yes" : "no")
+                  << '\n'
                   << "provisional_low_p95_budget_ns=" << budget.synchronized_frame_p95_ns << '\n'
                   << "provisional_low_p99_budget_ns=" << budget.synchronized_frame_p99_ns << '\n'
                   << "provisional_low_memory_budget_bytes=" << budget.peak_rss_bytes << '\n'

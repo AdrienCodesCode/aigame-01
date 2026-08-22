@@ -43,6 +43,31 @@ The fallback records hashes of the resolved Ubuntu packages under
 with Noble updates; the observed versions must therefore be recorded with each
 milestone result. SDL remains pinned and checksum-verified by CMake.
 
+## Compiler profiles
+
+The canonical Linux `dev`, `dev-sanitized`, and `release` presets select
+Clang 18 before CMake enables C and C++. The separate `release-gcc` preset pins
+GCC 13 so portability coverage is deliberate rather than an ambient-shell side
+effect:
+
+```bash
+cmake --preset release
+cmake --build --preset release
+ctest --preset release
+
+cmake --preset release-gcc
+cmake --build --preset release-gcc
+ctest --preset release-gcc
+```
+
+Configuration fails if either profile resolves to a different compiler family
+or major version. A build tree first configured with another compiler must be
+migrated once with `cmake --fresh --preset <preset-name>`; the configure step
+rejects a stale mixed-toolchain cache instead of silently rewriting only part of
+it. These Linux-only selections do not change the native Windows presets, which
+continue to use the Visual Studio/MSVC environment documented in
+[`WINDOWS.md`](WINDOWS.md).
+
 ## Context diagnostic
 
 The default command requests the approved OpenGL 4.6 Core profile. It never

@@ -17,6 +17,18 @@ run_dog_render_scenario(std::string_view dog_scenario,
     std::uint64_t capture_tick = 61, bool debug_view = false,
     const std::optional<std::filesystem::path>& state_dump_path = std::nullopt);
 [[nodiscard]] int run_sheep_motion_performance_scenario();
+[[nodiscard]] int run_visual_tracer_configuration_scenario(std::string_view scene);
+[[nodiscard]] int run_visual_tracer_render_scenario(std::string_view scene, std::string_view camera,
+                                                    std::string_view graphics_profile,
+                                                    int viewport_width, int viewport_height,
+                                                    int refresh_hz, std::uint64_t capture_tick,
+                                                    bool debug_view,
+                                                    const std::filesystem::path& capture_path,
+                                                    const std::filesystem::path& state_dump_path);
+[[nodiscard]] int run_visual_tracer_performance_scenario(std::string_view scene,
+                                                         std::string_view graphics_profile,
+                                                         int viewport_width, int viewport_height,
+                                                         int refresh_hz);
 // Renders one named gameplay scenario at a chosen tick with the influence debug
 // overlay on top. Needs a real OpenGL 4.6 Core context.
 [[nodiscard]] int run_influence_debug_render_scenario(

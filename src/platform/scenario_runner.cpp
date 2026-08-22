@@ -3,6 +3,7 @@
 #include "game/camera_controller.hpp"
 #include "game/gameplay_replay.hpp"
 #include "game/gameplay_simulation.hpp"
+#include "platform/visual_tracer_configuration.hpp"
 #include "platform/window_runtime.hpp"
 #include "render/influence_debug_view.hpp"
 #include "render/opengl_renderer.hpp"
@@ -34,6 +35,9 @@ enum class RenderScenario {
     sheep_motion_paddock,
     sheep_motion_debug_paddock,
     sheep_motion_performance_paddock,
+    visual_tracer_paddock,
+    visual_tracer_debug_paddock,
+    visual_tracer_performance_paddock,
     influence_debug_paddock,
     handcrafted_paddock_performance,
     triangle,
@@ -52,6 +56,9 @@ enum class RenderScenario {
            scenario == RenderScenario::sheep_motion_paddock ||
            scenario == RenderScenario::sheep_motion_debug_paddock ||
            scenario == RenderScenario::sheep_motion_performance_paddock ||
+           scenario == RenderScenario::visual_tracer_paddock ||
+           scenario == RenderScenario::visual_tracer_debug_paddock ||
+           scenario == RenderScenario::visual_tracer_performance_paddock ||
            scenario == RenderScenario::influence_debug_paddock ||
            scenario == RenderScenario::handcrafted_paddock_performance ||
            scenario == RenderScenario::handcrafted_paddock ||
@@ -67,6 +74,9 @@ enum class RenderScenario {
            scenario == RenderScenario::sheep_motion_paddock ||
            scenario == RenderScenario::sheep_motion_debug_paddock ||
            scenario == RenderScenario::sheep_motion_performance_paddock ||
+           scenario == RenderScenario::visual_tracer_paddock ||
+           scenario == RenderScenario::visual_tracer_debug_paddock ||
+           scenario == RenderScenario::visual_tracer_performance_paddock ||
            scenario == RenderScenario::influence_debug_paddock;
 }
 
@@ -84,6 +94,8 @@ enum class RenderScenario {
     case RenderScenario::dog_paddock:
     case RenderScenario::sheep_motion_paddock:
     case RenderScenario::sheep_motion_performance_paddock:
+    case RenderScenario::visual_tracer_paddock:
+    case RenderScenario::visual_tracer_performance_paddock:
     // The overlay explains the scene, so the scene underneath it stays the
     // ordinary lit paddock rather than a second debug mode arguing with it.
     case RenderScenario::influence_debug_paddock:
@@ -94,6 +106,7 @@ enum class RenderScenario {
     case RenderScenario::voxel_cube_debug:
         return render::HandcraftedPaddockView::normal;
     case RenderScenario::sheep_motion_debug_paddock:
+    case RenderScenario::visual_tracer_debug_paddock:
         return render::HandcraftedPaddockView::face_normals;
     }
     return render::HandcraftedPaddockView::normal;
@@ -122,22 +135,6 @@ enum class RenderScenario {
 // hold the whole 32x32 paddock floor in a 16:9 frame.
 constexpr render::CameraPose kInfluenceReviewCamera{.eye = {38.0F, 24.0F, 42.0F},
                                                     .target = {16.0F, 1.5F, 21.0F}};
-
-// The scripted dog route the per-outcome headless oracles already use, reused
-// verbatim so that the debug view's tick N is directly comparable with the state
-// dumps those runs produced. It is a fixture, not accepted play.
-[[nodiscard]] game::GameplayTickInput influence_debug_input_for_tick(std::uint64_t tick) {
-    if (tick < 40) {
-        return {.dog_move = game::DogMoveInput{.world_z = -1.0}};
-    }
-    if (tick < 90) {
-        return {.dog_move = game::DogMoveInput{.world_x = 0.75, .world_z = -0.5}};
-    }
-    if (tick < 150) {
-        return {.dog_move = game::DogMoveInput{.world_x = -1.0, .world_z = 0.5, .sprint = true}};
-    }
-    return {.dog_move = game::DogMoveInput{.world_x = 0.25, .world_z = 1.0}};
-}
 
 // The frame's own record, in the same key=value idiom the smokes already use.
 // It exists so that a capture is attributable: every drawn segment is listed
@@ -227,10 +224,13 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
         RenderScenario scenario, std::optional<std::filesystem::path> capture_path = std::nullopt,
         std::optional<game::GameplayScenarioDefinition> gameplay_scenario = std::nullopt,
         std::uint64_t capture_tick = 61,
-        std::optional<std::filesystem::path> state_dump_path = std::nullopt)
+        std::optional<std::filesystem::path> state_dump_path = std::nullopt,
+        std::optional<VisualTracerConfiguration> visual_tracer = std::nullopt,
+        VisualTracerCamera visual_tracer_camera = VisualTracerCamera::representative)
         : scenario_{scenario}, capture_path_{std::move(capture_path)},
           gameplay_scenario_{gameplay_scenario}, capture_tick_{capture_tick},
-          state_dump_path_{std::move(state_dump_path)} {}
+          state_dump_path_{std::move(state_dump_path)}, visual_tracer_{visual_tracer},
+          visual_tracer_camera_{visual_tracer_camera} {}
 
     WindowResult initialize() override {
         renderer_.emplace();
@@ -319,9 +319,45 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
                                   << '\n';
                     }
                 }
+                if (scenario_ == RenderScenario::visual_tracer_paddock ||
+                    scenario_ == RenderScenario::visual_tracer_debug_paddock ||
+                    scenario_ == RenderScenario::visual_tracer_performance_paddock) {
+                    if (!visual_tracer_.has_value()) {
+                        return WindowFailure{"visual_tracer_configuration", false};
+                    }
+                    for (std::uint64_t tick = 0; tick < capture_tick_; ++tick) {
+                        simulation_->fixed_update(visual_tracer_input_for_tick(tick));
+                    }
+                    std::cout << "visual_tracer_scene=" << visual_tracer_->id << '\n'
+                              << "visual_tracer_scene_version=" << visual_tracer_->version << '\n'
+                              << "visual_tracer_route=" << visual_tracer_->route_id << '\n'
+                              << "visual_tracer_route_version=" << visual_tracer_->route_version
+                              << '\n'
+                              << "visual_tracer_tick=" << capture_tick_ << '\n'
+                              << "visual_tracer_camera="
+                              << visual_tracer_camera_name(visual_tracer_camera_) << '\n'
+                              << "visual_tracer_profile=" << visual_tracer_->graphics_profile
+                              << '\n';
+                    if (state_dump_path_.has_value()) {
+                        const game::GameplayTextResult state =
+                            game::gameplay_state_dump_json(*simulation_);
+                        if (!state) {
+                            return WindowFailure{"state_dump_encode", false};
+                        }
+                        std::ofstream output{*state_dump_path_, std::ios::binary | std::ios::trunc};
+                        output << state.text << '\n';
+                        if (!output) {
+                            return WindowFailure{"state_dump_write", false};
+                        }
+                        std::cout << "state_dump_path=" << state_dump_path_->string() << '\n'
+                                  << "state_dump_schema=wide-eye.gameplay-state\n"
+                                  << "state_dump_version=" << game::kGameplayStateDumpFormatVersion
+                                  << '\n';
+                    }
+                }
                 if (scenario_ == RenderScenario::influence_debug_paddock) {
                     for (std::uint64_t tick = 0; tick < capture_tick_; ++tick) {
-                        simulation_->fixed_update(influence_debug_input_for_tick(tick));
+                        simulation_->fixed_update(visual_tracer_input_for_tick(tick));
                     }
                     if (state_dump_path_.has_value()) {
                         std::ofstream output{*state_dump_path_, std::ios::binary | std::ios::trunc};
@@ -350,7 +386,8 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
     }
 
     WindowResult prepare_performance_frame(double interpolation_alpha) override {
-        if (scenario_ != RenderScenario::sheep_motion_performance_paddock) {
+        if (scenario_ != RenderScenario::sheep_motion_performance_paddock &&
+            scenario_ != RenderScenario::visual_tracer_performance_paddock) {
             return std::nullopt;
         }
         prepared_gameplay_frame_ = make_gameplay_frame(interpolation_alpha);
@@ -548,6 +585,11 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
             scenario_ == RenderScenario::sheep_motion_performance_paddock) {
             interpolation_alpha = 0.5;
         }
+        if (scenario_ == RenderScenario::visual_tracer_paddock ||
+            scenario_ == RenderScenario::visual_tracer_debug_paddock ||
+            scenario_ == RenderScenario::visual_tracer_performance_paddock) {
+            interpolation_alpha = 1.0;
+        }
         const game::GameplaySnapshot render_snapshot =
             simulation_->interpolated_snapshot(interpolation_alpha);
         const game::DogState& render_dog = render_snapshot.dog;
@@ -556,17 +598,20 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
         const game::CameraState render_camera = game::interpolate_camera_state(
             previous_camera_state_, camera_->state(), interpolation_alpha);
         const game::CameraPose game_camera = game::camera_pose(render_dog, render_camera);
+        render::CameraPose camera_pose{
+            .eye = {static_cast<float>(game_camera.eye.x), static_cast<float>(game_camera.eye.y),
+                    static_cast<float>(game_camera.eye.z)},
+            .target = {static_cast<float>(game_camera.target.x),
+                       static_cast<float>(game_camera.target.y),
+                       static_cast<float>(game_camera.target.z)},
+        };
+        if (visual_tracer_.has_value()) {
+            camera_pose =
+                visual_tracer_camera_pose(*visual_tracer_, visual_tracer_camera_, render_snapshot);
+        }
         return {
             .view = paddock_view(scenario_),
-            .camera =
-                {
-                    .eye = {static_cast<float>(game_camera.eye.x),
-                            static_cast<float>(game_camera.eye.y),
-                            static_cast<float>(game_camera.eye.z)},
-                    .target = {static_cast<float>(game_camera.target.x),
-                               static_cast<float>(game_camera.target.y),
-                               static_cast<float>(game_camera.target.z)},
-                },
+            .camera = camera_pose,
             .dog =
                 render::DogRenderPose{
                     .ground_position = {static_cast<float>(render_dog.position.x),
@@ -788,6 +833,8 @@ class RenderScenarioRunner final : public WindowScenarioRunner {
     std::optional<game::GameplayScenarioDefinition> gameplay_scenario_;
     std::uint64_t capture_tick_ = 61;
     std::optional<std::filesystem::path> state_dump_path_;
+    std::optional<VisualTracerConfiguration> visual_tracer_;
+    VisualTracerCamera visual_tracer_camera_ = VisualTracerCamera::representative;
     std::optional<render::OpenGlRenderer> renderer_;
     std::optional<game::GameplaySimulation> simulation_;
     std::optional<game::CameraController> camera_;
@@ -941,6 +988,136 @@ int run_sheep_motion_performance_scenario() {
     return run_window(configuration, runner);
 }
 
+int run_visual_tracer_configuration_scenario(std::string_view scene) {
+    const auto visual_tracer = find_visual_tracer_configuration(scene);
+    if (!visual_tracer.has_value()) {
+        std::cerr << "visual_tracer_configuration_result=fail\n"
+                  << "failure_stage=visual_tracer_scene_select\n";
+        return EXIT_FAILURE;
+    }
+    const auto gameplay_scenario = game::find_gameplay_scenario(visual_tracer->gameplay_scenario);
+    if (!gameplay_scenario.has_value()) {
+        std::cerr << "visual_tracer_configuration_result=fail\n"
+                  << "failure_stage=visual_tracer_gameplay_scenario_select\n";
+        return EXIT_FAILURE;
+    }
+
+    std::cout << "visual_tracer_scene=" << visual_tracer->id << '\n'
+              << "visual_tracer_scene_version=" << visual_tracer->version << '\n'
+              << "visual_tracer_gameplay_scenario=" << visual_tracer->gameplay_scenario << '\n'
+              << "visual_tracer_gameplay_scenario_version=" << gameplay_scenario->version << '\n'
+              << "visual_tracer_seed=" << gameplay_scenario->seed << '\n'
+              << "visual_tracer_route=" << visual_tracer->route_id << '\n'
+              << "visual_tracer_route_version=" << visual_tracer->route_version << '\n'
+              << "visual_tracer_reference_tick=" << visual_tracer->reference_tick << '\n'
+              << "visual_tracer_motion_ticks=" << visual_tracer->motion_ticks[0] << ','
+              << visual_tracer->motion_ticks[1] << ',' << visual_tracer->motion_ticks[2] << '\n'
+              << "visual_tracer_representative_camera=representative\n"
+              << "visual_tracer_holdout_camera=holdout\n"
+              << "visual_tracer_holdout_camera_eye=" << visual_tracer->holdout_camera.eye[0] << ','
+              << visual_tracer->holdout_camera.eye[1] << ',' << visual_tracer->holdout_camera.eye[2]
+              << '\n'
+              << "visual_tracer_holdout_camera_target=" << visual_tracer->holdout_camera.target[0]
+              << ',' << visual_tracer->holdout_camera.target[1] << ','
+              << visual_tracer->holdout_camera.target[2] << '\n'
+              << "visual_tracer_profile=" << visual_tracer->graphics_profile << '\n'
+              << "visual_tracer_provisional_viewport=" << visual_tracer->provisional_viewport_width
+              << 'x' << visual_tracer->provisional_viewport_height << '@'
+              << visual_tracer->provisional_refresh_hz << '\n'
+              << "visual_tracer_performance_budget_id=" << visual_tracer->performance_budget.id
+              << '\n'
+              << "visual_tracer_performance_p95_budget_ns="
+              << visual_tracer->performance_budget.synchronized_frame_p95_ns << '\n'
+              << "visual_tracer_performance_p99_budget_ns="
+              << visual_tracer->performance_budget.synchronized_frame_p99_ns << '\n'
+              << "visual_tracer_peak_rss_budget_bytes="
+              << visual_tracer->performance_budget.peak_rss_bytes << '\n'
+              << "visual_tracer_configuration_result=pass\n";
+    return EXIT_SUCCESS;
+}
+
+int run_visual_tracer_render_scenario(std::string_view scene, std::string_view camera,
+                                      std::string_view graphics_profile, int viewport_width,
+                                      int viewport_height, int refresh_hz,
+                                      std::uint64_t capture_tick, bool debug_view,
+                                      const std::filesystem::path& capture_path,
+                                      const std::filesystem::path& state_dump_path) {
+    const auto visual_tracer = find_visual_tracer_configuration(scene);
+    const auto camera_role = find_visual_tracer_camera(camera);
+    if (!visual_tracer.has_value() || !camera_role.has_value() ||
+        !is_valid_visual_tracer_run(*visual_tracer, graphics_profile, viewport_width,
+                                    viewport_height, refresh_hz)) {
+        std::cerr << "visual_tracer_render_result=fail\n"
+                  << "failure_stage=visual_tracer_run_configuration\n";
+        return EXIT_FAILURE;
+    }
+    const auto definition = game::find_gameplay_scenario(visual_tracer->gameplay_scenario);
+    if (!definition.has_value()) {
+        std::cerr << "visual_tracer_render_result=fail\n"
+                  << "failure_stage=visual_tracer_gameplay_scenario_select\n";
+        return EXIT_FAILURE;
+    }
+
+    RenderScenarioRunner runner{debug_view ? RenderScenario::visual_tracer_debug_paddock
+                                           : RenderScenario::visual_tracer_paddock,
+                                capture_path,
+                                definition,
+                                capture_tick,
+                                state_dump_path,
+                                visual_tracer,
+                                *camera_role};
+    WindowRunConfiguration configuration =
+        bounded_configuration("visual_tracer_render_result", true);
+    configuration.width = viewport_width;
+    configuration.height = viewport_height;
+    configuration.require_depth_buffer = true;
+    configuration.render_bounded_frame = true;
+    std::cout << "visual_tracer_viewport_width=" << viewport_width << '\n'
+              << "visual_tracer_viewport_height=" << viewport_height << '\n'
+              << "visual_tracer_refresh_hz=" << refresh_hz << '\n';
+    return run_window(configuration, runner);
+}
+
+int run_visual_tracer_performance_scenario(std::string_view scene,
+                                           std::string_view graphics_profile, int viewport_width,
+                                           int viewport_height, int refresh_hz) {
+    const auto visual_tracer = find_visual_tracer_configuration(scene);
+    if (!visual_tracer.has_value() ||
+        !is_valid_visual_tracer_run(*visual_tracer, graphics_profile, viewport_width,
+                                    viewport_height, refresh_hz)) {
+        std::cerr << "visual_tracer_performance_result=fail\n"
+                  << "failure_stage=visual_tracer_run_configuration\n";
+        return EXIT_FAILURE;
+    }
+    const auto definition = game::find_gameplay_scenario(visual_tracer->gameplay_scenario);
+    if (!definition.has_value()) {
+        std::cerr << "visual_tracer_performance_result=fail\n"
+                  << "failure_stage=visual_tracer_gameplay_scenario_select\n";
+        return EXIT_FAILURE;
+    }
+
+    RenderScenarioRunner runner{RenderScenario::visual_tracer_performance_paddock,
+                                std::nullopt,
+                                definition,
+                                visual_tracer->reference_tick,
+                                std::nullopt,
+                                visual_tracer,
+                                VisualTracerCamera::representative};
+    WindowRunConfiguration configuration =
+        bounded_configuration("visual_tracer_performance_result", true);
+    configuration.width = viewport_width;
+    configuration.height = viewport_height;
+    configuration.require_depth_buffer = true;
+    configuration.performance_warmup_frames = 120;
+    configuration.performance_sample_frames = 600;
+    configuration.performance_scenario = visual_tracer->id;
+    configuration.performance_budget = visual_tracer->performance_budget;
+    std::cout << "visual_tracer_viewport_width=" << viewport_width << '\n'
+              << "visual_tracer_viewport_height=" << viewport_height << '\n'
+              << "visual_tracer_refresh_hz=" << refresh_hz << '\n';
+    return run_window(configuration, runner);
+}
+
 int run_influence_debug_render_scenario(
     std::string_view gameplay_scenario, std::uint64_t capture_tick,
     const std::optional<std::filesystem::path>& capture_path,
@@ -974,7 +1151,7 @@ int run_influence_debug_dump_scenario(std::string_view gameplay_scenario,
     // defect QA-002 recorded.
     const auto simulation = std::make_unique<game::GameplaySimulation>(*definition);
     for (std::uint64_t tick = 0; tick < capture_tick; ++tick) {
-        simulation->fixed_update(influence_debug_input_for_tick(tick));
+        simulation->fixed_update(visual_tracer_input_for_tick(tick));
     }
     const auto frame = std::make_unique<render::InfluenceDebugFrame>(
         render::build_influence_debug_frame(simulation->current_snapshot(), *definition));

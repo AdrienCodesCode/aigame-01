@@ -235,26 +235,30 @@ struct AxisSpan {
     return {.near_fraction = near_fraction, .far_fraction = far_fraction, .intersects = true};
 }
 
-// Which way along one obstacle face the nearer free edge lies, and how far away
-// it is. A body exactly between the two edges has no nearer one, so the sign is
-// zero rather than an invented side. A body already past an edge has no distance
-// left to cover, so its clearance is zero rather than negative.
+// Which way along one obstacle face the nearer *reachable* free edge lies, and
+// how far away it is. Passing an expanded edge requires legal centre space on
+// its far side; an edge coincident with the paddock's cylinder limit is not a
+// route around the shape. A body already past an edge has no distance left to
+// cover, so its clearance is zero rather than negative.
 struct LateralEscape {
     double sign = 0.0;
     double clearance = 0.0;
 };
 
-[[nodiscard]] LateralEscape nearer_free_edge(double position, double minimum,
-                                             double maximum) noexcept {
+[[nodiscard]] LateralEscape nearer_reachable_free_edge(double position, double minimum,
+                                                       double maximum, double reachable_minimum,
+                                                       double reachable_maximum) noexcept {
     const double to_minimum = position - minimum;
     const double to_maximum = maximum - position;
-    if (to_minimum < to_maximum) {
+    const bool minimum_reachable = minimum > reachable_minimum;
+    const bool maximum_reachable = maximum < reachable_maximum;
+    if (minimum_reachable && (!maximum_reachable || to_minimum < to_maximum)) {
         return {.sign = -1.0, .clearance = std::max(to_minimum, 0.0)};
     }
-    if (to_maximum < to_minimum) {
+    if (maximum_reachable && (!minimum_reachable || to_maximum < to_minimum)) {
         return {.sign = 1.0, .clearance = std::max(to_maximum, 0.0)};
     }
-    return {.sign = 0.0, .clearance = std::max(to_minimum, 0.0)};
+    return {};
 }
 
 [[nodiscard]] bool segment_touches(const AnalyticObstacle& obstacle, double from_x, double from_z,
@@ -285,6 +289,54 @@ double PaddockCollisionField::ground_height(double x, double z) const noexcept {
         return -std::numeric_limits<double>::infinity();
     }
     return kGroundHeight;
+}
+
+GroundBoundaryApproach
+PaddockCollisionField::approaching_ground_boundary(Vec3 start, Vec3 direction,
+                                                   double distance) const noexcept {
+    GroundBoundaryApproach result;
+    const double direction_length = std::hypot(direction.x, direction.z);
+    if (!std::isfinite(start.x) || !std::isfinite(start.z) || !std::isfinite(direction_length) ||
+        direction_length <= 0.0 || !std::isfinite(distance) || distance <= 0.0 ||
+        !std::isfinite(ground_height(start.x, start.z))) {
+        return result;
+    }
+
+    const double unit_x = direction.x / direction_length;
+    const double unit_z = direction.z / direction_length;
+    double contact_distance = std::numeric_limits<double>::infinity();
+    Vec3 face_normal{};
+    // X wins an exact corner tie, matching the field's collision ordering.
+    if (unit_x < 0.0) {
+        contact_distance = (start.x - kMinimumX) / -unit_x;
+        face_normal = {.x = 1.0};
+    } else if (unit_x > 0.0) {
+        contact_distance = (kMaximumX - start.x) / unit_x;
+        face_normal = {.x = -1.0};
+    }
+    if (unit_z < 0.0) {
+        const double z_distance = (start.z - kMinimumZ) / -unit_z;
+        if (z_distance < contact_distance) {
+            contact_distance = z_distance;
+            face_normal = {.z = 1.0};
+        }
+    } else if (unit_z > 0.0) {
+        const double z_distance = (kMaximumZ - start.z) / unit_z;
+        if (z_distance < contact_distance) {
+            contact_distance = z_distance;
+            face_normal = {.z = -1.0};
+        }
+    }
+
+    // Reaching the inclusive boundary exactly is still grounded. The response
+    // begins only when this path would cross it inside the requested distance,
+    // preserving the point-query semantics of `ground_height`.
+    if (contact_distance < distance) {
+        result.boundary_ahead = true;
+        result.contact_distance = contact_distance == 0.0 ? 0.0 : contact_distance;
+        result.face_normal = face_normal;
+    }
+    return result;
 }
 
 CylinderMoveResult PaddockCollisionField::resolve_cylinder_move(Vec3 start, Vec3 displacement,
@@ -423,12 +475,14 @@ ObstacleApproach PaddockCollisionField::approaching_obstacle(Vec3 start, Vec3 di
         // direction component leaves that axis at negative infinity, so it can
         // never be the entered face.
         if (span_x.near_fraction >= span_z.near_fraction) {
-            const LateralEscape escape = nearer_free_edge(start.z, minimum_z, maximum_z);
+            const LateralEscape escape = nearer_reachable_free_edge(
+                start.z, minimum_z, maximum_z, kMinimumZ + radius, kMaximumZ - radius);
             result.face_normal = {.x = unit_x > 0.0 ? -1.0 : 1.0};
             result.lateral_escape = {.z = escape.sign};
             result.lateral_clearance = escape.clearance;
         } else {
-            const LateralEscape escape = nearer_free_edge(start.x, minimum_x, maximum_x);
+            const LateralEscape escape = nearer_reachable_free_edge(
+                start.x, minimum_x, maximum_x, kMinimumX + radius, kMaximumX - radius);
             result.face_normal = {.z = unit_z > 0.0 ? -1.0 : 1.0};
             result.lateral_escape = {.x = escape.sign};
             result.lateral_clearance = escape.clearance;
