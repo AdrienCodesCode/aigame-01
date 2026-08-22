@@ -4,16 +4,11 @@
      in open/ and closed/ are the source of truth. Regenerate with the
      qa-index target, or `cmake -DMODE=index -P tools/qa/qa-tracker.cmake`. -->
 
-**4 open** · 8 closed · convention in [README.md](README.md)
+**2 open** · 10 closed · convention in [README.md](README.md)
 
 > No tracer-gate blockers open.
 
 ## Open
-
-### S2 — major
-
-- [ ] [QA-011](open/QA-011-influence-applied-lane-is-unreadable-against-dark-geometry.md) The influence debug view's `applied` lane is near-black, so the one arrow that carries the result disappears against the paddock wall's shadow, the gate, and the sheep's own legs — _render · confirmed_
-- [ ] [QA-012](open/QA-012-influence-debug-view-is-unjudgeable-at-its-fixed-review-camera.md) The influence debug view ships with one camera, and it is the visual tracer's distant holdout pose, so the overlay is 0.055% of the frame and cannot be read at the framing it captures — _platform · confirmed_
 
 ### S3 — minor
 
@@ -24,8 +19,8 @@
 
 | Area | Open | Closed |
 | --- | --- | --- |
-| platform | 2 | 0 |
-| render | 1 | 0 |
+| platform | 1 | 1 |
+| render | 0 | 1 |
 | game | 0 | 3 |
 | tests | 0 | 1 |
 | build | 1 | 1 |
@@ -34,6 +29,8 @@
 
 ## Closed
 
+- [x] [QA-012](closed/QA-012-influence-debug-view-is-unjudgeable-at-its-fixed-review-camera.md) The influence debug view ships with one camera, and it is the visual tracer's distant holdout pose, so the overlay is 0.055% of the frame and cannot be read at the framing it captures — _fixed 2026-08-22_
+- [x] [QA-011](closed/QA-011-influence-applied-lane-is-unreadable-against-dark-geometry.md) The influence debug view's `applied` lane is near-black, so the one arrow that carries the result disappears against the paddock wall's shadow, the gate, and the sheep's own legs — _fixed 2026-08-22_
 - [x] [QA-009](closed/QA-009-windows-evidence-runners-abort-on-benign-opengl-notification-stderr.md) Every native Windows evidence runner aborts on a benign OpenGL notification message, because Windows PowerShell 5.1 turns any engine stderr into a terminating error — _fixed 2026-08-22_
 - [x] [QA-007](closed/QA-007-root-readme-still-says-implemented-sheep-rules-are-unimplemented.md) Root README still says implemented avoidance and behavior-transition rules are unimplemented — _fixed 2026-08-22_
 - [x] [QA-006](closed/QA-006-source-readme-still-denies-qa-001-depenetration.md) Source ownership guide still says an obstacle-overlapping sheep is not pushed out after QA-001 added depenetration — _fixed 2026-08-22_

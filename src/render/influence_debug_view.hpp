@@ -66,6 +66,7 @@ enum class DebugSegmentRole : std::uint8_t {
     lane_tick,        // one per channel, countable from the bottom
     influence_shaft,  // the arrow body; length encodes magnitude (see below)
     influence_head,   // one of the two barbs at the arrow tip
+    applied_casing,   // the bright half of the two-tone `applied` stroke
     attraction_link,  // subject -> a published chosen attraction neighbour
     alignment_link,   // subject -> the published chosen alignment neighbour
     arousal_scale,    // a scenario-owned arousal threshold, or full scale
@@ -137,6 +138,20 @@ inline constexpr double kInfluenceArrowHeadAngleRadians = 0.42;
 inline constexpr double kInfluenceArrowHeadFraction = 0.28;
 inline constexpr double kInfluenceArrowHeadMaximumLength = 0.32;
 inline constexpr double kInfluenceAppliedShaftOffset = 0.05;
+
+// `applied` is drawn as a two-tone stroke: a near-black core that keeps the
+// lane's identity and the color the framebuffer oracle counts, plus a bright
+// casing drawn just inside it. Whichever background the arrow crosses, one of
+// the two halves separates from it — which a single value on an already
+// oversubscribed grey ramp cannot do. This constant is how far the casing
+// arrow's tip is inset behind the core arrow's tip, so the two heads read as
+// nested chevrons instead of z-fighting along one line. It is capped at a
+// quarter of the drawn length in `append_arrow`, so a very short arrow still
+// gets a forward-pointing casing rather than a reversed one. The casing's
+// lateral position is the middle of the doubled core shaft, so the stroke does
+// not get wider, and the same `kInfluenceAppliedShaftOffset` separates the
+// applied lane tick from its own casing.
+inline constexpr double kInfluenceAppliedCasingInset = 0.10;
 inline constexpr double kAttractionLinkHeight = 0.12;
 inline constexpr double kAlignmentLinkHeight = 0.30;
 inline constexpr double kArousalBarOffsetX = 0.85;
@@ -167,8 +182,10 @@ inline constexpr double kInfluenceDebugConnectivityDistance = 5.0;
 inline constexpr std::size_t kMaximumInfluenceDebugSegmentsPerSheep =
     1                                  // mast
     + kInfluenceChannelCount           // one lane tick per channel
+    + 1                                // the applied lane tick's bright casing
     + (kInfluenceChannelCount - 1) * 3 // seven term arrows: shaft plus two barbs
     + 4                                // the applied arrow: doubled shaft plus two barbs
+    + 3                                // the applied casing: shaft plus two barbs
     + game::kMaximumSelectedAttractionNeighbors + game::kMaximumSelectedAlignmentNeighbors +
     5    // four arousal thresholds plus full scale
     + 1  // the arousal bar

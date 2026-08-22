@@ -65,6 +65,8 @@ using wide_eye::render::DebugSegment;
 using wide_eye::render::DebugSegmentRole;
 using wide_eye::render::InfluenceChannel;
 using wide_eye::render::InfluenceDebugFrame;
+using wide_eye::render::influence_channel_color;
+using wide_eye::render::influence_channel_index;
 using wide_eye::render::kInfluenceChannelCount;
 
 constexpr std::array<std::string_view, 30> kScenarioNames{{
@@ -215,11 +217,23 @@ int main() {
     bool every_frame_within_capacity = true;
     bool every_lane_has_exactly_one_tick = true;
     bool every_arrow_matches_published_vector = true;
+    bool every_applied_stroke_carries_a_bright_casing = true;
+    bool the_applied_lane_color_is_still_near_black = true;
     bool every_link_matches_published_id = true;
     bool every_arousal_bar_matches_published_arousal = true;
     bool every_behavior_rung_count_matches_label = true;
     bool every_target_matches_published_motion_heading = true;
     bool every_balance_point_matches_published_observables = true;
+
+    // The casing is only half of a pair, and the pair only works because the
+    // other half is at the dark end of the ramp. Quietly brightening the core
+    // instead would leave both strokes light and lose the grass case.
+    {
+        const std::array<float, 3> applied_color =
+            influence_channel_color(InfluenceChannel::applied);
+        the_applied_lane_color_is_still_near_black =
+            applied_color[0] <= 0.10F && applied_color[1] <= 0.10F && applied_color[2] <= 0.10F;
+    }
 
     for (const std::string_view name : kScenarioNames) {
         const auto scenario = wide_eye::game::find_gameplay_scenario(name);
@@ -315,6 +329,47 @@ int main() {
                     }
                     every_arrow_matches_published_vector =
                         every_arrow_matches_published_vector && lane_matches;
+                }
+
+                // The `applied` casing. `applied` is the only steering lane
+                // drawn without a hue, so luminance is its only separation
+                // channel, and near-black alone loses it against the paddock
+                // wall, the gate, the sheep's own legs, and the mast it hangs
+                // off. Every near-black `applied` stroke therefore carries a
+                // bright second stroke. Nothing else in the suite would notice
+                // if that came back out: the framebuffer oracle passes on lane
+                // pixel counts and the sweep digest is printed rather than
+                // compared. This is the assertion that would.
+                {
+                    const ChannelSource& applied =
+                        sources[influence_channel_index(InfluenceChannel::applied)];
+                    const double applied_magnitude =
+                        std::hypot(applied.acceleration.x, applied.acceleration.z);
+                    const bool applied_arrow_drawn =
+                        applied_magnitude * wide_eye::render::kInfluenceArrowScaleSecondsSquared >=
+                        wide_eye::render::kInfluenceArrowMinimumLength;
+                    // One for the lane tick when the bound published a result,
+                    // plus a shaft and two barbs when an arrow was drawn.
+                    const std::size_t expected_casings =
+                        (applied.evaluated ? 1U : 0U) + (applied_arrow_drawn ? 3U : 0U);
+                    std::size_t casing_count = 0;
+                    bool every_casing_is_bright = true;
+                    for (std::size_t s = 0; s < frame.segment_count; ++s) {
+                        const DebugSegment& segment = frame.segments[s];
+                        if (segment.subject_id != sheep.id ||
+                            segment.role != DebugSegmentRole::applied_casing) {
+                            continue;
+                        }
+                        ++casing_count;
+                        every_casing_is_bright =
+                            every_casing_is_bright &&
+                            segment.channel == InfluenceChannel::applied &&
+                            segment.color[0] >= 0.70F && segment.color[1] >= 0.70F &&
+                            segment.color[2] >= 0.70F;
+                    }
+                    every_applied_stroke_carries_a_bright_casing =
+                        every_applied_stroke_carries_a_bright_casing &&
+                        casing_count == expected_casings && every_casing_is_bright;
                 }
 
                 // Chosen neighbours: each drawn link names a published ID and
@@ -441,6 +496,10 @@ int main() {
                "worst_frame_within_declared_capacity") ||
         !check(every_lane_has_exactly_one_tick, "every_lane_has_exactly_one_tick") ||
         !check(every_arrow_matches_published_vector, "every_arrow_matches_published_vector") ||
+        !check(every_applied_stroke_carries_a_bright_casing,
+               "every_applied_stroke_carries_a_bright_casing") ||
+        !check(the_applied_lane_color_is_still_near_black,
+               "the_applied_lane_color_is_still_near_black") ||
         !check(every_link_matches_published_id, "every_link_matches_published_neighbor_id") ||
         !check(total_unresolved_neighbors == 0, "every_published_neighbor_id_resolves") ||
         !check(every_arousal_bar_matches_published_arousal,

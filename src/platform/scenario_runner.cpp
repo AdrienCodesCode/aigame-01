@@ -131,10 +131,31 @@ enum class RenderScenario {
 // Fixed review camera for the influence debug view. It is deliberately *not*
 // the gameplay follow camera and deliberately not derived from the tick: two
 // captures of different ticks have to be comparable, which they are not when the
-// eye moves with the dog. The pose is an elevated three-quarter view chosen to
-// hold the whole 32x32 paddock floor in a 16:9 frame.
-constexpr render::CameraPose kInfluenceReviewCamera{.eye = {38.0F, 24.0F, 42.0F},
-                                                    .target = {16.0F, 1.5F, 21.0F}};
+// eye moves with the dog. That much is unchanged.
+//
+// What changed is the framing, and why is worth recording. The previous pose,
+// `{38, 24, 42} -> {16, 1.5, 21}`, held the whole 32x32 paddock floor in a 16:9
+// frame — but the floor is seen as a rotated diamond, so fitting it fits its
+// diagonal: 79.5% of the captured frame was clear color, and the overlay, which
+// is the entire subject of the capture, landed inside a box under 1% of the
+// image and could only be read after cropping and magnifying it. That pose was
+// also byte-identical to `kVisualFeasibilityFiveSheep.holdout_camera`, which the
+// visual tracer keeps deliberately distant and explicitly does not tune; this
+// view had inherited it by copying rather than by choosing it. See
+// docs/qa/closed/QA-012-*.md.
+//
+// The pose below is the same elevated three-quarter direction — 36.6 degrees
+// above the horizon, so a ground-plane arrow and the barb rotated about world up
+// still read as an arrow, and the lane masts still stand up rather than
+// collapsing into each other as they would from overhead — moved in to 14.1
+// units. It was chosen by projecting every segment of the retained tick 30, 60,
+// and 120 frame dumps through this projection and requiring all of them inside
+// the frame with margin, together with the gate, the wall to either side of it,
+// and every sheep fixture position any named scenario starts from except the
+// one at x=28, z=26. It is not the tracer's holdout and must not be re-synced to
+// it: the holdout's distance is that view's whole point.
+constexpr render::CameraPose kInfluenceReviewCamera{.eye = {25.0F, 11.0F, 28.0F},
+                                                    .target = {16.8F, 2.6F, 20.2F}};
 
 // The frame's own record, in the same key=value idiom the smokes already use.
 // It exists so that a capture is attributable: every drawn segment is listed

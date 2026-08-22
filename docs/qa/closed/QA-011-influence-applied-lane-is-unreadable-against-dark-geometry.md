@@ -1,7 +1,7 @@
 ---
 id: QA-011
 title: The influence debug view's `applied` lane is near-black, so the one arrow that carries the result disappears against the paddock wall's shadow, the gate, and the sheep's own legs
-status: open
+status: fixed
 severity: S2
 confidence: confirmed
 area: render
@@ -11,6 +11,7 @@ phase: 3
 platform: windows
 rule: docs/review/HUMAN_VISUAL_REVIEW.md
 depends: QA-012
+closed: 2026-08-22
 verify:
   - wide_eye.influence_debug_view
   - wide_eye.influence_debug_frame_dump
@@ -328,3 +329,130 @@ Suites that must pass: `wide_eye.influence_debug_view` and
 oracle still recognises the overlay after the colours move — that one is the
 real risk, because the oracle identifies lanes by their colours.
 `target:qa-check` for the tracker.
+
+## Resolution
+
+Fixed on 2026-08-22 (uncommitted at the time of writing, so no `fix:` sha is
+recorded yet), after [QA-012](QA-012-influence-debug-view-is-unjudgeable-at-its-fixed-review-camera.md)
+landed, so the colour was judged once against the framing that will actually
+ship.
+
+**What changed.** The `applied` lane colour is untouched at `0.04, 0.04, 0.06`.
+Instead, every `applied` stroke is now drawn twice: the near-black core keeps the
+lane's identity and the colour `count_influence_debug_channel_pixels` counts, and
+a new `kAppliedCasingColor{0.82F, 0.82F, 0.84F}` is drawn just inside it.
+Whatever the background, one of the two halves separates from it. Concretely, in
+[`influence_debug_view.cpp`](../../../src/render/influence_debug_view.cpp):
+
+- the doubled core shaft at lateral `+/-kInfluenceAppliedShaftOffset` is
+  unchanged, and a casing shaft is drawn down the middle at lateral `0`, so the
+  stroke does not get wider;
+- the two core barbs are unchanged, and two casing barbs are drawn from a tip
+  inset behind the core tip by `kInfluenceAppliedCasingInset = 0.10` (capped at a
+  quarter of the drawn length so a short arrow keeps a forward-pointing casing),
+  so the two arrowheads read as nested chevrons rather than z-fighting;
+- the `applied` lane tick gets a casing offset *across* the tick, not along the
+  mast, so the number of countable tick rows is unchanged.
+
+**Every constraint in the fix notes was checked, not assumed.**
+
+1. *Do not simply lighten the grey* — the lane colour did not move. The casing is
+   a separate role at `0.82`, which sits in the widest free gap on the ramp:
+   0.22 above the push axis at `0.60` and 0.16 below the two `0.98` markers. All
+   eight achromatic entries were re-checked; nothing lands within the oracle's
+   6/255 tolerance of another. The `0.82`-versus-`0.98` proximity is called out
+   in the review packet for the owner rather than asserted as fine.
+2. *Do not give `applied` a saturated hue* — the casing is achromatic.
+3. *Keep the lane index countable off the mast* — the casing tick is offset in
+   `z`, perpendicular to the tick, so the count of tick rows is unchanged and no
+   ninth row appears. At the new framing the ticks are ~12 px with ~17 px between
+   rows, against 4.5 px and ~6.3 px before.
+4. *Verify against a dark background and grass* — both tick 120 and tick 30 were
+   re-captured and measured; see the table below.
+5. *No test will catch a mistake here* — that gap is now closed. See below.
+
+**The test gap is closed.**
+[`influence_debug_view_tests.cpp`](../../../tests/influence_debug_view_tests.cpp)
+gained two assertions over all 30 named scenarios x 240 ticks x 5 sheep:
+`every_applied_stroke_carries_a_bright_casing` (the casing segment count matches
+what the published evidence says should be drawn — one for the lane tick when the
+bound was evaluated, plus a shaft and two barbs when an arrow was drawn — and
+every casing segment is on the `applied` channel with all components at or above
+0.70) and `the_applied_lane_color_is_still_near_black` (all components at or
+below 0.10, so the pair cannot be quietly collapsed into two light strokes). Both
+were confirmed live by a negative probe: darkening `kAppliedCasingColor` to the
+core value makes the suite exit 1 with
+`influence_debug_failure=every_applied_stroke_carries_a_bright_casing`.
+
+**Segment ceiling raised explicitly.**
+`kMaximumInfluenceDebugSegmentsPerSheep` gained `+1 // the applied lane tick's
+bright casing` and `+3 // the applied casing: shaft plus two barbs`, taking
+`kMaximumInfluenceDebugSegments` from `271` to `291`. Worst observed across the
+whole sweep is now `266` of `291`, against `246` of `271` before — exactly +20,
+which is four casing segments times five sheep. The per-line accounting in the
+header is honest.
+
+**Measured before/after.** Same method as the investigation above, on the same
+reference desktop, decoding both packets' PNGs. `core vs scene` is exactly the
+investigation's metric and is directly comparable. `composite` takes, at each
+applied-core pixel, the better of the core's and the casing's contrast against
+that same local scene background, which is what a reader actually has available
+there now that both strokes are present; before the fix there was no casing, so
+the before-composite *is* the core column.
+
+| tick | background | metric | before median | after median | before worst | after worst |
+| --- | --- | --- | --- | --- | --- | --- |
+| 30 | open grass | core vs scene | 3.40:1 | 3.38:1 | 1.65:1 | 1.40:1 |
+| 30 | | composite | 3.40:1 | **3.84:1** | 1.65:1 | **3.75:1** |
+| 60 | mixed | core vs scene | 3.23:1 | 3.18:1 | 1.38:1 | 1.27:1 |
+| 60 | | composite | 3.23:1 | **4.08:1** | 1.38:1 | **3.84:1** |
+| 120 | wall, gate, legs | core vs scene | 2.04:1 | 2.74:1 | 1.36:1 | 1.34:1 |
+| 120 | | composite | 2.04:1 | **4.72:1** | 1.36:1 | **3.84:1** |
+
+Share of applied-stroke locations below 1.5:1 at tick 120: 28.2% before, **0%**
+after. Below 2:1: 49.8% before, **0%** after. Below 3:1: 58.1% before, **0%**
+after. The same three are 0% at ticks 30 and 60.
+
+**What did not improve, said plainly.** The near-black core taken alone is no
+better, and at ticks 30 and 60 it is marginally worse (median 3.40 to 3.38 and
+3.23 to 3.18; the share below 3:1 rose). That is expected rather than a
+regression: the core was never going to beat a dark background, the new camera
+changed which backgrounds fall behind which strokes, and the point of a casing is
+that the core no longer has to carry the channel alone. Two measurement caveats
+are recorded in the packet: 24-26% of core pixels in the new frames sit deep
+inside the stroke bundle with no scene pixel in their 5x5 window and are
+excluded, and the casing itself dips below 1.5:1 on 6.2% of its pixels at tick 30
+where it crosses bright grass — which is exactly the case the core covers.
+
+Evidence, all on the reference desktop — native Windows 11 Home `10.0.26200`,
+MSVC `19.44.35228.0`, NVIDIA GeForce RTX 5070 Ti driver `32.0.15.9186`, OpenGL
+`4.6.0 NVIDIA 591.86`, SDL 3.4.10, 1920x1080:
+
+- `ctest --preset dev` — 45/45 passed.
+- `ctest --preset release` — 47/47 passed.
+- `wide_eye.influence_debug_view`, `wide_eye.influence_debug_frame_dump`, and the
+  display-backed `wide_eye.opengl_influence_debug_overlay` all passed inside
+  those suites. The last is the real risk, because the framebuffer oracle finds
+  lanes *by* their colours; the `applied` lane count rose from 644 to 2679 at
+  tick 120, so the oracle recognises more of the overlay, not less.
+- Three fresh captures at
+  `artifacts/phase3/2026-08-22/debug-influence-views-native-v2/`, ticks 30, 60,
+  120, each exiting `0` with `influence_debug_result=pass`,
+  `influence_debug_frame_matches=yes`, `capture_result=pass`, and
+  `gl_debug_high_severity_messages=0`, with the console output retained as
+  `run-tick-{30,60,120}.log`.
+- `cmake -DMODE=check -P tools/qa/qa-tracker.cmake`.
+- `target:format-check` and `target:clang-tidy-check` are **unavailable on this
+  host** — clang-format 18 and clang-tidy 18 are not installed, so CMake does not
+  generate the targets. No changed line exceeds the 100-column limit.
+
+**The digest correction in the investigation still stands and was not fixed
+here.** `influence_debug_sweep_digest` is still only printed, and `warm_digest`
+is still accumulated and never read, so `ROADMAP.md`'s prose claim of "a stable
+sweep digest" as evidence remains unsupported. That is a separate finding, left
+for its own issue; the two assertions added above are what actually guard this
+fix. Byte reproducibility was instead demonstrated directly: each of the three
+captures was produced twice from the same binary with identical SHA-256.
+
+The three `manual:` entries in `verify:` remain the owner's, and the candidate
+packet's verdict boxes are deliberately blank.

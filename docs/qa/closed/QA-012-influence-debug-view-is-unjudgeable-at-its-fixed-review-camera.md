@@ -1,7 +1,7 @@
 ---
 id: QA-012
 title: The influence debug view ships with one camera, and it is the visual tracer's distant holdout pose, so the overlay is 0.055% of the frame and cannot be read at the framing it captures
-status: open
+status: fixed
 severity: S2
 confidence: confirmed
 area: platform
@@ -11,6 +11,7 @@ phase: 3
 platform: windows
 rule: docs/review/HUMAN_VISUAL_REVIEW.md
 blocks: QA-011
+closed: 2026-08-22
 verify:
   - wide_eye.opengl_influence_debug_overlay
   - wide_eye.influence_debug_view
@@ -276,3 +277,83 @@ readability verdict; fixing either alone will not produce it. Land this one
 first — QA-011's fix has to be judged against whatever framing this issue
 settles on, and doing it in the other order means capturing and judging the
 colours twice.
+
+## Resolution
+
+Fixed on 2026-08-22 (uncommitted at the time of writing, so no `fix:` sha is
+recorded yet). `kInfluenceReviewCamera` in
+[`scenario_runner.cpp`](../../../src/platform/scenario_runner.cpp) moved from
+eye `38, 24, 42` / target `16, 1.5, 21` to eye `25, 11, 28` / target
+`16.8, 2.6, 20.2`. The pose is still a single fixed, tick-independent, elevated
+three-quarter view — 36.6 degrees of elevation against the previous 36.5, so a
+ground-plane arrow and its barb still read as an arrow and the lane masts still
+stand up — but the distance falls from 37.8 to 14.1 world units. The comment
+above the constant now records why the old framing failed, that the old pose was
+byte-identical to the visual tracer's `holdout_camera`, and that it must not be
+re-synced to it.
+
+**How the pose was chosen, rather than guessed.** Every `segment` line of the
+three retained v1 frame dumps (1,406 endpoints across ticks 30, 60, and 120) was
+projected through the engine's own look-at and `focal_length = 1.7320508`
+projection at 1920x1080, and the pose was required to keep all of them inside
+the frame with margin, together with the gate, the wall to either side of it,
+and every sheep fixture position any named scenario starts from. All of that
+holds except one fixture at `x=28, z=26`, which is now out of frame and is
+recorded as a known limitation in the packet. The visual tracer's
+`holdout_camera` was **not** touched.
+
+**Constraint 4 honoured: the frame oracle was not loosened.**
+`is_expected_influence_debug_frame` still requires 3 lanes, 8 pixels per lane,
+64 pixels total, and fewer than half the frame. The reframing raises every
+count: the smallest lane went from 16 px to 46 px at tick 30 and the overlay
+total from 1,113 px to 4,010 px.
+
+Measured before/after on the reference desktop — native Windows 11 Home
+`10.0.26200`, MSVC `19.44.35228.0` Release, NVIDIA GeForce RTX 5070 Ti driver
+`32.0.15.9186`, OpenGL `4.6.0 NVIDIA 591.86`, SDL 3.4.10, 1920x1080 — by
+decoding both packets' PNGs with the same `System.Drawing` method the issue used:
+
+| Metric | Tick | Before | After |
+| --- | --- | --- | --- |
+| Drawn overlay pixels (lane colours) | 30 / 60 / 120 | 1113 / 1029 / 1143 | 4010 / 3505 / 4043 |
+| Share of the 2,073,600-pixel frame | 30 / 60 / 120 | 0.054% / 0.050% / 0.055% | 0.193% / 0.169% / 0.195% |
+| Overlay bounding box | 30 | 120 x 151 (0.87%) | 313 x 426 (6.43%) |
+| | 60 | 138 x 145 (0.96%) | 343 x 398 (6.58%) |
+| | 120 | 143 x 133 (0.92%) | 363 x 333 (5.83%) |
+| Frame that is empty sky | all | 1,649,260 px (79.5%) | 489,714 px (23.6%) |
+
+Feature sizes, which are what "readable at 1:1" actually reduces to (median
+projected length in pixels): the mast that carries the eight countable lane
+ticks went from 50 px to 132-144 px, the gap between two lane ticks from ~6.3 px
+to ~17-18 px, one lane tick from 4.5 px to ~12 px, and the `applied` shaft from
+36 / 20 / 34 px to 110 / 53 / 88 px at ticks 30 / 60 / 120.
+
+Cost of the change, recorded rather than hidden: the near/far depth ratio within
+one frame rose from 1.18-1.19 to 1.51-1.61, so the near sheep is drawn visibly
+larger than the far one. The pose is still fixed, so tick-to-tick comparability —
+the property the old pose got right — is preserved.
+
+Evidence, all on the reference desktop above:
+
+- `ctest --preset dev` — 45/45 passed.
+- `ctest --preset release` — 47/47 passed.
+- `wide_eye.opengl_influence_debug_overlay` (the display-backed test this change
+  could break), `wide_eye.influence_debug_view`, and
+  `wide_eye.influence_debug_frame_dump` all passed inside those two suites.
+- Three fresh captures, ticks 30, 60, and 120, at
+  `artifacts/phase3/2026-08-22/debug-influence-views-native-v2/`, each exiting
+  `0` with `influence_debug_result=pass`, `influence_debug_frame_matches=yes`,
+  `capture_result=pass`, and `gl_debug_high_severity_messages=0`. The console
+  output is retained this time as `run-tick-{30,60,120}.log`; v1's was not. Each
+  capture was produced twice and is byte-identical across the two runs.
+- `cmake -DMODE=check -P tools/qa/qa-tracker.cmake`.
+- `target:format-check` and `target:clang-tidy-check` are **unavailable on this
+  host** — clang-format 18 and clang-tidy 18 are not installed, so CMake does not
+  generate the targets. No changed line exceeds the 100-column limit.
+
+The three `manual:` entries in `verify:` remain the owner's. The candidate packet
+is `artifacts/phase3/2026-08-22/debug-influence-views-native-v2/review.md`, whose
+verdict boxes are deliberately blank; the v1 packet is retained as the before
+evidence. The roadmap item "Add debug arrows/labels for every influence, chosen
+neighbor, arousal, target, state, and balance point" stays unticked until that
+verdict exists.

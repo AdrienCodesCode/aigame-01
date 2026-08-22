@@ -10,9 +10,28 @@ namespace {
 // One color per lane. Hue alone is never the only channel — the lane index is
 // countable off the mast — but the palette still avoids putting the two terms a
 // reviewer most often compares, attraction and separation, on the red/green axis
-// that the common forms of color blindness confuse. `applied` is deliberately
-// near-black: it is the only line that has to read as a *result* against both
-// the grass and the sky.
+// that the common forms of color blindness confuse. `applied` stays near-black
+// so the result cannot read as an eighth cause: it is the only steering line
+// with no hue at all.
+//
+// Near-black on its own was not enough, and the reason is recorded here because
+// it was measured rather than argued. The value was chosen against a
+// two-background model — grass and sky. Decoding the native captures of
+// `sheep-all-influences-diagnostic` on 2026-08-22 found no sky pixel behind any
+// arrow at the review camera, while the backgrounds that do occur sit within
+// about one stop of it: the paddock wall, the wall's shadow, the red gate, the
+// sheep proxies' 0.12-albedo legs, and the 0.14 mast the arrow hangs off. The
+// median local contrast of the `applied` lane fell to 2.04:1 at tick 120 and is
+// 1.27:1 against the mast. Because `applied` has no hue, luminance was its only
+// separation channel, and a dark background took it away. See
+// docs/qa/closed/QA-011-*.md.
+//
+// The fix is a casing rather than a new palette slot, because the grey ramp has
+// no free slot: 0.14 mast, 0.42 previous heading, 0.46 not-evaluated, 0.58
+// arousal scale, 0.60 push axis, and 0.98 twice, for the current heading and the
+// centroid. Every `applied` stroke is therefore drawn twice — the near-black
+// core below keeps the lane's identity and the color the framebuffer oracle
+// counts, and `kAppliedCasingColor` is drawn just inside it.
 constexpr std::array<std::array<float, 3>, kInfluenceChannelCount> kChannelColors{{
     {{1.00F, 0.45F, 0.12F}}, // separation: orange
     {{0.24F, 0.86F, 0.38F}}, // attraction: green
@@ -32,6 +51,14 @@ constexpr std::array<std::array<float, 3>, 4> kBehaviorColors{{
     {{0.96F, 0.34F, 0.18F}}, // driven
     {{0.36F, 0.60F, 0.96F}}, // recovering
 }};
+
+// The bright half of the two-tone `applied` stroke. It is achromatic, so it
+// cannot be taken for one of the seven cause hues, and it sits in the widest
+// free gap on the grey ramp — 0.22 above the push axis at 0.60 and 0.16 below
+// the two 0.98 markers — so it does not collide with an existing marker either.
+// Against the near-black core it is 13.0:1, which is what lets the pair survive
+// any background one half alone would lose to.
+constexpr std::array<float, 3> kAppliedCasingColor{0.82F, 0.82F, 0.84F};
 
 constexpr std::array<float, 3> kMastColor{0.14F, 0.14F, 0.17F};
 // A lane whose term did not run this tick. Distinct from every channel color and
@@ -133,6 +160,28 @@ bool append_arrow(InfluenceDebugFrame& frame, InfluenceChannel channel, std::uin
                offset(tip, std::cos(angle) * head_length, 0.0, std::sin(angle) * head_length),
                color);
     }
+
+    if (doubled_shaft) {
+        // The casing: a second, slightly shorter arrow drawn down the middle of
+        // the doubled core shaft, in the one bright value the palette had left.
+        // The core above still carries the lane color, the arrow's length still
+        // means what the stated scale says it means, and neither the drawn
+        // length nor `arrow_count` moves — the casing is a second stroke of the
+        // same arrow, not another arrow.
+        const double casing_inset = std::min(kInfluenceAppliedCasingInset, length * 0.25);
+        const double casing_length = length - casing_inset;
+        const game::Vec3 casing_tip = offset(origin, direction_x * casing_length, 0.0,
+                                             direction_z * casing_length);
+        append(frame, DebugSegmentRole::applied_casing, channel, subject_id, 0, origin, casing_tip,
+               kAppliedCasingColor);
+        for (const double sign : {1.0, -1.0}) {
+            const double angle = back_angle + sign * kInfluenceArrowHeadAngleRadians;
+            append(frame, DebugSegmentRole::applied_casing, channel, subject_id, 0, casing_tip,
+                   offset(casing_tip, std::cos(angle) * head_length, 0.0,
+                          std::sin(angle) * head_length),
+                   kAppliedCasingColor);
+        }
+    }
     ++frame.arrow_count;
     return true;
 }
@@ -207,6 +256,17 @@ void append_sheep_segments(InfluenceDebugFrame& frame, const game::GameplaySnaps
         append(frame, DebugSegmentRole::lane_tick, channel, id, 0, lane_origin,
                offset(lane_origin, kInfluenceLaneTickLength, 0.0, 0.0),
                evaluated[lane] ? kChannelColors[lane] : kNotEvaluatedColor);
+        if (channel == InfluenceChannel::applied && evaluated[lane]) {
+            // The result lane's tick is near-black too, and it is the top rung
+            // of the countable legend, so it gets the same casing as the arrow.
+            // The offset is across the tick rather than along the mast: the
+            // number of tick *rows* is the color-independent half of the legend
+            // and must not gain a row.
+            const game::Vec3 casing_origin =
+                offset(lane_origin, 0.0, 0.0, kInfluenceAppliedShaftOffset);
+            append(frame, DebugSegmentRole::applied_casing, channel, id, 0, casing_origin,
+                   offset(casing_origin, kInfluenceLaneTickLength, 0.0, 0.0), kAppliedCasingColor);
+        }
         static_cast<void>(append_arrow(frame, channel, id, lane_origin, accelerations[lane],
                                        channel == InfluenceChannel::applied));
     }
@@ -419,6 +479,8 @@ std::string_view debug_segment_role_name(DebugSegmentRole role) noexcept {
         return "influence_shaft";
     case DebugSegmentRole::influence_head:
         return "influence_head";
+    case DebugSegmentRole::applied_casing:
+        return "applied_casing";
     case DebugSegmentRole::attraction_link:
         return "attraction_link";
     case DebugSegmentRole::alignment_link:

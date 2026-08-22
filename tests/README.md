@@ -153,8 +153,11 @@ shape;
 influence debug-view coverage that builds every debug primitive from published
 evidence across 30 scenarios and 240 ticks each, checking arrow geometry and the
 stated scale against the published vectors, chosen-neighbor link endpoints against
-the published IDs, bounded segment capacity, zero allocations, and a stable sweep
-digest, plus a frame-dump oracle that pins the text serialization of one frame;
+the published IDs, bounded segment capacity, zero allocations, and that every
+near-black `applied` stroke carries its bright casing while the `applied` lane
+color itself stays near-black, plus a frame-dump oracle that pins the text
+serialization of one frame; the sweep digest is printed for a reader and is not
+compared to anything, so it is not a regression signal;
 neither can produce a capture on a host without an OpenGL 4.6 Core context;
 the bounded Phase 0 visual-tracer configuration, including exact scene/profile/
 budget inputs, camera-name rejection, the extracted dog-route boundaries,

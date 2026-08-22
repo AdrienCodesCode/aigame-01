@@ -638,19 +638,60 @@
   24/24 CTests after these changes; project formatting and bounded clang-tidy
   passed. Native graphics and measurements were not rerun because no
   presentation path changed.
+- **Debug-view readability corrections (observed result, 2026-08-22):** the two
+  changes the owner required before recording a readability verdict are made and
+  their issues are closed. (a) [QA-012](docs/qa/closed/QA-012-influence-debug-view-is-unjudgeable-at-its-fixed-review-camera.md):
+  `kInfluenceReviewCamera` moved from eye `38, 24, 42` / target `16, 1.5, 21` —
+  which was byte-identical to the visual tracer's deliberately distant
+  `holdout_camera` — to eye `25, 11, 28` / target `16.8, 2.6, 20.2`. Same fixed,
+  tick-independent, elevated three-quarter direction (36.6 degrees against 36.5)
+  at 14.1 units instead of 37.8; the tracer's holdout is untouched. The pose was
+  chosen by projecting all 1,406 segment endpoints of the three retained frame
+  dumps through the engine's own projection and requiring every one of them, the
+  gate, and the flanking wall inside the frame. The frame oracle was **not**
+  loosened; the reframing raises every count it checks. (b)
+  [QA-011](docs/qa/closed/QA-011-influence-applied-lane-is-unreadable-against-dark-geometry.md):
+  the `applied` lane keeps its near-black `0.04, 0.04, 0.06`, and every `applied`
+  stroke — doubled shaft, both barbs, and the lane tick — now also carries a
+  bright casing at `0.82, 0.82, 0.84` drawn just inside the core, so one of the
+  two halves separates from any background. `kMaximumInfluenceDebugSegments` was
+  raised explicitly from `271` to `291` with the per-line accounting updated;
+  worst observed is `266`. Two new headless assertions cover the pair, and a
+  negative probe confirmed they fail when the casing is removed.
+  Method and platform: native Windows 11 Home `10.0.26200`, MSVC
+  `19.44.35228.0`, NVIDIA GeForce RTX 5070 Ti driver `32.0.15.9186`, OpenGL
+  `4.6.0 NVIDIA 591.86`, SDL 3.4.10, 1920x1080; `ctest --preset dev` 45/45 and
+  `ctest --preset release` 47/47 passed, and the same three ticks were
+  re-captured with `influence_debug_result=pass`,
+  `influence_debug_frame_matches=yes`, `capture_result=pass`, and
+  `gl_debug_high_severity_messages=0`, each capture byte-identical across two
+  runs. Measured against the retained before packet by decoding both sets of
+  PNGs: the overlay bounding box went from 0.87-0.96% of the frame to 5.8-6.6%,
+  empty sky from 79.5% to 23.6%, the mast that carries the countable lane ticks
+  from 50 px to 132-144 px, one lane tick from 4.5 px to ~12 px, and the worst
+  local contrast anywhere along an `applied` stroke from 1.36:1 at tick 120 to
+  3.84:1 — with 28.2% of that lane below 1.5:1 before and 0% after. The
+  near-black core taken alone did not improve at ticks 30 and 60 (3.40 to 3.38
+  and 3.23 to 3.18); the casing is what carries the channel on dark ground, and
+  the core is what carries it on grass. Evidence:
+  `artifacts/phase3/2026-08-22/debug-influence-views-native-v2/` (ignored tree),
+  with `review.md`, three PNGs, three frame dumps, and the three run logs.
+  `format-check` and `clang-tidy-check` are unavailable on this host — clang
+  tooling 18 is not installed, so CMake does not generate the targets.
 - **Decisions waiting on the owner (2026-08-22):** two, neither of which an agent
   should make. (1) The influence debug views still need a **readability
-  verdict**. The other half of this decision — a capture from native hardware —
-  is now done: three frames of `sheep-all-influences-diagnostic` at ticks 30,
-  60, and 120 were rendered on this reference desktop on 2026-08-22 and are in
-  the ignored tree at
-  `artifacts/phase3/2026-08-22/debug-influence-views-native/` as
-  `influence-tick-{30,60,120}.png` with the matching `.txt` frame dumps. What is
-  owed is a person opening those three PNGs beside their frame dumps and writing
-  Accept, Revise, or Reject into the blank verdict of
-  `artifacts/phase3/2026-08-22/debug-influence-views-native/review.md`. Crop to
-  the flock before judging: the overlay is about 0.05% of the frame. The roadmap
-  item stays unticked until that verdict exists. (2) The dog-pressure item stays
+  verdict**, and it is no longer waiting on someone merely opening the PNGs. The
+  owner reviewed the first native captures on 2026-08-22, accepted the lane
+  design in principle, and required two corrections first — the framing and the
+  `applied` lane's contrast, filed as QA-012 and QA-011 and both now fixed and
+  closed (see the entry above). The same three ticks were re-captured against
+  the corrected build, so what is owed is a person judging the **new** packet and
+  writing Accept, Revise, or Reject into the blank verdict of
+  `artifacts/phase3/2026-08-22/debug-influence-views-native-v2/review.md`. The
+  earlier packet at `artifacts/phase3/2026-08-22/debug-influence-views-native/`
+  is retained as the before evidence and is not the one to judge. Cropping is no
+  longer required to read it. The roadmap item stays unticked until that verdict
+  exists. (2) The dog-pressure item stays
   unticked on terrain alone; it is
   deferred to Phase 5 because the paddock has one constant ground height, and
   splitting the item instead is an owner call. No S1 issue is open: the one that
@@ -661,8 +702,14 @@
   on this host, and the baseline packet exists.
 - **Unaccepted work awaiting the owner (2026-08-22):** the influence debug views
   are implemented, deterministic, covered by two headless CTests, and — as of
-  2026-08-22 — **captured on native hardware for the first time**. What is
-  missing is now only the human half: no owner has looked at the images.
+  2026-08-22 — **captured on native hardware, reviewed once by the owner, and
+  corrected twice**. The owner has seen the first native images: they accepted
+  the lane design in principle and required the framing and the `applied` lane's
+  contrast be fixed before a verdict, which is what QA-012 and QA-011 recorded
+  and what the corrections entry above discharges. What is missing is the
+  owner's verdict on the corrected captures. The first native run is recorded
+  below and is the before evidence; the corrected run and its measurements are in
+  the corrections entry above.
   Observed result (2026-08-22, native Windows 11 Home `10.0.26200`, MSVC
   `19.44.35228.0` Release build of `wide_eye.exe`, NVIDIA GeForce RTX 5070 Ti
   driver `32.0.15.9186`, OpenGL `4.6.0 NVIDIA 591.86` core profile with a debug
@@ -2043,9 +2090,10 @@ scope. Evidence: the archived
   state. The second half of that last limit has narrowed since it was written:
   the arousal value and the behavior label *are* drawn by the influence debug
   view of the next item, and were captured on native hardware on 2026-08-22, so
-  visible output now exists. What is still true is that no owner has looked at
-  it and that the three captures are separate still frames rather than motion
-  evidence, so a *change* of state has been seen by nobody.
+  visible output now exists, and the owner has since looked at those captures.
+  What is still true is that no readability verdict has been recorded and that
+  the captures are separate still frames rather than motion evidence, so a
+  *change* of state has been seen by nobody.
   Evidence:
   [ADR 0009](docs/decisions/0009-behavior-transitions-and-arousal.md),
   [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
@@ -2074,12 +2122,23 @@ scope. Evidence: the archived
   changed. The headless oracle swept 30 scenarios × 240 ticks, building 25,480
   arrows, 4,800 attraction links, 2,400 alignment links and 1,916 heading targets
   with `0` unresolved neighbour IDs, `0` allocations, a bounded worst-case
-  segment count of `246` against a `271` capacity, and a stable sweep digest.
+  segment count of `246` against a `271` capacity, and a sweep digest.
+  **Correction (2026-08-22):** that digest was described here as "stable", which
+  the code does not support — `influence_debug_sweep_digest` is printed and never
+  compared to anything, and the accumulated `warm_digest` is never read, so no
+  assertion pins it. It is a reported number, not a regression signal, and its
+  value moved with the 2026-08-22 casing and framing corrections below. The gap
+  is a separate finding, not fixed here.
   Development and ASan/UBSan (Clang 18.1.3) and Release (GNU 13.3.0) each built
   and passed 28/28 CTests; formatting, bounded clang-tidy, the QA tracker check,
   the stack budget, and `git diff --check` passed.
   **This item stays unchecked, and the reason is the whole point of it.** Its
   acceptance is a human verdict on readability, and no owner has given one. The
+  owner has now looked once, on 2026-08-22, and asked for two corrections before
+  recording a verdict; both were made and the captures below were superseded by
+  a second packet. See the **correction (2026-08-22)** paragraph at the end of
+  this item; the observed results below are left exactly as they were measured
+  on the build that produced them. The
   earlier reason for the gap — that no capture existed anywhere, because the WSL
   development host's Mesa llvmpipe stops at OpenGL 4.5 and
   `--influence-debug-smoke` therefore failed at `context_create` exactly as the
@@ -2126,7 +2185,10 @@ scope. Evidence: the archived
   the background. Third: arrows are depth-tested against scene geometry by
   design, so at tick 120 several are occluded by the wall and the red gate.
   Fourth: there is no in-frame legend, so a reviewer cannot map colour to
-  channel without the text frame dump beside the image.
+  channel without the text frame dump beside the image. The owner independently
+  named the first two of those four on 2026-08-22; they were filed as QA-012 and
+  QA-011 and are now fixed — see the correction paragraph below. The third and
+  fourth are still open design questions, not defects.
   **Nothing about how the view looks is accepted.** Colour separation, arrow
   density at five sheep, whether the chosen scale makes ordinary accelerations
   visible, and whether the view answers "why did that sheep do that" rather than
@@ -2140,13 +2202,31 @@ scope. Evidence: the archived
   `artifacts/phase3/2026-08-22/debug-influence-views-native/review.md`, naming
   the commands, what question each capture answers, what was not run (no normal
   frame, no motion clip, no second camera or scenario, no comparator), and what
-  a reject looks like. Evidence:
+  a reject looks like.
+  **Correction (2026-08-22).** The owner reviewed that packet, accepted the lane
+  design in principle, and required the first two obstacles above be fixed before
+  recording a verdict. Both were filed, fixed, and closed the same day —
+  [QA-012](docs/qa/closed/QA-012-influence-debug-view-is-unjudgeable-at-its-fixed-review-camera.md)
+  moved `kInfluenceReviewCamera` to eye `25, 11, 28` / target `16.8, 2.6, 20.2`,
+  so it is no longer the visual tracer's `holdout_camera` and no longer needs
+  cropping to read, and
+  [QA-011](docs/qa/closed/QA-011-influence-applied-lane-is-unreadable-against-dark-geometry.md)
+  gave every `applied` stroke a bright casing beside its unchanged near-black
+  core. Three numbers quoted above therefore no longer describe the current
+  build: the camera pose, the `271` segment capacity (now `291`, worst observed
+  `266`), and the overlay pixel counts (now 4010, 3505, and 4043). The same three
+  ticks were re-captured into
+  `artifacts/phase3/2026-08-22/debug-influence-views-native-v2/`, which is the
+  packet the outstanding verdict applies to; the packet named above is retained
+  as the before evidence. Full measurements are in the current checkpoint's
+  debug-view corrections entry and in the two closed issues. Evidence:
   [`influence_debug_view.hpp`](src/render/influence_debug_view.hpp),
   [`influence_debug_view.cpp`](src/render/influence_debug_view.cpp),
   [`influence_debug_view_tests.cpp`](tests/influence_debug_view_tests.cpp),
   [`scenario_runner.cpp`](src/platform/scenario_runner.cpp), and the ignored
-  `artifacts/phase3/2026-08-22/debug-influence-views-native/` packet with three
-  PNGs, three frame dumps, and `review.md`. The earlier WSL packet at
+  `artifacts/phase3/2026-08-22/debug-influence-views-native/` and
+  `artifacts/phase3/2026-08-22/debug-influence-views-native-v2/` packets, each
+  with three PNGs, three frame dumps, and `review.md`. The earlier WSL packet at
   `artifacts/phase3/2026-08-22/debug-influence-views/` holds that host's oracle
   output, gate log, and OpenGL-unavailability record; `artifacts/` is gitignored
   and host-local, so it is not present in this native Windows checkout.
