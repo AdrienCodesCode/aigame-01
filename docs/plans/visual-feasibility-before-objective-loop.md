@@ -293,6 +293,61 @@ Stop before implementation scope expands if any outcome would require:
 No dependency installation, Vulkan SDK, model importer, texture pipeline,
 render graph, streaming system, or external asset is a prerequisite.
 
+## Execution order — owner-delegated re-sequencing, 2026-08-22
+
+**Status: accepted sequencing decision.** The owner delegated the order
+explicitly — "you can choose the sequence that you deem the most efficient" —
+against a stated target of a kilometre-scale world, roughly fifty sheep to start,
+global illumination, and the reference look, with a screenshot at every major
+step. The phases below keep their numbering, content, evidence requirements, and
+stop conditions. Only the order in which they are executed changes, plus one
+addition. Nothing here weakens a gate.
+
+| Order | Work | Phase | Why here |
+| --- | --- | --- | --- |
+| 1 | Flock capacity, five to fifty | *(engine, outside this plan)* | Every later visual judgement — density, silhouette scale, shadow caster count, GI cost — depends on the real flock size. Judging at five and then jumping to fifty re-opens all of it. |
+| 2 | Near-field voxel density **and** the bounded generated surround, decided together | Phase 1 **+ new** | See below; these are one decision, not two. |
+| 3 | Atmospheric depth | Phase 5, **moved earlier** | At kilometre scale, haze is what makes distance readable. Both primary reference images are mostly receding terrain resolved by atmosphere; without it a large vista reads as a flat cutout, which is *worse* than a small one. |
+| 4 | Shadow coverage and stability | Phase 2 | Forced by the new scale: the single 1024² map centred on `(16, 4, 16)` with fixed extents is already recorded as unsuitable evidence for an expanded vista, and fifty sheep multiply the casters. |
+| 5 | Colour, exposure, lighting, material response | Phase 3 | The lighting basis GI later builds on. Tuning GI against an unsettled palette means tuning it twice. |
+| 6 | Bounded fine environment detail and vegetation | Phase 4 | Cheap visual density once the world and its light exist. |
+| 7 | Global illumination | ADR 0011, scheduled at roadmap Phase 6 | Needs world, flock, and lighting to exist before it can be judged at all. Its measured contribution in the references is warm ambient in shadow — real, but a refinement rather than the thing that makes them look as they do. |
+| 8 | Animal presentation, then edge quality and optional focal softness | Phases 6 and 7 | Final polish, judged against a settled scene. |
+| 9 | Five-sheep continuation verdict | Phase 8 | Unchanged. |
+
+### The one addition: near-field voxel density
+
+The plan did not carry a voxel-density step. Agent inspection of the two primary
+reference images on 2026-08-22 found sheep spanning roughly eight to ten voxels;
+against a real sheep of about 1.2 m that implies a target voxel near
+**12–15 cm**, about six to seven times finer than the current one-world-unit
+voxel. That is not a shader change — it reaches the mesher, chunk sizing, and
+memory, and may require revisiting [ADR 0002](../decisions/0002-chunk-edge-length.md),
+whose decision explicitly allows revisiting the storage edge on measured
+evidence.
+
+**Density and the surround are one decision.** Using today's measured 2,754
+faces for the 32×32 m paddock as the scale reference: the same paddock at 0.15 m
+voxels is on the order of 10⁵ faces, which is trivial on the reference GPU, while
+one square kilometre at 0.15 m everywhere is on the order of 10⁷ ground quads,
+which is not viable — and the same square kilometre at a coarse divisor is on the
+order of 10⁴ cells, which is trivial again. The two goals are individually cheap
+and jointly impossible at uniform resolution. The near-field density therefore
+*defines* where the fine/coarse boundary must sit, which is why they are decided
+in one outcome rather than two. This is arithmetic from one measured figure, not
+a measurement of a built system.
+
+### What this re-sequencing does not change
+
+Every phase keeps its own outcome, validation, evidence artifact, and stopping
+condition. The adversarial-review rulings stand, including the rejection of ray
+tracing and of volumetrics before simpler atmosphere. Moving atmosphere earlier
+selects *when* the simplest accepted technique is attempted; it does not
+authorise a volumetric integration, which still requires a named reference gap.
+The five-sheep continuation verdict in Phase 8 remains the gate for 25 and 100,
+and step 1's larger flock is a visual-testing fixture, not a promotion of that
+gate.
+
 ## Implementation phases
 
 ### Phase 0 — Lock hardware, rubric, and unchanged baseline
