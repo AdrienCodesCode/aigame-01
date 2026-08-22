@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/influence_debug_view.hpp"
+#include "render/scene_render_settings.hpp"
 #include "render/sheep_proxy.hpp"
 
 #include <array>
@@ -78,7 +79,11 @@ class OpenGlRenderer {
     OpenGlRenderer(OpenGlRenderer&&) = delete;
     OpenGlRenderer& operator=(OpenGlRenderer&&) = delete;
 
-    [[nodiscard]] bool initialize(std::ostream& diagnostics);
+    // Compiles every program from `settings`. An unusable record is refused
+    // here, before a resource exists, rather than drawn: see
+    // `validate_scene_render_settings`. The default is the accepted scene.
+    [[nodiscard]] bool initialize(std::ostream& diagnostics,
+                                  const SceneRenderSettings& settings = {});
     [[nodiscard]] bool upload_handcrafted_paddock(const voxel::ChunkMesh& mesh,
                                                   const voxel::PaddockPalette& palette,
                                                   std::size_t source_chunk_count,

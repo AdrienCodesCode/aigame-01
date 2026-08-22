@@ -80,7 +80,23 @@ material IDs distinguish grass, stone, the red gate, barn walls, roof, and door;
 a bounded voxel-owned palette maps those IDs to render colors and records
 independent per-material face counts. The renderer preserves the fixed camera
 while owning the fixed directional light, deliberate sky and distance fog, and
-a static filtered shadow map. It also owns same-camera GPU diagnostics for all
+a static filtered shadow map. Those values are not written into the shader
+sources: `render/scene_render_settings.hpp` holds one plain-data
+`SceneRenderSettings` record — perspective near/far/focal length, light
+direction and colour, sky colour, fog range and maximum blend, and the shadow
+map's light-space centre and half extents — and the renderer composes every
+scene program from a GLSL preamble generated out of it, so the shadow pass and
+the two programs that sample it cannot restate a value differently. The record
+carries no OpenGL type, and the renderer refuses an unusable one before any
+resource exists: a non-finite value, a near plane at or below zero, a far plane
+not beyond the near plane, a focal length at or below zero, a light direction
+that will not normalize, a fog range that does not increase, a fog blend
+outside `[0, 1]`, or a light-projection extent at or below zero fails
+`initialize` with a named reason rather than drawing. The emitted literals are
+the shortest decimal spelling that reads back as the identical float, so the
+composed text hands the shader compiler exactly the values the previous
+hand-written sources did. Only the constants those programs already repeated
+live there; no scene or camera framework was introduced. It also owns same-camera GPU diagnostics for all
 four chunk bounds, one normal segment per emitted face, the actual indexed
 wireframe, and a mesh-stat chart. `scenario_runner` selects those views, applies
 their broad framebuffer oracles, and logs the exact chunk, occupied-block, face,

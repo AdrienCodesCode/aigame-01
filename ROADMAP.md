@@ -1040,8 +1040,49 @@
   [`visual_tracer_configuration_tests.cpp`](tests/visual_tracer_configuration_tests.cpp),
   and
   [`run-visual-feasibility-baseline.ps1`](tools/phase3/run-visual-feasibility-baseline.ps1).
-- **Next action:** start **Phase 1 of the approved visual-feasibility plan** —
+- **Verification run (2026-08-22, plan Phase 1 task 3 — scene render settings):**
+  the repeated shader-local camera range, directional light and colour, sky/fog,
+  and light-projection constants now have one validated source,
+  [`scene_render_settings.hpp`](src/render/scene_render_settings.hpp)/`.cpp`, and
+  `OpenGlRenderer` composes every scene program from a GLSL preamble generated
+  out of it, refusing an unusable record in `initialize`. A preamble rather than
+  uniforms was chosen deliberately: it keeps the driver folding the same
+  constant expressions it always folded, which is what made pixel identity
+  achievable rather than merely hoped for. Duplication removed: `near`/`far`/
+  `focal` across five shaders, the light forward across six, the light basis and
+  projection across three, sun and sky colour across two, the fog triple across
+  two, and the C++ clear-colour copy.
+  **This outcome deliberately changes no pixel, and proves it.** Observed result
+  on the reference desktop (native Windows 11 `10.0.26200`, RTX 5070 Ti, OpenGL
+  4.6, MSVC 19.44, `dev` preset): 22 deterministic artifacts across eight capture
+  entry points — voxel cube normal and debug, paddock normal plus four debug
+  views, dog render, sheep-motion normal/debug with state dumps, influence debug
+  with frame dump, and the visual tracer's representative and holdout cameras in
+  normal and debug at 2560×1440 — are byte-identical before and after, with a
+  same-tree repeat run as the determinism control. Independently re-verified by
+  the orchestrator: all 22 hashes match. `dev` 46/46 and Release 48/48 (one new
+  CTest, `wide_eye.scene_render_settings`; no pre-existing test changed), and
+  both accepted goldens pass untouched. Eight named rejections are asserted, and
+  each guard was deleted in turn against the unmodified test to prove it is
+  load-bearing. No format version, published field, state-dump key, scenario, or
+  golden changed; no OpenGL type crossed into scene or game code. Named as
+  unrun: `format-check` and `clang-tidy-check` (clang 18 tools absent on this
+  host) and the Linux/Clang 18 CI build. Evidence: the ignored
+  `artifacts/phase3/2026-08-22/phase1-scene-settings/`.
+- **Next action:** continue **Phase 1 of the approved visual-feasibility plan** —
   [`Establish the bounded visual scene and render settings`](docs/plans/visual-feasibility-before-objective-loop.md).
+  Task 3, the validated render settings, is complete as a pure refactor (see the
+  verification run above); the remaining Phase 1 tasks are untouched and the
+  Phase 1 box stays unchecked. The next outcome is the plan's first task, the
+  **bounded distant vista** — one named scene with deterministic geometry and
+  material counts and explicit near-field versus unreachable distant-scenery
+  bounds. It is the first outcome that is *allowed* to change pixels, which is
+  now unambiguous because a settings change and a scene change can no longer be
+  confused. Carry one lesson from
+  [the external render-distance note](docs/research/external-voxel-render-distance-input.md):
+  fog end must move with any extended draw distance, or new distant geometry
+  blends to sky before it is visible — the fog range and `far_plane` are now
+  adjacent fields in one record, so that coupling is at least visible.
   Phase 0 is complete and checked: the reference desktop is verified, the
   baseline packet at
   `artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/` passed

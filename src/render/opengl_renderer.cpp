@@ -1,5 +1,6 @@
 #include "render/opengl_renderer.hpp"
 
+#include "render/scene_render_settings.hpp"
 #include "voxel/handcrafted_paddock.hpp"
 
 #include <algorithm>
@@ -10,11 +11,22 @@
 #include <glad/gl.h>
 #include <limits>
 #include <ostream>
+#include <string>
 #include <type_traits>
 #include <vector>
 
 namespace wide_eye::render {
 namespace {
+
+constexpr char kShaderVersionDirective[] = "#version 460 core\n";
+
+// A scene program is the version directive, the generated settings preamble,
+// and a body that consumes the preamble's names. The three shaders that need
+// none of those values keep their own complete source instead of carrying a
+// block they would not read.
+[[nodiscard]] std::string scene_shader_source(const std::string& preamble, const char* body) {
+    return std::string{kShaderVersionDirective} + preamble + body;
+}
 
 constexpr char kTriangleVertexShaderSource[] = R"glsl(#version 460 core
 layout(location = 0) in vec2 in_position;
@@ -28,7 +40,7 @@ void main() {
 }
 )glsl";
 
-constexpr char kVoxelCubeVertexShaderSource[] = R"glsl(#version 460 core
+constexpr char kVoxelCubeVertexShaderBody[] = R"glsl(
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_color;
 
@@ -51,9 +63,6 @@ void main() {
         cos_x * rotated_y.y - sin_x * rotated_y.z,
         sin_x * rotated_y.y + cos_x * rotated_y.z - 3.0);
 
-    const float near_plane = 0.1;
-    const float far_plane = 100.0;
-    const float focal_length = 1.7320508;
     float projection_z = ((far_plane + near_plane) / (near_plane - far_plane)) *
                              camera_position.z +
                          ((2.0 * far_plane * near_plane) / (near_plane - far_plane));
@@ -67,7 +76,7 @@ void main() {
 }
 )glsl";
 
-constexpr char kHandcraftedPaddockVertexShaderSource[] = R"glsl(#version 460 core
+constexpr char kHandcraftedPaddockVertexShaderBody[] = R"glsl(
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in ivec3 in_normal;
 layout(location = 2) in uint in_material;
@@ -81,19 +90,6 @@ out vec3 world_normal;
 flat out uint material_id;
 out vec4 shadow_position;
 
-vec4 light_clip_position(vec3 position) {
-    const vec3 light_forward = normalize(vec3(0.45, -1.0, 0.30));
-    const vec3 light_right = normalize(cross(light_forward, vec3(0.0, 1.0, 0.0)));
-    const vec3 light_up = cross(light_right, light_forward);
-    const vec3 light_center = vec3(16.0, 4.0, 16.0);
-    vec3 offset = position - light_center;
-    return vec4(
-        dot(offset, light_right) / 30.0,
-        dot(offset, light_up) / 30.0,
-        dot(offset, light_forward) / 32.0,
-        1.0);
-}
-
 void main() {
     const vec3 world_up = vec3(0.0, 1.0, 0.0);
     vec3 forward = normalize(camera_target - camera_eye);
@@ -105,9 +101,6 @@ void main() {
         dot(relative, up),
         -dot(relative, forward));
 
-    const float near_plane = 0.1;
-    const float far_plane = 100.0;
-    const float focal_length = 1.7320508;
     float projection_z = ((far_plane + near_plane) / (near_plane - far_plane)) *
                              camera_position.z +
                          ((2.0 * far_plane * near_plane) / (near_plane - far_plane));
@@ -124,7 +117,7 @@ void main() {
 }
 )glsl";
 
-constexpr char kHandcraftedPaddockFragmentShaderSource[] = R"glsl(#version 460 core
+constexpr char kHandcraftedPaddockFragmentShaderBody[] = R"glsl(
 in vec3 world_position;
 in vec3 world_normal;
 flat in uint material_id;
@@ -144,7 +137,6 @@ float shadow_visibility(vec3 normal) {
         return 1.0;
     }
 
-    const vec3 light_forward = normalize(vec3(0.45, -1.0, 0.30));
     float normal_light = max(dot(normal, -light_forward), 0.0);
     float bias = max(0.0015 * (1.0 - normal_light), 0.00045);
     vec2 texel = 1.0 / vec2(textureSize(shadow_map, 0));
@@ -170,9 +162,6 @@ void main() {
         return;
     }
 
-    const vec3 light_forward = normalize(vec3(0.45, -1.0, 0.30));
-    const vec3 sun_color = vec3(1.0, 0.94, 0.82);
-    const vec3 sky_color = vec3(0.47, 0.66, 0.82);
     vec3 base_color = material_id < 7u ? material_palette[material_id]
                                       : vec3(1.0, 0.0, 1.0);
     float diffuse = max(dot(normal, -light_forward), 0.0);
@@ -181,26 +170,17 @@ void main() {
     vec3 lit_color = base_color * sun_color * light_amount;
 
     float camera_distance = distance(camera_eye, world_position);
-    float fog_amount = smoothstep(36.0, 70.0, camera_distance);
-    vec3 final_color = mix(lit_color, sky_color, fog_amount * 0.58);
+    float fog_amount = smoothstep(fog_start_distance, fog_end_distance, camera_distance);
+    vec3 final_color = mix(lit_color, sky_color, fog_amount * fog_maximum_blend);
     fragment_color = vec4(final_color, 1.0);
 }
 )glsl";
 
-constexpr char kHandcraftedPaddockShadowVertexShaderSource[] = R"glsl(#version 460 core
+constexpr char kHandcraftedPaddockShadowVertexShaderBody[] = R"glsl(
 layout(location = 0) in vec3 in_position;
 
 void main() {
-    const vec3 light_forward = normalize(vec3(0.45, -1.0, 0.30));
-    const vec3 light_right = normalize(cross(light_forward, vec3(0.0, 1.0, 0.0)));
-    const vec3 light_up = cross(light_right, light_forward);
-    const vec3 light_center = vec3(16.0, 4.0, 16.0);
-    vec3 offset = in_position - light_center;
-    gl_Position = vec4(
-        dot(offset, light_right) / 30.0,
-        dot(offset, light_up) / 30.0,
-        dot(offset, light_forward) / 32.0,
-        1.0);
+    gl_Position = light_clip_position(in_position);
 }
 )glsl";
 
@@ -209,7 +189,7 @@ void main() {
 }
 )glsl";
 
-constexpr char kPaddockDebugLineVertexShaderSource[] = R"glsl(#version 460 core
+constexpr char kPaddockDebugLineVertexShaderBody[] = R"glsl(
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_color;
 
@@ -230,9 +210,6 @@ void main() {
         dot(relative, up),
         -dot(relative, forward));
 
-    const float near_plane = 0.1;
-    const float far_plane = 100.0;
-    const float focal_length = 1.7320508;
     float projection_z = ((far_plane + near_plane) / (near_plane - far_plane)) *
                              camera_position.z +
                          ((2.0 * far_plane * near_plane) / (near_plane - far_plane));
@@ -246,7 +223,7 @@ void main() {
 }
 )glsl";
 
-constexpr char kDogVertexShaderSource[] = R"glsl(#version 460 core
+constexpr char kDogVertexShaderBody[] = R"glsl(
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_color;
 
@@ -277,9 +254,6 @@ void main() {
         dot(relative, up),
         -dot(relative, forward));
 
-    const float near_plane = 0.1;
-    const float far_plane = 100.0;
-    const float focal_length = 1.7320508;
     float projection_z = ((far_plane + near_plane) / (near_plane - far_plane)) *
                              camera_position.z +
                          ((2.0 * far_plane * near_plane) / (near_plane - far_plane));
@@ -293,7 +267,7 @@ void main() {
 }
 )glsl";
 
-constexpr char kSheepVertexShaderSource[] = R"glsl(#version 460 core
+constexpr char kSheepVertexShaderBody[] = R"glsl(
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_normal;
 layout(location = 2) in vec3 in_color;
@@ -310,19 +284,6 @@ out vec3 world_normal;
 out vec3 vertex_color;
 flat out uint proxy_id;
 out vec4 shadow_position;
-
-vec4 light_clip_position(vec3 position) {
-    const vec3 light_forward = normalize(vec3(0.45, -1.0, 0.30));
-    const vec3 light_right = normalize(cross(light_forward, vec3(0.0, 1.0, 0.0)));
-    const vec3 light_up = cross(light_right, light_forward);
-    const vec3 light_center = vec3(16.0, 4.0, 16.0);
-    vec3 offset = position - light_center;
-    return vec4(
-        dot(offset, light_right) / 30.0,
-        dot(offset, light_up) / 30.0,
-        dot(offset, light_forward) / 32.0,
-        1.0);
-}
 
 void main() {
     float cosine = cos(sheep_heading);
@@ -350,9 +311,6 @@ void main() {
         dot(relative, up),
         -dot(relative, forward));
 
-    const float near_plane = 0.1;
-    const float far_plane = 100.0;
-    const float focal_length = 1.7320508;
     float projection_z = ((far_plane + near_plane) / (near_plane - far_plane)) *
                              camera_position.z +
                          ((2.0 * far_plane * near_plane) / (near_plane - far_plane));
@@ -364,7 +322,7 @@ void main() {
 }
 )glsl";
 
-constexpr char kSheepFragmentShaderSource[] = R"glsl(#version 460 core
+constexpr char kSheepFragmentShaderBody[] = R"glsl(
 in vec3 world_position;
 in vec3 world_normal;
 in vec3 vertex_color;
@@ -382,7 +340,6 @@ float shadow_visibility(vec3 normal) {
         projected.y >= 1.0 || projected.z <= 0.0 || projected.z >= 1.0) {
         return 1.0;
     }
-    const vec3 light_forward = normalize(vec3(0.45, -1.0, 0.30));
     float normal_light = max(dot(normal, -light_forward), 0.0);
     float bias = max(0.0015 * (1.0 - normal_light), 0.00045);
     vec2 texel = 1.0 / vec2(textureSize(shadow_map, 0));
@@ -398,16 +355,14 @@ float shadow_visibility(vec3 normal) {
 
 void main() {
     vec3 normal = normalize(world_normal);
-    const vec3 light_forward = normalize(vec3(0.45, -1.0, 0.30));
-    const vec3 sun_color = vec3(1.0, 0.94, 0.82);
-    const vec3 sky_color = vec3(0.47, 0.66, 0.82);
     float diffuse = max(dot(normal, -light_forward), 0.0);
     float visibility = shadow_visibility(normal);
     float light_amount = 0.46 + diffuse * (0.54 * mix(0.42, 1.0, visibility));
     float identity_tint = 0.98 + float(proxy_id % 3u) * 0.01;
     vec3 lit_color = vertex_color * identity_tint * sun_color * light_amount;
-    float fog_amount = smoothstep(36.0, 70.0, distance(camera_eye, world_position));
-    fragment_color = vec4(mix(lit_color, sky_color, fog_amount * 0.58), 1.0);
+    float fog_amount =
+        smoothstep(fog_start_distance, fog_end_distance, distance(camera_eye, world_position));
+    fragment_color = vec4(mix(lit_color, sky_color, fog_amount * fog_maximum_blend), 1.0);
 }
 )glsl";
 
@@ -568,7 +523,6 @@ void append_sheep_box(std::vector<SheepVertex>& vertices, std::array<float, 3> m
 }
 
 constexpr int kShadowMapExtent = 1024;
-constexpr std::array<float, 3> kSkyColor{0.47F, 0.66F, 0.82F};
 constexpr std::array<float, 3> kChunkBoundsColor{0.10F, 0.95F, 0.95F};
 constexpr std::array<float, 3> kFaceNormalColor{1.0F, 0.15F, 0.78F};
 
@@ -691,6 +645,10 @@ void write_program_log(GLuint program, std::ostream& diagnostics) {
 } // namespace
 
 struct OpenGlRenderer::Impl {
+    // Validated by `initialize` before any program is compiled, so the shader
+    // text and the clear colour below are always a settings record that was
+    // accepted rather than one that silently produced a broken frame.
+    SceneRenderSettings settings{};
     GLuint triangle_program = 0;
     GLuint triangle_vertex_array = 0;
     GLuint triangle_vertex_buffer = 0;
@@ -890,19 +848,34 @@ struct OpenGlRenderer::Impl {
     }
 
     [[nodiscard]] bool create_pipelines(std::ostream& diagnostics) {
+        // Compose every scene program from one preamble, so the camera range,
+        // light, sky/fog, and light projection reach all of them from the same
+        // validated record instead of being spelled out in each source.
+        const std::string preamble = compose_scene_shader_preamble(settings);
+        const std::string cube_vertex = scene_shader_source(preamble, kVoxelCubeVertexShaderBody);
+        const std::string paddock_vertex =
+            scene_shader_source(preamble, kHandcraftedPaddockVertexShaderBody);
+        const std::string paddock_fragment =
+            scene_shader_source(preamble, kHandcraftedPaddockFragmentShaderBody);
+        const std::string paddock_shadow_vertex =
+            scene_shader_source(preamble, kHandcraftedPaddockShadowVertexShaderBody);
+        const std::string paddock_debug_line_vertex =
+            scene_shader_source(preamble, kPaddockDebugLineVertexShaderBody);
+        const std::string dog_vertex = scene_shader_source(preamble, kDogVertexShaderBody);
+        const std::string sheep_vertex = scene_shader_source(preamble, kSheepVertexShaderBody);
+        const std::string sheep_fragment = scene_shader_source(preamble, kSheepFragmentShaderBody);
+
         triangle_program = create_program_pipeline(kTriangleVertexShaderSource, diagnostics);
-        cube_program = create_program_pipeline(kVoxelCubeVertexShaderSource, diagnostics);
+        cube_program = create_program_pipeline(cube_vertex.c_str(), diagnostics);
         paddock_program =
-            create_program_pipeline(kHandcraftedPaddockVertexShaderSource, diagnostics,
-                                    kHandcraftedPaddockFragmentShaderSource);
-        paddock_shadow_program =
-            create_program_pipeline(kHandcraftedPaddockShadowVertexShaderSource, diagnostics,
-                                    kDepthOnlyFragmentShaderSource);
+            create_program_pipeline(paddock_vertex.c_str(), diagnostics, paddock_fragment.c_str());
+        paddock_shadow_program = create_program_pipeline(paddock_shadow_vertex.c_str(), diagnostics,
+                                                         kDepthOnlyFragmentShaderSource);
         paddock_debug_line_program =
-            create_program_pipeline(kPaddockDebugLineVertexShaderSource, diagnostics);
-        dog_program = create_program_pipeline(kDogVertexShaderSource, diagnostics);
-        sheep_program = create_program_pipeline(kSheepVertexShaderSource, diagnostics,
-                                                kSheepFragmentShaderSource);
+            create_program_pipeline(paddock_debug_line_vertex.c_str(), diagnostics);
+        dog_program = create_program_pipeline(dog_vertex.c_str(), diagnostics);
+        sheep_program =
+            create_program_pipeline(sheep_vertex.c_str(), diagnostics, sheep_fragment.c_str());
         if (triangle_program == 0 || cube_program == 0 || paddock_program == 0 ||
             paddock_shadow_program == 0 || paddock_debug_line_program == 0 || dog_program == 0 ||
             sheep_program == 0) {
@@ -1115,13 +1088,24 @@ OpenGlRenderer::OpenGlRenderer() = default;
 
 OpenGlRenderer::~OpenGlRenderer() = default;
 
-bool OpenGlRenderer::initialize(std::ostream& diagnostics) {
+bool OpenGlRenderer::initialize(std::ostream& diagnostics, const SceneRenderSettings& settings) {
     if (impl_ != nullptr) {
         diagnostics << "render_error=renderer_already_initialized\n";
         return false;
     }
 
+    // Reject before any resource exists: an unusable camera range, light, fog,
+    // or light projection must fail the initialization rather than compile into
+    // a frame nobody can interpret.
+    const SceneRenderSettingsRejection rejection = validate_scene_render_settings(settings);
+    if (rejection != SceneRenderSettingsRejection::none) {
+        diagnostics << "render_error=invalid_scene_render_settings reason=" << describe(rejection)
+                    << '\n';
+        return false;
+    }
+
     impl_ = std::make_unique<Impl>();
+    impl_->settings = settings;
     if (!impl_->create_pipelines(diagnostics)) {
         return false;
     }
@@ -1333,7 +1317,8 @@ void OpenGlRenderer::render_handcrafted_paddock(int pixel_width, int pixel_heigh
     glFrontFace(GL_CCW);
     glDisable(GL_BLEND);
     glClearDepth(1.0);
-    glClearColor(kSkyColor[0], kSkyColor[1], kSkyColor[2], 1.0F);
+    const std::array<float, 3>& sky_color = impl_->settings.sky_color;
+    glClearColor(sky_color[0], sky_color[1], sky_color[2], 1.0F);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glUseProgram(impl_->paddock_program);
     glUniform1f(impl_->paddock_aspect_ratio,

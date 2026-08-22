@@ -150,6 +150,20 @@ obstacle-then-face tie break by its exact resolved coordinate, requires every
 corrected position to be a fixed point, and drives the two `sheep-dog-facing-*`
 fixtures 400 ticks each to prove no published sheep ever occupies a paddock
 shape;
+the scene render settings, which are checked without a display because neither
+the record nor the GLSL text it composes contains an OpenGL type: the accepted
+near/far/focal, light direction and colour, sky, fog range and blend, and
+light-projection centre and extents are pinned by exact float equality, every
+literal the composer can emit is read back with `from_chars` and required to be
+the identical float and to carry a decimal point so GLSL cannot read it as an
+int, each value is parsed back out of the composed preamble itself rather than
+out of a print of it, and each of the eight rejections — non-finite, a near
+plane at or below zero, a far plane not beyond it, a focal length at or below
+zero, a light direction that will not normalize including negative zero and an
+overflowing squared length, an inverted or degenerate fog range, a fog blend
+outside `[0, 1]`, and a light-projection extent at or below zero — is asserted
+by name; the guards were separately confirmed by deleting each one and watching
+this test fail;
 influence debug-view coverage that builds every debug primitive from published
 evidence across 30 scenarios and 240 ticks each, checking arrow geometry and the
 stated scale against the published vectors, chosen-neighbor link endpoints against

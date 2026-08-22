@@ -81,6 +81,7 @@ set(
     "${PROJECT_SOURCE_DIR}/src/platform/window_state.cpp"
     "${PROJECT_SOURCE_DIR}/src/render/influence_debug_view.cpp"
     "${PROJECT_SOURCE_DIR}/src/render/opengl_renderer.cpp"
+    "${PROJECT_SOURCE_DIR}/src/render/scene_render_settings.cpp"
     "${PROJECT_SOURCE_DIR}/src/render/sheep_proxy.cpp"
 )
 set(wide_eye_core_runtime_sources "${PROJECT_SOURCE_DIR}/src/core/runtime.cpp")
@@ -148,6 +149,10 @@ set(
 )
 set(wide_eye_input_test_sources "${PROJECT_SOURCE_DIR}/tests/input_tests.cpp")
 set(wide_eye_performance_test_sources "${PROJECT_SOURCE_DIR}/tests/performance_tests.cpp")
+set(
+    wide_eye_scene_render_settings_test_sources
+    "${PROJECT_SOURCE_DIR}/tests/scene_render_settings_tests.cpp"
+)
 set(wide_eye_sheep_proxy_test_sources "${PROJECT_SOURCE_DIR}/tests/sheep_proxy_tests.cpp")
 set(
     wide_eye_influence_debug_view_test_sources
@@ -165,6 +170,7 @@ set(
     "${PROJECT_SOURCE_DIR}/src/platform/window_state.hpp"
     "${PROJECT_SOURCE_DIR}/src/render/influence_debug_view.hpp"
     "${PROJECT_SOURCE_DIR}/src/render/opengl_renderer.hpp"
+    "${PROJECT_SOURCE_DIR}/src/render/scene_render_settings.hpp"
     "${PROJECT_SOURCE_DIR}/src/render/sheep_proxy.hpp"
 )
 set(wide_eye_capture_headers "${PROJECT_SOURCE_DIR}/src/render/png_writer.hpp")
@@ -498,6 +504,26 @@ if(BUILD_TESTING)
     wide_eye_set_project_options(wide_eye_performance_tests)
     target_link_libraries(wide_eye_performance_tests PRIVATE wide_eye_core_performance)
 
+    # The settings record and the GLSL text it composes contain no OpenGL type,
+    # so this check needs neither a context nor the renderer's link closure.
+    add_executable(
+        wide_eye_scene_render_settings_tests
+        ${wide_eye_scene_render_settings_test_sources}
+        "${PROJECT_SOURCE_DIR}/src/render/scene_render_settings.cpp"
+    )
+    target_compile_features(wide_eye_scene_render_settings_tests PRIVATE cxx_std_23)
+    target_include_directories(
+        wide_eye_scene_render_settings_tests
+        PRIVATE "${PROJECT_SOURCE_DIR}/src"
+    )
+    set_target_properties(
+        wide_eye_scene_render_settings_tests
+        PROPERTIES CXX_EXTENSIONS OFF
+                   CXX_SCAN_FOR_MODULES OFF
+                   CXX_STANDARD_REQUIRED ON
+    )
+    wide_eye_set_project_options(wide_eye_scene_render_settings_tests)
+
     add_executable(
         wide_eye_sheep_proxy_tests
         ${wide_eye_sheep_proxy_test_sources}
@@ -599,6 +625,10 @@ if(BUILD_TESTING)
     )
     add_test(NAME wide_eye.input_actions COMMAND wide_eye_input_tests)
     add_test(NAME wide_eye.performance_utilities COMMAND wide_eye_performance_tests)
+    add_test(
+        NAME wide_eye.scene_render_settings
+        COMMAND wide_eye_scene_render_settings_tests
+    )
     add_test(NAME wide_eye.sheep_proxy COMMAND wide_eye_sheep_proxy_tests)
     # The influence debug view splits deliberately: its geometry is a pure
     # function of a published tick and is checked here with no display, while the
@@ -773,6 +803,7 @@ if(BUILD_TESTING)
     set(wide_eye_flock_scale_diagnostic_labels performance headless)
     set(wide_eye_input_labels unit headless)
     set(wide_eye_performance_utilities_labels unit performance headless)
+    set(wide_eye_scene_render_settings_labels unit headless)
     set(wide_eye_sheep_proxy_labels unit scenario headless)
     set(wide_eye_influence_debug_view_labels unit scenario headless)
     set(wide_eye_visual_tracer_configuration_labels unit scenario headless)
@@ -812,6 +843,7 @@ if(BUILD_TESTING)
         list(APPEND wide_eye_flock_scale_diagnostic_labels sanitizer)
         list(APPEND wide_eye_input_labels sanitizer)
         list(APPEND wide_eye_performance_utilities_labels sanitizer)
+        list(APPEND wide_eye_scene_render_settings_labels sanitizer)
         list(APPEND wide_eye_sheep_proxy_labels sanitizer)
         list(APPEND wide_eye_influence_debug_view_labels sanitizer)
         list(APPEND wide_eye_visual_tracer_configuration_labels sanitizer)
@@ -934,6 +966,12 @@ if(BUILD_TESTING)
         wide_eye.performance_utilities
         PROPERTIES LABELS "${wide_eye_performance_utilities_labels}"
                    PASS_REGULAR_EXPRESSION "performance_result=pass"
+                   TIMEOUT 5
+    )
+    set_tests_properties(
+        wide_eye.scene_render_settings
+        PROPERTIES LABELS "${wide_eye_scene_render_settings_labels}"
+                   PASS_REGULAR_EXPRESSION "scene_render_settings_result=pass"
                    TIMEOUT 5
     )
     set_tests_properties(
@@ -1107,6 +1145,7 @@ if(BUILD_TESTING)
         wide_eye.flock_scale_diagnostic
         wide_eye.input_actions
         wide_eye.performance_utilities
+        wide_eye.scene_render_settings
         wide_eye.sheep_proxy
         wide_eye.influence_debug_view
         wide_eye.influence_debug_frame_dump
