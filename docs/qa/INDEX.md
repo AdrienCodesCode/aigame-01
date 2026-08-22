@@ -4,7 +4,7 @@
      in open/ and closed/ are the source of truth. Regenerate with the
      qa-index target, or `cmake -DMODE=index -P tools/qa/qa-tracker.cmake`. -->
 
-**2 open** · 10 closed · convention in [README.md](README.md)
+**4 open** · 10 closed · convention in [README.md](README.md)
 
 > No tracer-gate blockers open.
 
@@ -14,6 +14,8 @@
 
 - [ ] [QA-008](open/QA-008-generated-influence-evidence-committed-at-the-repository-root.md) Generated influence-debug evidence is committed at the repository root, outside the ignored artifacts tree, and no longer describes HEAD — _build · confirmed_
 - [ ] [QA-010](open/QA-010-reference-frame-budget-is-graded-on-a-display-pinned-metric.md) The reference performance gate grades a swap-inclusive frame metric that the display pins, so `within_performance_budget=yes` reports the refresh rate rather than renderer cost — _platform · confirmed_
+- [ ] [QA-013](open/QA-013-influence-sweep-digest-is-printed-and-never-compared.md) The influence debug view's sweep digest asserts nothing: 7,200 frames are hashed into `influence_debug_sweep_digest`, printed, and never compared, so a geometry regression moves the number and the test still exits 0 — _tests · confirmed_
+- [ ] [QA-014](open/QA-014-two-registered-ctests-are-outside-the-shared-sanitizer-failure-guard.md) Two registered CTests are outside the shared sanitizer failure guard, so `wide_eye.visual_tracer_configuration` can print a LeakSanitizer report, exit nonzero, and still pass on its pass marker — _build · confirmed_
 
 ## By area
 
@@ -22,8 +24,8 @@
 | platform | 1 | 1 |
 | render | 0 | 1 |
 | game | 0 | 3 |
-| tests | 0 | 1 |
-| build | 1 | 1 |
+| tests | 1 | 1 |
+| build | 2 | 1 |
 | tools | 0 | 1 |
 | docs | 0 | 2 |
 
