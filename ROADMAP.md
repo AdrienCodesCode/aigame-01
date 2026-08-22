@@ -648,7 +648,9 @@
   item stays unticked until that verdict exists. (2) The dog-pressure item stays
   unticked on terrain alone; it is
   deferred to Phase 5 because the paddock has one constant ground height, and
-  splitting the item instead is an owner call. No S1 issue is open.
+  splitting the item instead is an owner call. One S1 issue is open:
+  [QA-009](docs/qa/open/QA-009-windows-evidence-runners-abort-on-benign-opengl-notification-stderr.md)
+  blocks the Phase 0 reference-baseline gate on the reference desktop.
 - **Unaccepted work awaiting the owner (2026-08-22):** the influence debug views
   are implemented, deterministic, covered by two headless CTests, and — as of
   2026-08-22 — **captured on native hardware for the first time**. What is
@@ -967,15 +969,26 @@
   [`visual_tracer_configuration_tests.cpp`](tests/visual_tracer_configuration_tests.cpp),
   and
   [`run-visual-feasibility-baseline.ps1`](tools/phase3/run-visual-feasibility-baseline.ps1).
-- **Next action:** the reference-desktop Phase 0 run is unblocked — this host is
-  the reference desktop and is verified — so run
+- **Next action:** fix
+  [QA-009](docs/qa/open/QA-009-windows-evidence-runners-abort-on-benign-opengl-notification-stderr.md),
+  then run
   [`run-visual-feasibility-baseline.ps1`](tools/phase3/run-visual-feasibility-baseline.ps1)
-  against the now-retargeted RTX 5070 Ti gate and produce the unchanged Phase 0
-  baseline packet, then take the owner's camera/rubric confirmation. QA-005 and
-  QA-007 are both closed (QA-007 in commit `8fa1658`), so the QA tracker has no
-  open issue competing for this slot. The objective loop and visual tuning
-  remain paused, and no visual or performance result is claimed until that
-  packet exists.
+  against the retargeted RTX 5070 Ti gate to produce the unchanged Phase 0
+  baseline packet, then take the owner's camera/rubric confirmation. The
+  hardware half is no longer the obstacle — this host is the reference desktop
+  and is verified — but the runner aborts on a benign notification-severity
+  OpenGL message before it reaches its first capture, so the packet cannot be
+  produced until that is corrected. Observed result, 2026-08-22: the runner
+  passed configure, build, 47/47 Release CTests, and the scene-configuration
+  stage, then failed at `representative-normal` with
+  `failure_message=gl_debug_message severity=notification ... id=131185`, while
+  the process it ran exited 0 and reported
+  `gl_debug_high_severity_messages=0`. The retained failure packet is
+  `artifacts/phase3/2026-08-22/visual-feasibility-baseline-180412745/`. QA-005
+  and QA-007 are closed (QA-007 in commit `8fa1658`) and QA-008 is a filed S3
+  that competes with nothing. The objective loop and visual tuning remain
+  paused, and no visual or performance result is claimed until that packet
+  exists.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
