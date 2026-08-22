@@ -1069,6 +1069,25 @@
   unrun: `format-check` and `clang-tidy-check` (clang 18 tools absent on this
   host) and the Linux/Clang 18 CI build. Evidence: the ignored
   `artifacts/phase3/2026-08-22/phase1-scene-settings/`.
+- **Owner direction decisions (2026-08-22) — recorded, not scheduled:** four
+  decisions were taken on long-term direction and recorded in their authoritative
+  homes; a cold context should read them before proposing world, flock, or
+  renderer scope, and should not read any of them as work now due. **No checkbox
+  was ticked, no deferred item moved, and no gate, budget, or stop condition was
+  weakened by them.** (1) The world is bounded and explicitly **not open**, with
+  unreachable non-authoritative scenery beyond the playable bounds —
+  [§ World extent](docs/game-design/HERDING_GAMEPLAY.md#world-extent). (2)
+  Global illumination is accepted as a **direction** on the existing OpenGL 4.6
+  backend, hardware ray tracing is held and Vulkan stays unapproved, with
+  implementation at Phase 6 —
+  [ADR 0011](docs/decisions/0011-global-illumination-on-the-existing-opengl-backend.md).
+  (3) 1,000 sheep is an owner-stated **target**, still ungated and still under
+  Deferred ideas —
+  [§ Flock size](docs/game-design/HERDING_GAMEPLAY.md#flock-size). (4) Phase 5
+  generation must take a **resolution divisor** from the outset; this is the only
+  one with a deadline, and the deadline is "before Phase 5 begins" —
+  [Phase 5](#phase-5--tracer-4-procedural-voxel-world). The dated entries are in
+  the [decision and evidence log](#decision-and-evidence-log).
 - **Next action:** continue **Phase 1 of the approved visual-feasibility plan** —
   [`Establish the bounded visual scene and render settings`](docs/plans/visual-feasibility-before-objective-loop.md).
   Task 3, the validated render settings, is complete as a pure refactor (see the
@@ -1104,10 +1123,10 @@
   answered properly, as bounded unreachable distant scenery rather than as a
   larger playable world.
   The objective loop stays paused behind the visual gate by the owner's decision
-  of 2026-08-22, reaffirmed when the alternative was offered explicitly. Four QA
-  issues are open and none blocks this: QA-008 (S3, misplaced root evidence,
-  fix in progress), QA-010 (S3, display-pinned frame metric — relevant to how
-  Phase 1's timing deltas are read), QA-013 and QA-014 (S3, test-integrity gaps).
+  of 2026-08-22, reaffirmed when the alternative was offered explicitly. Three QA
+  issues are open and none blocks this: QA-010 (S3, display-pinned frame metric —
+  relevant to how Phase 1's timing deltas are read), and QA-013 and QA-014 (S3,
+  test-integrity gaps). QA-008 was closed on 2026-08-22.
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
@@ -1124,6 +1143,7 @@
   [QA-005](docs/qa/closed/QA-005-avoidance-response-is-bang-bang-near-a-face-and-at-the-drop-boundary.md),
   [ADR 0009](docs/decisions/0009-behavior-transitions-and-arousal.md),
   [ADR 0010](docs/decisions/0010-diagnostic-flock-scale-over-shared-sheep-rules.md),
+  [ADR 0011](docs/decisions/0011-global-illumination-on-the-existing-opengl-backend.md),
   [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
   [`math.hpp`](src/game/math.hpp),
   [`paddock_collision.hpp`](src/game/paddock_collision.hpp),
@@ -2837,11 +2857,34 @@ it does not complete or broadly activate this phase.
 
 ## Phase 5 — Tracer 4: procedural voxel world
 
-- [ ] Define deterministic terrain inputs and versioned generation parameters.
+**Accepted generation constraint (owner decision, 2026-08-22 — the resolution
+divisor).** Every generation function written in this phase takes a resolution
+divisor as an input from the outset, so that any 1/N resolution is **generated
+natively at that resolution** rather than downsampled from a full-resolution
+result. This binds generated features and placements, not only the height field.
+The rationale is recorded rather than assumed: it makes a low-resolution distant
+surround nearly free for the bounded-but-large world shape decided the same day
+(see
+[`HERDING_GAMEPLAY.md` § World extent](docs/game-design/HERDING_GAMEPLAY.md#world-extent));
+it prevents a second downsampling path that can silently disagree with the
+full-resolution one; it costs nothing to adopt before the code exists; and
+retrofitting it means rewriting terrain generation. The idea is the "sieve"
+attributed to
+[the external render-distance note](docs/research/external-voxel-render-distance-input.md),
+whose own performance figures are **unverified claims** from a second-hand,
+non-retrievable source and are not relied on here — the constraint is adopted
+for the disagreement and retrofit-cost arguments, which need no benchmark. It
+adds no phase item and authorizes no LOD, streaming, eviction, or transition
+work; every one of those stays gated in Phase 6 behind a measured constraint.
+
+- [ ] Define deterministic terrain inputs and versioned generation parameters,
+  including the accepted resolution divisor, so a 1/N world is generated
+  natively rather than downsampled.
 - [ ] Add bounded hills and valleys while preserving navigable herding surfaces.
 - [ ] Add biome palette rules and deliberate transitions.
 - [ ] Generate stone walls, paths, gates, barns, trees, hedges, rocks, and
-  landmarks from readable placement grammars.
+  landmarks from readable placement grammars that resolve at any accepted
+  resolution divisor.
 - [ ] Reject invalid placements and unreachable objectives.
 - [ ] Add caves, water, weather, or additional biomes only when the approved game
   design needs them.
@@ -2850,7 +2893,8 @@ it does not complete or broadly activate this phase.
   stale-result rejection, and per-frame budgets.
 - [ ] Preserve all handcrafted herding replays as regression scenarios.
 - [ ] Capture comparable normal/debug evidence for the fixed seed set, including
-  camera, generation parameters, validity results, and performance metadata.
+  camera, generation parameters, the resolution divisor used, validity results,
+  and performance metadata.
 
 ### Phase 5 exit gate
 
@@ -2861,6 +2905,15 @@ it does not complete or broadly activate this phase.
 - [ ] The bounded fixed-seed visual packet receives an explicit owner verdict.
 
 ## Phase 6 — Tracer 5: measured scale and renderer depth
+
+Global illumination is an accepted rendering **direction** whose implementation
+belongs here, on the existing OpenGL 4.6 backend and under the measure-first
+gates already listed below; hardware ray tracing is held and a Vulkan migration
+stays unapproved. That decision, its named candidate routes, and what would
+reopen it are in
+[ADR 0011](docs/decisions/0011-global-illumination-on-the-existing-opengl-backend.md);
+accepting a direction schedules nothing and grants no exception to any gate
+here.
 
 - [ ] Establish low/high hardware capture baselines before optimizing.
 - [ ] For each renderer-depth candidate, define a deterministic representative
@@ -2901,7 +2954,10 @@ it does not complete or broadly activate this phase.
   migration or difficult GPU defect must also record the graphics validation
   modes, capture tool/version, findings, and unresolved warnings.
 - [ ] Consider SSAO, improved anti-aliasing, stylized water, volumetric atmosphere,
-  PCSS, or reflections one at a time with identical-state evidence.
+  PCSS, reflections, or a global-illumination approximation
+  (probe/irradiance-volume or voxel cone tracing, per
+  [ADR 0011](docs/decisions/0011-global-illumination-on-the-existing-opengl-backend.md))
+  one at a time with identical-state evidence.
 - [ ] Reject effects that reduce flock readability, temporal stability, or low-
   target performance.
 
@@ -3684,3 +3740,57 @@ implementation begins.
   combined-influence acceleration bound with its planned oracle re-derivation.
   WSL development, Release, and ASan/UBSan configurations each passed 24/24
   CTests after these changes; formatting and bounded clang-tidy passed.
+- **2026-08-22 — World shape is bounded, and deliberately not open (owner
+  decision):** Wide Eye is **explicitly not an open world**. The playable area
+  stays bounded; the owner wants those bounds far apart and wants the world to
+  remain *visible* beyond them as scenery that is unreachable and
+  non-authoritative. Visible extents named in conversation are 1, 10, and 20 km²
+  against today's handcrafted 32×32 m paddock; those are owner-named magnitudes,
+  not accepted budgets, and nothing here sizes, schedules, or funds a world. This
+  decision does not create new latitude: it selects the shape the approved plan's
+  existing **Qualified** ruling already permits — distant scenery may be
+  non-authoritative *only* when unreachable and explicitly labelled, and the
+  tracer stops if visual scale requires a larger *playable* world. The detail,
+  including what remains undecided, is in
+  [`HERDING_GAMEPLAY.md` § World extent](docs/game-design/HERDING_GAMEPLAY.md#world-extent);
+  "Multiple farms or open world" stays in **Deferred ideas** and is now also
+  ruled out in that open form.
+- **2026-08-22 — Rendering architecture: global illumination accepted, hardware
+  ray tracing held (owner decision):** GI is accepted as a **direction** to be
+  achieved on the existing OpenGL 4.6 backend, with probe/irradiance-volume GI
+  and voxel cone tracing named as candidate routes and neither selected.
+  Accepted as a direction is **not** scheduled work: the approved visual-tracer
+  sequence continues unchanged with the bounded distant vista as the next
+  outcome, and implementation belongs at Phase 6 renderer depth under the
+  measure-first gates already recorded there. Hardware ray tracing is not
+  pursued now — OpenGL 4.6 has no ray tracing, so hardware RT means a Vulkan
+  backend — which confirms the visual plan's existing rejection, the feasibility
+  study's recommendation, and the graphics-backend verdict above rather than
+  adding a new prohibition. The single narrow route by which GI could arrive
+  earlier is a named reference gap found by the visual tracer's own Phase 3,
+  mirroring how volumetrics are already handled. Evidence and reopening
+  conditions:
+  [ADR 0011](docs/decisions/0011-global-illumination-on-the-existing-opengl-backend.md).
+- **2026-08-22 — 1,000 sheep restated as the eventual target (owner-stated
+  target, no gate moved):** The owner restated 1,000 authoritative sheep as the
+  eventual target. What changes is that the intent is now recorded and dated;
+  what does not change is that it remains **ungated scope**. "Up to 1,000
+  authoritative sheep as an actual gameplay requirement rather than a capacity
+  benchmark" stays in **Deferred ideas — not current scope**, Phase 6 still
+  benchmarks 250/500/1,000 as capacity evidence only, and the 2026-08-15
+  decision stands unchanged: no large count is a product promise until
+  performance, behavior, camera readability, and playtests support it. Note the
+  reinforcement with the world-shape decision above — a flock that size needs
+  room, so the two are better decided together than separately. Detail:
+  [`HERDING_GAMEPLAY.md` § Flock size](docs/game-design/HERDING_GAMEPLAY.md#flock-size).
+- **2026-08-22 — Phase 5 generation takes a resolution divisor (owner decision,
+  the one with a deadline):** Procedural generation does not exist yet and Phase
+  5 writes it from scratch, so the constraint is adopted **before** the code
+  exists: every generation function takes a resolution divisor from the outset
+  and any 1/N resolution is generated natively rather than downsampled,
+  generated features and placements included. Recorded in full, with its
+  rationale and its attribution to the external "sieve" note whose own
+  performance numbers remain unverified, at the head of
+  [Phase 5](#phase-5--tracer-4-procedural-voxel-world). It amends three existing
+  Phase 5 items, adds no item, ticks nothing, and authorizes no LOD, streaming,
+  or eviction work.

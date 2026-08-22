@@ -234,29 +234,51 @@ require its own camera and control experiment.
 
 ## Owner-stated long-term direction — 2026-08-22
 
-**Status: owner-stated direction, not approved scope.** Recorded here because
-this file is where broader unapproved directions belong. Nothing below is a
-commitment, a plan, or a roadmap item, and none of it changes the current
-five-sheep experiment in [`WIDE_EYE.md`](WIDE_EYE.md) or the approved
-[visual-feasibility plan](../plans/visual-feasibility-before-objective-loop.md).
-Each item is written with the constraint or ruling it currently runs into, so a
-later decision to adopt one is made knowingly rather than by drift.
+**Status: owner-stated direction. Some of it has since been decided; none of it
+is scheduled work.** Recorded here because this file is where broader
+directions belong. Each item is written with the constraint or ruling it runs
+into, so a later decision to adopt one is made knowingly rather than by drift.
+
+Later on 2026-08-22 the owner took decisions on three of the items below. They
+are dated in the roadmap's
+[decision and evidence log](../../ROADMAP.md#decision-and-evidence-log), and
+each is recorded in exactly one authoritative place, which this section links
+rather than restates:
+
+| Item | Decided on 2026-08-22 | Authoritative record | Still open |
+| --- | --- | --- | --- |
+| World extent | Bounded, explicitly **not** an open world; visible unreachable, non-authoritative scenery beyond the bounds | the dated log entry; rationale below | The actual extent, when, and whether it is ever built |
+| Resolution divisor | Phase 5 generation takes one from the outset | [Roadmap Phase 5](../../ROADMAP.md#phase-5--tracer-4-procedural-voxel-world) | Nothing — settled, and the code does not exist yet |
+| Rendering | GI accepted as a direction on the existing OpenGL backend; hardware ray tracing **held**; Vulkan unapproved | [ADR 0011](../decisions/0011-global-illumination-on-the-existing-opengl-backend.md) | Which GI route; ray-traced volumetric clouds |
+| Flock size | Nothing decided; 1,000 restated as an owner **target** and dated | the dated log entry; detail below | Whether it ever becomes a requirement |
+
+Nothing decided changes the current five-sheep experiment in
+[`WIDE_EYE.md`](WIDE_EYE.md), the approved
+[visual-feasibility plan](../plans/visual-feasibility-before-objective-loop.md),
+or any roadmap gate, budget, stop condition, or checkbox.
 
 ### World extent
 
-**The game is explicitly not an open world.** The playable area is bounded, but
-the owner wants those bounds far apart, and wants the world to remain *visible*
-beyond them — "not all discoverable/accessible, but still present to fill in the
-environment". Scales named in conversation: 1, 10, and 20 km² of visible
-environment, against today's handcrafted 32×32 m paddock (about 0.001 km²).
+**Owner decision, 2026-08-22.** **The game is explicitly not an open world.**
+The playable area stays bounded, but the owner wants those bounds far apart, and
+wants the world to remain *visible* beyond them — "not all
+discoverable/accessible, but still present to fill in the environment". Scales
+named in conversation: 1, 10, and 20 km² of visible environment, against today's
+handcrafted 32×32 m paddock (about 0.001 km²). Those figures are owner-named
+magnitudes, not accepted budgets: what is decided is the **shape**, not the size,
+the schedule, or that a larger world is built at all. "Multiple farms or open
+world" stays in the roadmap's **Deferred ideas — not current scope**, and is now
+additionally ruled out in its open-world form.
 
-This is the cheapest large-world shape available, and it aligns with a ruling
-the approved plan already made: near-field traversable geometry must agree with
-authoritative collision, while distant scenery may be non-authoritative **only**
-when unreachable and explicitly labelled. Because a bounded surround is never
-edited, collided against, simulated, or serialized, it avoids most of what makes
-open-world voxel engines expensive — infinite generation, eviction policy,
-per-chunk edit persistence, and prop identity across detail bands. A finite
+This is the cheapest large-world shape available, and — this matters to how the
+decision should be read — **it grants no new latitude**. It selects the shape
+the approved plan's existing **Qualified** ruling already permits: near-field
+traversable geometry must agree with authoritative collision, while distant
+scenery may be non-authoritative **only** when unreachable and explicitly
+labelled. Because a bounded surround is never edited, collided against,
+simulated, or serialized, it avoids most of what makes open-world voxel engines
+expensive — infinite generation, eviction policy, per-chunk edit persistence,
+and prop identity across detail bands. A finite
 extent is also knowable up front, so a low-resolution surround may be able to
 stay resident rather than stream.
 
@@ -264,26 +286,33 @@ stay resident rather than stream.
 larger *playable* world — is satisfied by this framing only while the distant
 surround stays genuinely unreachable and never becomes authoritative collision.
 
-**The one time-sensitive consequence.** Phase 5 writes procedural generation
-from scratch, and none exists today. If those generation functions take a
-resolution divisor from the first line — the "sieve" recorded in
+**The one time-sensitive consequence — now decided, before its deadline.**
+Phase 5 writes procedural generation from scratch and none exists today, so the
+constraint was adopted on 2026-08-22, before the code exists: every Phase 5
+generation function takes a resolution divisor from the outset, and any 1/N
+resolution is generated natively rather than downsampled, generated features and
+placements included. The requirement, its rationale, and its attribution to the
+"sieve" in
 [the external render-distance note](../research/external-voxel-render-distance-input.md)
-— a low-resolution surround is nearly free and no second downsampling path can
-disagree with the full-resolution one. Retrofitting it means rewriting terrain
-generation. This is the only item here with a deadline, and the deadline is
-"before Phase 5 begins".
+live at the head of
+[Roadmap Phase 5](../../ROADMAP.md#phase-5--tracer-4-procedural-voxel-world) and
+are not restated here. The note's own performance figures remain **unverified
+claims** and are not what the constraint rests on.
 
 ### Flock size
 
-The owner restated 1,000 sheep as the eventual target. The number is already in
-the repository, but in a narrower role than that: Phase 6 benchmarks 250, 500,
-and 1,000 as **capacity evidence**, `SheepSpatialGrid` already carries a
-1,000-member ceiling, and the 2026-08-15 decision records that no large count is
-a product promise until performance, behavior, camera readability, and playtests
-support it. "Up to 1,000 authoritative sheep as an actual gameplay requirement
-rather than a capacity benchmark" is currently listed under **Deferred
-ideas — not current scope**. Moving it out of that list is an owner decision that
-has not been taken.
+**Owner-stated target, 2026-08-22 — dated, and nothing more.** The owner
+restated 1,000 sheep as the eventual target. What changed on that date is that
+the intent is now recorded and dated; what did **not** change is that it remains
+ungated scope. The number is already in the repository, but in a narrower role:
+Phase 6 benchmarks 250, 500, and 1,000 as **capacity evidence**,
+`SheepSpatialGrid` already carries a 1,000-member ceiling, and the 2026-08-15
+decision records that no large count is a product promise until performance,
+behavior, camera readability, and playtests support it. That decision stands
+unchanged. "Up to 1,000 authoritative sheep as an actual gameplay requirement
+rather than a capacity benchmark" remains listed under **Deferred ideas — not
+current scope**, and moving it out of that list is an owner decision that has
+still not been taken.
 
 Note the interaction with world extent: 1,000 sheep and a large bounded world
 are mutually reinforcing goals — a flock that size needs room — so they are
@@ -291,13 +320,36 @@ better decided together than separately.
 
 ### Rendering ambitions
 
-The owner named global illumination and ray-traced volumetric clouds. Both run
-into rulings in the plan the owner approved on 2026-08-22, which is why they are
-recorded rather than quietly queued:
+The owner named global illumination and ray-traced volumetric clouds. Two of the
+three asks were **decided on 2026-08-22** and are no longer open here.
 
-- The plan's adversarial review **rejected** "the RTX 5070 Ti justifies ray
-  tracing or vendor features", on the grounds that the experiment asks whether
-  the visual target works rather than whether the newest GPU path can be
+**Decided — global illumination and ray tracing.** GI is **accepted as a
+direction**, to be achieved on the existing OpenGL 4.6 backend rather than
+through hardware ray tracing; probe/irradiance-volume GI and voxel cone tracing
+are the named candidate routes and neither is selected. Hardware ray tracing is
+**held** — not pursued now — which confirms the existing rulings rather than
+adding a new prohibition. Accepted as a direction is not scheduled work:
+implementation belongs at Phase 6 renderer depth under the measure-first gates
+already recorded there, the approved visual-tracer sequence continues unchanged,
+and the single narrow route by which GI could arrive earlier is a named
+reference gap found by the tracer's own Phase 3. The decision, its alternatives,
+its consequences, and what would reopen it are in
+[ADR 0011](../decisions/0011-global-illumination-on-the-existing-opengl-backend.md)
+and are not restated here.
+
+**A hard technical fact, independent of any ruling:** OpenGL 4.6 has no ray
+tracing. Hardware ray tracing means a Vulkan backend, and
+[`opengl-to-vulkan-feasibility.md`](../research/opengl-to-vulkan-feasibility.md)
+already recommends against migrating now. This is why the two asks separate
+cleanly: GI is a lighting question with backend-independent routes, while ray
+tracing is a backend question.
+
+**Still open — ray-traced volumetric clouds.** Undecided, and the rulings the
+ask runs into are unchanged:
+
+- The approved plan's adversarial review **rejected** "the RTX 5070 Ti justifies
+  ray tracing or vendor features", on the grounds that the experiment asks
+  whether the visual target works rather than whether the newest GPU path can be
   exercised, and that cross-vendor OpenGL should be preserved.
 - It also **rejected** implementing volumetrics before simpler atmosphere,
   directing a bounded height/distance/directional-scattering solution first and
@@ -305,27 +357,22 @@ recorded rather than quietly queued:
 - Its non-goals name Vulkan, a permanent dual backend, ray tracing, mesh
   shaders, DLSS, and FSR outright.
 
-**A hard technical fact, independent of any ruling:** OpenGL 4.6 has no ray
-tracing. Hardware ray tracing means a Vulkan backend, and
-[`opengl-to-vulkan-feasibility.md`](../research/opengl-to-vulkan-feasibility.md)
-already recommends against migrating now.
-
-**A useful distinction:** global illumination is not the same ask as ray
-tracing. Probe or irradiance-volume GI, and voxel cone tracing, are feasible on
-the current backend — and voxel cone tracing is a natural fit for a world that
-is already a voxel grid. Volumetric clouds likewise have a raymarched
-fragment-shader form that needs no RT hardware path. If these are pursued, the
-OpenGL-feasible routes should be evaluated before a backend migration is
-considered.
+Volumetric clouds do have a raymarched fragment-shader form that needs no RT
+hardware path, so the ask is not blocked by the backend the way hardware ray
+tracing is. Nothing about that form is accepted, and the ruling above —
+simpler atmosphere first, volumetrics only against a named gap — governs it.
 
 ### An unresolved tension worth stating
 
 If the real target is 1,000 sheep across several km² with global illumination,
 then a visual direction judged at **five** sheep in a 32×32 m paddock may not
 survive contact with it: densities, silhouette scales, and lighting budgets all
-differ. The approved plan half-anticipates this by labelling the five-sheep
-verdict as visual-direction evidence rather than proof of the flock density in
-the references. Whether the current visual gate is aimed at the right target is
+differ. The 2026-08-22 decisions sharpen this rather than settle it: the world
+shape and the GI direction are now decided, so two of the three premises are no
+longer hypothetical, while the flock size remains a target and none of the three
+has a measurement. The approved plan half-anticipates this by labelling the
+five-sheep verdict as visual-direction evidence rather than proof of the flock
+density in the references. Whether the current visual gate is aimed at the right target is
 therefore a real question, not a settled one.
 
 ## Evidence gates for expanding this document

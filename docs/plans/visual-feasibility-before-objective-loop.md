@@ -443,6 +443,13 @@ renderer owns colour-space conversion, exposure, and lighting calculations.
   an unused deferred renderer.
 - Preserve debug colours as diagnostic values or document their display-space
   conversion so causal overlays remain legible.
+- Attempt a global-illumination approximation only if the accepted direct
+  lighting leaves a **named** reference gap that only indirect light closes, and
+  a separate coherent outcome is approved. GI is accepted as a later direction on
+  this backend and is scheduled at Phase 6 renderer depth, not here; see
+  [ADR 0011](../decisions/0011-global-illumination-on-the-existing-opengl-backend.md).
+  This clause is the same conditional the atmosphere phase applies to
+  volumetrics, and it adds nothing to this phase by default.
 
 **Validation:** colour-space/configuration tests where deterministic, normal and
 albedo/lighting debug captures, representative/holdout comparisons, motion for
@@ -726,6 +733,13 @@ reference-machine supersession and remain unmeasured on this GPU.
 - **Objective-loop drift:** no visual phase may add farmer/HUD/objective behavior.
 - **Vulkan drift:** no OpenGL inconvenience inside this tracer is itself approval
   for a backend migration; record the measured limitation first.
+- **Global-illumination drift:** on 2026-08-22 the owner accepted GI as a later
+  direction **on this same OpenGL backend**, scheduled at Phase 6 renderer depth
+  ([ADR 0011](../decisions/0011-global-illumination-on-the-existing-opengl-backend.md)).
+  Inside this tracer the only route is the Phase 3 named-gap clause, under its
+  own separately approved outcome. Accepting a direction is not a schedule, no
+  lighting dissatisfaction is itself a named gap, and the ray-tracing and
+  volumetrics rulings above are unchanged by it.
 
 Unaccepted effects remain easy to disable or remove until their owner verdict.
 Do not retain a permanent matrix of experimental toggles after the gate; keep
@@ -735,7 +749,7 @@ value.
 Deferred work includes final minimum/recommended specifications, native Linux
 graphics, 25/100 authoritative sheep, general world generation/streaming/LOD,
 hard sheep contact, the objective loop, final animation breadth, weather/water,
-Vulkan, and vendor-specific advanced rendering.
+global illumination, Vulkan, and vendor-specific advanced rendering.
 
 ## Definition of done
 
