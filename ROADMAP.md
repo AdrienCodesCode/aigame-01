@@ -2996,7 +2996,12 @@ here.
 
 ## Deferred ideas—not current scope
 
-- [ ] Multiple farms or open world.
+- [ ] Multiple farms inside a bounded world. Reworded on **2026-08-22** from
+  "Multiple farms or open world": the owner's world-shape decision of that date
+  makes Wide Eye explicitly **not** an open world, so the open-world half is
+  **ruled out** rather than deferred, while multiple farms remains a live
+  deferred idea. Detail:
+  [`HERDING_GAMEPLAY.md` § World extent](docs/game-design/HERDING_GAMEPLAY.md#world-extent).
 - [ ] Weather affecting scent, footing, or urgency.
 - [ ] Lamb/adult attachment.
 - [ ] Ducks, geese, goats, or cattle.
@@ -3794,3 +3799,20 @@ implementation begins.
   [Phase 5](#phase-5--tracer-4-procedural-voxel-world). It amends three existing
   Phase 5 items, adds no item, ticks nothing, and authorizes no LOD, streaming,
   or eviction work.
+- **2026-08-22 — External render-distance reading list received (research, not
+  scope):** The owner supplied, as pasted text, a Codex-produced annotated
+  technical reading list titled "Improving Render Distance in a C++/OpenGL Voxel
+  Engine" and self-dated "Checked: 22 August 2026". It is recorded — with the
+  honest limits of that provenance, its five-budget framing, its closing
+  eight-lever rule, and a mapping of every major recommendation onto this
+  project's measured Phase 0 position and existing phases — in
+  [`render-distance-techniques.md`](docs/research/render-distance-techniques.md).
+  Its roughly sixty linked sources were **not** verified by this repository and
+  none of the URLs was fetched, so every claim in it is an unverified claim.
+  **This is research, not approved scope:** it adds no phase, no item, and no
+  adoption, and none of its performance figures describes this project. The one
+  item it raises with a clock on it is the depth convention — reversed-Z with
+  camera-relative rendering, cheap while `far_plane` is `100.0` and no accepted
+  capture depends on a long draw distance, expensive once the visual tracer
+  lands distant scenery — and that stays a **recommendation awaiting an owner
+  decision**, not a decision taken.
