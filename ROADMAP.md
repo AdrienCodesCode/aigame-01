@@ -634,23 +634,45 @@
   passed. Native graphics and measurements were not rerun because no
   presentation path changed.
 - **Decisions waiting on the owner (2026-08-22):** two, neither of which an agent
-  should make. (1) The influence debug views need a readability verdict and a
-  capture from native hardware; the candidate packet is in
-  `artifacts/phase3/2026-08-22/debug-influence-views/`, and the roadmap item
-  stays unticked until then. (2) The dog-pressure item stays unticked on terrain
-  alone; it is
+  should make. (1) The influence debug views still need a **readability
+  verdict**. The other half of this decision — a capture from native hardware —
+  is now done: three frames of `sheep-all-influences-diagnostic` at ticks 30,
+  60, and 120 were rendered on this reference desktop on 2026-08-22 and are in
+  the ignored tree at
+  `artifacts/phase3/2026-08-22/debug-influence-views-native/` as
+  `influence-tick-{30,60,120}.png` with the matching `.txt` frame dumps. What is
+  owed is a person opening those three PNGs beside their frame dumps and writing
+  Accept, Revise, or Reject into the blank verdict of
+  `artifacts/phase3/2026-08-22/debug-influence-views-native/review.md`. Crop to
+  the flock before judging: the overlay is about 0.05% of the frame. The roadmap
+  item stays unticked until that verdict exists. (2) The dog-pressure item stays
+  unticked on terrain alone; it is
   deferred to Phase 5 because the paddock has one constant ground height, and
   splitting the item instead is an owner call. No S1 issue is open.
 - **Unaccepted work awaiting the owner (2026-08-22):** the influence debug views
-  are implemented, deterministic, and covered by two headless CTests, but no
-  human has seen them and **no capture of them exists on any machine**. This
-  development host cannot create the OpenGL 4.6 Core context the engine requests,
-  so the display-backed path fails at `context_create` for the new view exactly
-  as it does for the accepted paddock views. The roadmap item is deliberately
-  unticked; a filled candidate review packet with the native-hardware commands
-  sits in `artifacts/phase3/2026-08-22/debug-influence-views/`. Nothing about how
-  the views look — colour separation, arrow density, whether the chosen arrow
-  scale is legible — is verified.
+  are implemented, deterministic, covered by two headless CTests, and — as of
+  2026-08-22 — **captured on native hardware for the first time**. What is
+  missing is now only the human half: no owner has looked at the images.
+  Observed result (2026-08-22, native Windows 11 Home `10.0.26200`, MSVC
+  `19.44.35228.0` Release build of `wide_eye.exe`, NVIDIA GeForce RTX 5070 Ti
+  driver `32.0.15.9186`, OpenGL `4.6.0 NVIDIA 591.86` core profile with a debug
+  context, SDL 3.4.10, 1920x1080; method: three runs of
+  `--influence-debug-smoke sheep-all-influences-diagnostic --tick <T> --capture
+  <png> --frame-dump <txt>` at ticks 30, 60, and 120): all three exited `0` with
+  `influence_debug_result=pass`, `influence_debug_frame_matches=yes`,
+  `capture_result=pass`, `capture_format=png_rgba8`, and
+  `gl_debug_high_severity_messages=0`. The three PNGs and three frame dumps are
+  in the ignored tree at
+  `artifacts/phase3/2026-08-22/debug-influence-views-native/`, beside a
+  candidate review packet, `review.md`, whose verdict field is deliberately
+  blank. The earlier WSL packet path,
+  `artifacts/phase3/2026-08-22/debug-influence-views/`, recorded that host's
+  `context_create` failure; `artifacts/` is gitignored and host-local, so that
+  directory is not present in this native Windows checkout. **Nothing about how
+  the views look is accepted** — colour separation, arrow density, and whether
+  the chosen arrow scale is legible are exactly the questions the outstanding
+  verdict decides, and an agent's own look at its own output is not that
+  verdict.
 - **Known limits:** native Windows/OpenGL capture, the presentation performance
   scenarios, and human visual review were not rerun because this outcome changes
   authoritative headless sheep behavior rather than pixels. Native Linux
@@ -1988,7 +2010,12 @@ scope. Evidence: the archived
   every rate and threshold is a provisional legibility choice rather than a
   measured value; a cause that flickers on and off on alternating ticks would
   still alternate the label; and no player or reviewer has seen a sheep change
-  state, because there is still no debug arrow, label, or other visible output.
+  state. The second half of that last limit has narrowed since it was written:
+  the arousal value and the behavior label *are* drawn by the influence debug
+  view of the next item, and were captured on native hardware on 2026-08-22, so
+  visible output now exists. What is still true is that no owner has looked at
+  it and that the three captures are separate still frames rather than motion
+  evidence, so a *change* of state has been seen by nobody.
   Evidence:
   [ADR 0009](docs/decisions/0009-behavior-transitions-and-arousal.md),
   [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
@@ -2022,28 +2049,77 @@ scope. Evidence: the archived
   and passed 28/28 CTests; formatting, bounded clang-tidy, the QA tracker check,
   the stack budget, and `git diff --check` passed.
   **This item stays unchecked, and the reason is the whole point of it.** Its
-  acceptance is a human verdict on readability, and **no capture exists** — not
-  because one was skipped, but because this host cannot produce one. The engine
-  requests an OpenGL 4.6 Core context and this WSL host's Mesa llvmpipe stops at
-  4.5, so `--influence-debug-smoke` fails at `context_create` exactly as the
-  accepted `--paddock-smoke` view does; both verbatim failures are recorded in
-  the artifact. Every statement about how this view *looks* is therefore
-  unverified: colour separation, arrow density at five sheep, whether the chosen
-  scale makes ordinary accelerations visible, and whether the view answers "why
-  did that sheep do that" rather than merely "what is the simulation doing" have
-  never been seen by anyone. The frame dumps are the text serialization of
-  exactly what would be drawn and let the geometry be checked without a display;
-  they are not a substitute for looking. A candidate
-  [human visual-review packet](docs/review/HUMAN_VISUAL_REVIEW.md) is filled in
-  beside the artifacts with the exact commands to run on native hardware, what
-  question each capture answers, and what a reject looks like. No golden was
-  generated, promoted, or overwritten. Evidence:
+  acceptance is a human verdict on readability, and no owner has given one. The
+  earlier reason for the gap — that no capture existed anywhere, because the WSL
+  development host's Mesa llvmpipe stops at OpenGL 4.5 and
+  `--influence-debug-smoke` therefore failed at `context_create` exactly as the
+  accepted `--paddock-smoke` view did — **no longer holds. The view has now been
+  rendered on native hardware.**
+  Observed result (2026-08-22, native Windows 11 Home `10.0.26200`, MSVC
+  `19.44.35228.0` Release build `build/Windows/release/wide_eye.exe`, NVIDIA
+  GeForce RTX 5070 Ti driver `32.0.15.9186`, OpenGL `4.6.0 NVIDIA 591.86` core
+  profile with a debug context, SDL 3.4.10, 1920x1080; method: three runs of
+  `--influence-debug-smoke sheep-all-influences-diagnostic --tick <T> --capture
+  <png> --frame-dump <txt>` at ticks 30, 60, and 120). All three exited `0` and
+  reported `influence_debug_result=pass`, `influence_debug_frame_matches=yes`,
+  `capture_result=pass`, `capture_format=png_rgba8`, and
+  `gl_debug_high_severity_messages=0`. The frame builder reported 239, 240, and
+  224 segments against its `271` capacity; 33, 33, and 26 arrows; `0` clamped
+  arrows and `0` unresolved neighbour IDs at every tick; and the full ten
+  attraction links, five alignment links, five heading targets, and flock
+  markers in all three frames. Overlay pixel coverage measured from the readback
+  was 1113, 1029, and 1143 pixels, with `applied` the largest single lane every
+  time (646, 594, 644). The camera was the fixed `kInfluenceReviewCamera` — eye
+  `38,24,42`, target `16,1.5,21`
+  ([`scenario_runner.cpp`](src/platform/scenario_runner.cpp)) — which is the
+  same pose as the visual tracer's `holdout_camera`
+  ([`visual_tracer_configuration.cpp`](src/platform/visual_tracer_configuration.cpp)),
+  so the three ticks are comparable to each other. The three PNGs have distinct
+  SHA-256 values and identical byte counts (8,296,178), which is expected rather
+  than suspicious because the project's PNG writer stores uncompressed RGBA8.
+  The runs' console output was not retained as a file, so the pass markers and
+  pixel counts above are transcribed from the run logs; the PNGs and frame dumps
+  are the durable evidence.
+  Agent inspection (2026-08-22) — recorded as agent inspection, **not** as the
+  owner's readability verdict, which is still outstanding. The lane design
+  works: each sheep carries a vertical mast with one stacked, separately
+  coloured arrow per channel, so the seven steering terms can be read
+  independently, and the chosen-neighbour links are visible as distinct lines
+  between sheep. Four obstacles to a verdict were seen and are recorded here
+  rather than fixed. First and largest: the whole overlay is roughly 1,100
+  pixels of a 2,073,600-pixel frame — about 0.05% — so the arrows are a few
+  pixels each at 1:1 and could only be judged after cropping and magnifying 4x.
+  Second: the `applied` channel, the most important arrow and the largest single
+  lane by pixel count, is drawn in near-black (`0.04, 0.04, 0.06` per the lane
+  table in the frame dump); against the green ground it reads acceptably,
+  against the paddock wall's shadow at tick 120 it is very hard to separate from
+  the background. Third: arrows are depth-tested against scene geometry by
+  design, so at tick 120 several are occluded by the wall and the red gate.
+  Fourth: there is no in-frame legend, so a reviewer cannot map colour to
+  channel without the text frame dump beside the image.
+  **Nothing about how the view looks is accepted.** Colour separation, arrow
+  density at five sheep, whether the chosen scale makes ordinary accelerations
+  visible, and whether the view answers "why did that sheep do that" rather than
+  merely "what is the simulation doing" are all still owner questions; an agent
+  looking at its own output is not a readability verdict, and no golden was
+  generated, promoted, or overwritten. The frame dumps are the text
+  serialization of exactly what was drawn and let the geometry be checked
+  without a display; they are not a substitute for the owner looking. A
+  candidate [human visual-review packet](docs/review/HUMAN_VISUAL_REVIEW.md)
+  with a deliberately blank verdict sits beside the captures at
+  `artifacts/phase3/2026-08-22/debug-influence-views-native/review.md`, naming
+  the commands, what question each capture answers, what was not run (no normal
+  frame, no motion clip, no second camera or scenario, no comparator), and what
+  a reject looks like. Evidence:
   [`influence_debug_view.hpp`](src/render/influence_debug_view.hpp),
   [`influence_debug_view.cpp`](src/render/influence_debug_view.cpp),
   [`influence_debug_view_tests.cpp`](tests/influence_debug_view_tests.cpp),
   [`scenario_runner.cpp`](src/platform/scenario_runner.cpp), and the ignored
-  `artifacts/phase3/2026-08-22/debug-influence-views/` packet, frame dumps,
-  oracle output, gate log, and OpenGL-unavailability record.
+  `artifacts/phase3/2026-08-22/debug-influence-views-native/` packet with three
+  PNGs, three frame dumps, and `review.md`. The earlier WSL packet at
+  `artifacts/phase3/2026-08-22/debug-influence-views/` holds that host's oracle
+  output, gate log, and OpenGL-unavailability record; `artifacts/` is gitignored
+  and host-local, so it is not present in this native Windows checkout.
 - [x] Test that randomness never masks unstable or unexplained steering.
   Observed result (2026-08-22): the honest first half of this item is that
   **the authoritative simulation contains no randomness at all.** The scenario
