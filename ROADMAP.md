@@ -678,20 +678,27 @@
   with `review.md`, three PNGs, three frame dumps, and the three run logs.
   `format-check` and `clang-tidy-check` are unavailable on this host — clang
   tooling 18 is not installed, so CMake does not generate the targets.
-- **Decisions waiting on the owner (2026-08-22):** two, neither of which an agent
-  should make. (1) The influence debug views still need a **readability
-  verdict**, and it is no longer waiting on someone merely opening the PNGs. The
+- **Decisions waiting on the owner (2026-08-22):** two, and the one that used to
+  head this list is resolved. The influence debug
+  views' **readability verdict is now given and is no longer waiting**: the
   owner reviewed the first native captures on 2026-08-22, accepted the lane
-  design in principle, and required two corrections first — the framing and the
-  `applied` lane's contrast, filed as QA-012 and QA-011 and both now fixed and
-  closed (see the entry above). The same three ticks were re-captured against
-  the corrected build, so what is owed is a person judging the **new** packet and
-  writing Accept, Revise, or Reject into the blank verdict of
-  `artifacts/phase3/2026-08-22/debug-influence-views-native-v2/review.md`. The
+  design in principle, required two corrections first — the framing and the
+  `applied` lane's contrast, filed as QA-012 and QA-011 and both fixed and
+  closed — then reviewed the re-captured packet and accepted it. The verdict is
+  recorded at
+  `artifacts/phase3/2026-08-22/debug-influence-views-native-v2/review.md` and the
+  roadmap item is ticked on that basis. Its scope is narrow: readability only,
+  **no golden promoted**, and no acceptance of the diagnostic's motion. The
   earlier packet at `artifacts/phase3/2026-08-22/debug-influence-views-native/`
-  is retained as the before evidence and is not the one to judge. Cropping is no
-  longer required to read it. The roadmap item stays unticked until that verdict
-  exists. (2) The dog-pressure item stays
+  is retained as the before evidence.
+
+  What is still waiting is: (1) the **Phase 0 camera and rubric confirmation**,
+  whose verdict field in
+  `artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/review.md`
+  is still blank — the owner has seen those frames but has not recorded whether
+  both cameras ask the intended Phase 0 visual question, and Phase 0 cannot be
+  completed without it; and (2) the dog-pressure
+  item, which stays
   unticked on terrain alone; it is
   deferred to Phase 5 because the paddock has one constant ground height, and
   splitting the item instead is an owner call. No S1 issue is open: the one that
@@ -700,16 +707,21 @@
   blocked the Phase 0 reference-baseline gate on the reference desktop and was
   fixed and closed on 2026-08-22 — all five native evidence runners now complete
   on this host, and the baseline packet exists.
-- **Unaccepted work awaiting the owner (2026-08-22):** the influence debug views
-  are implemented, deterministic, covered by two headless CTests, and — as of
-  2026-08-22 — **captured on native hardware, reviewed once by the owner, and
-  corrected twice**. The owner has seen the first native images: they accepted
-  the lane design in principle and required the framing and the `applied` lane's
-  contrast be fixed before a verdict, which is what QA-012 and QA-011 recorded
-  and what the corrections entry above discharges. What is missing is the
-  owner's verdict on the corrected captures. The first native run is recorded
-  below and is the before evidence; the corrected run and its measurements are in
-  the corrections entry above.
+- **Accepted on 2026-08-22 — the influence debug views:** implemented,
+  deterministic, covered by four headless assertions, captured on native
+  hardware, reviewed by the owner, corrected twice, and then **accepted on
+  readability**. The owner saw the first native images, accepted the lane design
+  in principle, and required the framing and the `applied` lane's contrast be
+  fixed before a verdict — recorded as QA-012 and QA-011, both fixed and closed
+  — then reviewed the corrected captures and accepted them. The verdict lives
+  with the v2 packet and the roadmap item is ticked.
+  What the verdict does **not** cover, so a later context does not read it
+  wider: no golden was promoted and no comparison depends on those PNGs; the
+  motion of `sheep-all-influences-diagnostic` is still an unjudged maximal
+  diagnostic rather than tuned gameplay; and the owner judged downscaled
+  1600×900 renderings rather than the full-resolution captures. The first native
+  run recorded below is the before evidence; the corrected run and its
+  measurements are in the corrections entry above.
   Observed result (2026-08-22, native Windows 11 Home `10.0.26200`, MSVC
   `19.44.35228.0` Release build of `wide_eye.exe`, NVIDIA GeForce RTX 5070 Ti
   driver `32.0.15.9186`, OpenGL `4.6.0 NVIDIA 591.86` core profile with a debug
@@ -2099,8 +2111,25 @@ scope. Evidence: the archived
   [`gameplay_scenario.hpp`](src/game/gameplay_scenario.hpp),
   [`sheep_state.hpp`](src/game/sheep_state.hpp), and
   [`gameplay_simulation_tests.cpp`](tests/gameplay_simulation_tests.cpp).
-- [ ] Add debug arrows/labels for every influence, chosen neighbor, arousal,
+- [x] Add debug arrows/labels for every influence, chosen neighbor, arousal,
   target, state, and balance point.
+  **Owner verdict, 2026-08-22: Accept on readability.** This item's acceptance
+  was always a human verdict, and it now exists. The owner reviewed the first
+  native captures, accepted the lane design in principle, required the QA-012
+  framing and QA-011 applied-lane corrections first, then reviewed the corrected
+  captures and accepted them. Recorded with the packet at
+  `artifacts/phase3/2026-08-22/debug-influence-views-native-v2/review.md`.
+  The verdict is deliberately narrow and the packet records its scope: it
+  accepts that a reviewer can separate the seven cause lanes from the applied
+  result and read the overlay at 1:1 without cropping. It promotes **no golden**
+  — no file in that packet entered `tests/goldens/` and no comparison depends on
+  those PNGs. It does **not** accept the motion of
+  `sheep-all-influences-diagnostic`, which remains a maximal diagnostic rather
+  than tuned gameplay that any owner has judged. The owner viewed downscaled
+  1600×900 renderings rather than the full-resolution captures. Two limitations
+  stand: one sheep fixture at `x=28, z=26`, used by a different named scenario,
+  falls outside the closer frame, and near/far size disparity within a frame
+  rose from about 1.18 to 1.55.
   Observed result (2026-08-22): a presentation-only influence debug view exists
   and is exercised by two new CTests, `wide_eye.influence_debug_view` and
   `wide_eye.influence_debug_frame_dump`. It draws all seven steering terms on
