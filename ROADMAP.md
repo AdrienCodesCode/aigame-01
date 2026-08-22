@@ -678,8 +678,8 @@
   with `review.md`, three PNGs, three frame dumps, and the three run logs.
   `format-check` and `clang-tidy-check` are unavailable on this host — clang
   tooling 18 is not installed, so CMake does not generate the targets.
-- **Decisions waiting on the owner (2026-08-22):** two, and the one that used to
-  head this list is resolved. The influence debug
+- **Decisions waiting on the owner (2026-08-22):** one. Both verdicts that
+  headed this list on 2026-08-22 are now given. The influence debug
   views' **readability verdict is now given and is no longer waiting**: the
   owner reviewed the first native captures on 2026-08-22, accepted the lane
   design in principle, required two corrections first — the framing and the
@@ -692,12 +692,16 @@
   earlier packet at `artifacts/phase3/2026-08-22/debug-influence-views-native/`
   is retained as the before evidence.
 
-  What is still waiting is: (1) the **Phase 0 camera and rubric confirmation**,
-  whose verdict field in
-  `artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/review.md`
-  is still blank — the owner has seen those frames but has not recorded whether
-  both cameras ask the intended Phase 0 visual question, and Phase 0 cannot be
-  completed without it; and (2) the dog-pressure
+  The **Phase 0 camera and rubric confirmation** is also given: Confirm as-is on
+  2026-08-22, recorded in that packet's `review.md` and `visual-rubric.md`, so
+  the Phase 0 box is checked and the visual plan's Phase 1 is unblocked. The
+  owner's basis carries forward: because these packets are judged by a human for
+  visual improvement, an identical camera pose across outcomes is not required
+  of them, so a later visual outcome may move a camera without re-running the
+  baseline — for human comparison only, not for same-state repeats, frame
+  oracles, or any future automated image comparison.
+
+  What is still waiting is the dog-pressure
   item, which stays
   unticked on terrain alone; it is
   deferred to Phase 5 because the paddock has one constant ground height, and
@@ -1036,35 +1040,33 @@
   [`visual_tracer_configuration_tests.cpp`](tests/visual_tracer_configuration_tests.cpp),
   and
   [`run-visual-feasibility-baseline.ps1`](tools/phase3/run-visual-feasibility-baseline.ps1).
-- **Next action:** take the owner's camera/rubric confirmation on the Phase 0
-  baseline packet now sitting at
-  `artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/`. Open its
-  `review.md` and `visual-rubric.md` beside `representative-normal.png`,
-  `representative-debug.png`, `holdout-normal.png`, `holdout-debug.png`, and the
-  three `motion-tick-*.png` frames, and write Confirm or Revise into the blank
-  verdict. **That verdict is the only thing still owed for the Phase 0 box**; no
-  agent may record it, so the box stays unchecked until it exists. The blocker is
-  gone: the runner aborted on a benign notification-severity OpenGL message
-  before reaching its first capture, and
-  [QA-009](docs/qa/closed/QA-009-windows-evidence-runners-abort-on-benign-opengl-notification-stderr.md)
-  fixed that on 2026-08-22 by grading each native invocation on its exit code
-  instead of letting `$ErrorActionPreference = "Stop"` act on merged stderr, in
-  all five `tools/**.ps1` runners. Observed result, 2026-08-22, native Windows
-  11 Home `10.0.26200`, NVIDIA GeForce RTX 5070 Ti, OpenGL `4.6.0 NVIDIA 591.86`:
-  the runner completed at 2560×1440@60 with `visual_feasibility_baseline_result=pass`,
-  manifest `"result": "pass"` and `"failure": null`, all 13 stages `pass`
-  including `ctest-release` 47/47, `gl_debug_high_severity_messages=0`,
-  `within_performance_budget=yes`, and both same-state repeats `yes` — while its
-  19,741-line `run.log` still retains all 71 `gl_debug_message` lines (63
-  notification, 8 medium) as diagnostic evidence. The other four runners were
-  each rerun alone on the same host and all completed `pass`; `ctest --preset
-  release` is 47/47 and `ctest --preset dev` 45/45. The superseded failure packet
-  is `artifacts/phase3/2026-08-22/visual-feasibility-baseline-180412745/`. QA-005
-  and QA-007 are closed (QA-007 in commit `8fa1658`) and QA-008 is a filed S3
-  that competes with nothing. The objective loop and visual tuning remain paused,
-  and **no visual or performance quality result is claimed by that packet** — it
-  is unchanged pre-visual-implementation comparison evidence, not an accepted
-  look, a promoted golden, or an RTX visual baseline.
+- **Next action:** start **Phase 1 of the approved visual-feasibility plan** —
+  [`Establish the bounded visual scene and render settings`](docs/plans/visual-feasibility-before-objective-loop.md).
+  Phase 0 is complete and checked: the reference desktop is verified, the
+  baseline packet at
+  `artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/` passed
+  with `result=pass` across all 13 stages, and the owner confirmed the cameras
+  and rubric as-is on 2026-08-22. That packet is unchanged
+  pre-visual-implementation comparison evidence — **no visual or performance
+  quality result is claimed by it**, it is not an accepted look, not a promoted
+  golden, and not an RTX visual baseline.
+  Phase 1's outcome is one named code-generated scene showing a larger layered
+  vista while preserving the current near-field authoritative paddock, dog, and
+  five sheep, with camera, projection, light, fog, and shadow becoming explicit
+  scene inputs instead of shader-local paddock constants. Its stop conditions
+  are load-bearing and must not be quietly relaxed: stop if visual scale
+  requires expanding authoritative collision or world generation, if distant
+  geometry creates misleading traversable surfaces, or if a generic
+  scene/renderer abstraction is proposed without a second demonstrated use.
+  The owner asked during the Phase 0 confirmation whether the representative
+  view could fill more of the screen with ground; Phase 1 is where that is
+  answered properly, as bounded unreachable distant scenery rather than as a
+  larger playable world.
+  The objective loop stays paused behind the visual gate by the owner's decision
+  of 2026-08-22, reaffirmed when the alternative was offered explicitly. Four QA
+  issues are open and none blocks this: QA-008 (S3, misplaced root evidence,
+  fix in progress), QA-010 (S3, display-pinned frame metric — relevant to how
+  Phase 1's timing deltas are read), QA-013 and QA-014 (S3, test-integrity gaps).
 - **Next-context files:** [`AGENTS.md`](AGENTS.md), this checkpoint, the
   [development workflow](docs/DEVELOPMENT_WORKFLOW.md),
   [engine boundary](docs/VOXEL_ENGINE_OPTION.md#architecture-boundary),
@@ -2650,14 +2652,38 @@ mix Vulkan migration, final art, world streaming, and maximum flock scale.
   the reference-GPU identity and the two hard gate constants only; no budget,
   threshold, tolerance, scene, profile, camera, viewport, or tick moved, so this
   approval still stands.
-- [ ] Complete Phase 0: lock the named scene/cameras/viewport/profile/manifest
+- [x] Complete Phase 0: lock the named scene/cameras/viewport/profile/manifest
   seam, visual rubric, recorded desktop inventory, and unchanged RTX 5070 Ti
   reference baseline without tuning presentation. The machine is available and
   verified as of 2026-08-22, the inventory is recorded, and the baseline packet
   was produced on 2026-08-22 with `result=pass` at
-  `artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/`. This box
-  stays unchecked because the remaining half of the gate is the owner's
-  camera/rubric confirmation, and that packet's verdict boxes are still blank.
+  `artifacts/phase3/2026-08-22/visual-feasibility-baseline-183850545/`.
+  **Owner camera/rubric confirmation, 2026-08-22: Confirm as-is**, recorded in
+  that packet's `review.md` and `visual-rubric.md`. Both halves of the gate now
+  exist, so this box is checked.
+  The owner's stated basis matters to later outcomes and is recorded rather than
+  summarized away: these before/after packets are judged by a human for visual
+  improvement, so an identical camera pose across outcomes is **not** required
+  of them. A later visual outcome may therefore move a camera when a fixed pose
+  gets in the way of the human comparison, without re-running this baseline to
+  earn that right. That latitude is for human comparison only — it does not
+  relax determinism inside a run, where the same-state capture and state repeats
+  and the frame oracles still require a fixed pose within a comparison pair, and
+  any future automated image comparison would require one across the pair.
+  Two agent reservations were confirmed over and are recorded with the packet:
+  the representative frame is roughly half featureless grass, and the barn roof
+  is clipped by the top edge. The owner asked whether that view could fill more
+  of the screen with ground; nothing was changed, after the distinction was
+  drawn between reframing the camera, which is free, and enlarging the playable
+  world, which the approved plan gates behind an explicit stop condition.
+  This gate confirms the framing, the seam, and an unchanged baseline. It
+  accepts no look, no candidate art, and no budget verdict, and promotes no
+  golden. The baseline's own `within_performance_budget=yes` is additionally
+  qualified by
+  [QA-010](docs/qa/open/QA-010-reference-frame-budget-is-graded-on-a-display-pinned-metric.md),
+  which records that the graded frame metric is pinned by the display on this
+  host; the GPU and CPU-submission percentiles in the same packet are the
+  figures that carry real headroom information.
 - [ ] Complete the plan's bounded five-sheep scene, shadow, colour/material,
   environment-detail, atmosphere, animal-presentation, and edge/focal outcomes,
   retaining their per-outcome stop conditions and evidence instead of merging
